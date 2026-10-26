@@ -1,0 +1,250 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Shape follows go-embedded-ruby/ruby's ci.yml: OS lanes with -race and the
+# coverage gate, native and emulated architecture lanes, a compile of every
+# GOOS/GOARCH pair, and the two WebAssembly targets. Added here: govulncheck,
+# short fuzz runs, and the two reference lanes (the julia corpus, the live
+# oracle), which download the pinned julia release.
+env:
+  JULIA_VERSION: 1.12.6
+  # sha256 of julia-1.12.6-linux-x86_64.tar.gz, from
+  # https://julialang-s3.julialang.org/bin/checksums/julia-1.12.6.sha256
+  JULIA_SHA256: bbabf3bef19421a9dbd24a767d807606ab85e444323b5a1c73ffe293fa3d079a
+
+jobs:
+  # vet, gofmt, race tests and the 100% coverage gate. Windows runs the
+  # suite in full but is not gated (as in rbgo, its path semantics differ).
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.2
+      - run: go version
+      - run: go vet ./...
+      - name: gofmt
+        if: matrix.os != 'windows-latest'
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go build ./...
+      - name: Test (-race) + 100% coverage gate
+        shell: bash
+        run: |
+          go test -race -timeout=30m -coverprofile=cover.out ./...
+          go tool cover -func=cover.out > cover.txt
+          tail -1 cover.txt
+          if [ "${{ matrix.os }}" != "windows-latest" ]; then
+            grep -v '100.0%$' cover.txt | grep -v '^total' && { echo "::error::functions below 100% coverage"; exit 1; } || true
+            tail -1 cover.txt | grep -q '100.0%$' || { echo "::error::total coverage below 100%"; exit 1; }
+          fi
+
+  # Native architecture lanes.
+  arch-native:
+    name: arch ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    label: amd64 }
+          - { os: ubuntu-24.04-arm, label: arm64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.2
+      - run: go env GOARCH && go test ./...
+
+  # 32-bit: int is 32 bits. 386 runs natively on the amd64 runner.
+  arch-386:
+    name: arch 386 (+ vet arm)
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.2
+      - run: |
+          GOARCH=386 go vet ./...
+          GOARCH=arm go vet ./...
+      - run: GOARCH=386 go test ./...
+
+  # The exotic targets under qemu-user. The parser's suite is small enough
+  # to run on every pull request (rbgo moved these lanes to a nightly).
+  arch-qemu:
+    name: arch ${{ matrix.goarch }} (qemu)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goarch: riscv64, qemu: qemu-riscv64 }
+          - { goarch: loong64, qemu: qemu-loongarch64 }
+          - { goarch: ppc64le, qemu: qemu-ppc64le }
+          - { goarch: s390x,   qemu: qemu-s390x }
+          - { goarch: arm,     qemu: qemu-arm }
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.2
+      # Bounded install, retried on refreshed package lists (rbgo's recipe:
+      # an unbounded apt-get update once hung for the better part of an hour).
+      # Ubuntu 26.04 (ubuntu-latest since 2026-10-19) no longer ships a real
+      # qemu-user-static: qemu-user provides the emulators, without the
+      # -static suffix. Both package sets and both names are accepted.
+      - name: Install qemu-user
+        run: |
+          apt=(-y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          for attempt in 0 1 2; do
+            if [ $attempt -gt 0 ]; then timeout 240 sudo apt-get update "${apt[@]}" || true; fi
+            if timeout 240 sudo apt-get install "${apt[@]}" qemu-user qemu-user-binfmt; then exit 0; fi
+            if timeout 240 sudo apt-get install "${apt[@]}" qemu-user-static; then exit 0; fi
+          done
+          echo "::error::qemu-user could not be installed"; exit 1
+      - name: Test under ${{ matrix.qemu }}
+        run: |
+          q=$(command -v ${{ matrix.qemu }} || command -v ${{ matrix.qemu }}-static) || {
+            echo "::error::neither ${{ matrix.qemu }} nor ${{ matrix.qemu }}-static is installed"; exit 1; }
+          echo "emulator: $q"
+          GOARCH=${{ matrix.goarch }} go test -timeout=60m -exec="$q" ./...
+
+  # Every GOOS/GOARCH pair Go supports must compile the module and its tests:
+  # a target that does not compile is one nobody can embed the parser on.
+  # android and ios link only through cgo (external linking), so there only
+  # the library packages are compiled, without linking the jloracle command.
+  every-target:
+    name: compile on every target (${{ matrix.goos }})
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [aix, android, darwin, dragonfly, freebsd, illumos, ios, js, linux, netbsd, openbsd, plan9, solaris, wasip1, windows]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.2
+      - name: Vet (or build) every GOARCH of ${{ matrix.goos }}
+        shell: bash
+        run: |
+          fail=0
+          for t in $(go tool dist list | grep "^${{ matrix.goos }}/"); do
+            arch=${t#*/}
+            echo "== $t"
+            case "${{ matrix.goos }}" in
+              android|ios) ;; # go vet refuses a target without its external linker
+              *) GOOS=${{ matrix.goos }} GOARCH=$arch go vet ./... || { echo "::error::$t does not vet"; fail=1; } ;;
+            esac
+            # listed on the host: go list refuses android/ios without cgo
+            # too, and no package of the module is OS-specific.
+            libs=$(go list -f '{{if ne .Name "main"}}{{.ImportPath}}{{end}}' ./...)
+            GOOS=${{ matrix.goos }} GOARCH=$arch go build $libs || { echo "::error::$t does not compile"; fail=1; }
+          done
+          exit $fail
+
+  # WebAssembly: the parser compiled for the browser (js/wasm) and for WASI,
+  # and the syntax suite run as a wasm binary under wazero.
+  wasm:
+    name: wasm (js + wasip1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.2
+      - run: CGO_ENABLED=0 GOOS=js GOARCH=wasm go build ./...
+      - run: CGO_ENABLED=0 GOOS=wasip1 GOARCH=wasm go build ./...
+      - run: go install github.com/tetratelabs/wazero/cmd/wazero@v1.12.0
+      - name: Test under wazero
+        env:
+          GOWASIRUNTIME: wazero
+        run: |
+          # go_wasip1_wasm_exec (GOROOT/lib/wasm) runs the test binary under
+          # the runtime GOWASIRUNTIME names.
+          export PATH="$(go env GOROOT)/lib/wasm:$(go env GOPATH)/bin:$PATH"
+          GOOS=wasip1 GOARCH=wasm go test ./expr ./internal/unitab
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.2
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - run: "$(go env GOPATH)/bin/govulncheck ./..."
+
+  # A short run of every fuzz target (the parser is an attack surface: a
+  # hostile notebook cell must neither crash nor hang it).
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: ./expr,   target: FuzzDecodeChar }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.2
+      - run: go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 90s ${{ matrix.pkg }}
+
+  # The reference julia release: its share/julia tree is the corpus
+  # (base, Compiler, stdlib, test) the parser must reproduce file for file,
+  # and its binary runs the live oracle tests.
+  julia:
+    name: julia ${{ matrix.check }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [oracle]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.2
+      - name: Download julia ${{ env.JULIA_VERSION }}
+        run: |
+          curl -fsSL -o julia.tar.gz "https://julialang-s3.julialang.org/bin/linux/x64/1.12/julia-${JULIA_VERSION}-linux-x86_64.tar.gz"
+          echo "${JULIA_SHA256}  julia.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/julia"
+          tar -xzf julia.tar.gz -C "$RUNNER_TEMP/julia" --strip-components=1
+          rm julia.tar.gz
+      - name: Corpus parity (tokens, green trees, Expr)
+        if: matrix.check == 'corpus'
+        env:
+          JLGO_REQUIRE_CORPUS: "1"
+        run: JLGO_CORPUS="$RUNNER_TEMP/julia/share/julia" go test -count=1 -run TestCorpus -v ./syntax
+      - name: Live oracle tests, and the goldens regenerated from linux julia
+        if: matrix.check == 'oracle'
+        run: |
+          export JLGO_JULIA="$RUNNER_TEMP/julia/bin/julia"
+          JLGO_ORACLE=1 go test -count=1 ./...
+          go run ./cmd/jloracle unicode
+          go run ./cmd/jloracle snippets
+          go run ./cmd/jloracle programs
+          git diff --stat --exit-code
