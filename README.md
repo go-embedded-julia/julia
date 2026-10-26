@@ -24,19 +24,26 @@ expectations written by hand.
 
 Measured on the whole `share/julia` tree of the release: `base/` (with
 JuliaSyntax's own sources and tests), `Compiler/`, `stdlib/v1.12/` and
-`test/` — 1191 files, 18.5 MB — and on the 975 golden snippets (every
+`test/` — 1191 files, 18.5 MB — and on the 976 golden snippets (every
 `"input" => …` pair of JuliaSyntax's test files, and our own edge cases:
 errors, invalid UTF-8, Unicode, line endings).
 
 | level | compared with | corpus files identical | snippets identical |
 |---|---|---|---|
-| tokens | `JuliaSyntax.Tokenize.tokenize` | **1191 / 1191** | **975 / 975** |
-| green tree + diagnostics | `parse!` then `build_tree(GreenNode)` | **1191 / 1191** | **975 / 975** |
-| `Expr` | `Meta.parseall(text; filename)` | **1191 / 1191** | **975 / 975**, error messages included |
+| tokens | `JuliaSyntax.Tokenize.tokenize` | **1191 / 1191** | **976 / 976** |
+| green tree + diagnostics | `parse!` then `build_tree(GreenNode)` | **1191 / 1191** | **976 / 976** |
+| `Expr` | `Meta.parseall(text; filename)` | **1191 / 1191** | **976 / 976**, error messages included |
 
 Code that does not parse yields julia's own result: the statements before
 the first error, then `Expr(:error)` or `Expr(:incomplete)` holding the
 formatted `ParseError` text, byte for byte.
+
+Known gap: on a few malformed inputs JuliaSyntax itself throws (an
+`AssertionError` on `import. ..` and `import. ...x`, a `BoundsError` on
+`0:0:<`, all found by fuzzing) and julia falls back to its older flisp
+parser, which is not ported. There `ParseAll` returns an
+`Expr(:error)` and `ParseAllLimits` an error wrapping
+`syntax.ErrParserFailed`, never a tree it cannot trust.
 
 Speed, one core each (`jloracle bench`, Apple M4 Max): Go parses the corpus in
 0.98 s, julia's `Meta.parseall` in 1.39 s (go/julia = 0.70).

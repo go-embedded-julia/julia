@@ -54,6 +54,33 @@ func TestParseLimits(t *testing.T) {
 	}
 }
 
+// TestJuliaSyntaxAssertion: on these inputs JuliaSyntax 29ec5226f7b1 itself
+// fails `@assert tok.next_byte == b` in bump_split (a split of `..` or `...`
+// in an import path meets the whitespace token instead), and julia 1.12.6
+// falls back to flisp. Before the assertion was ported, the green tree ran
+// one byte past the source (found by FuzzGreen).
+func TestJuliaSyntaxAssertion(t *testing.T) {
+	for _, src := range []string{"import. ..", "import . ..", "import A: . ..", "import. ...x"} {
+		if _, err := ParseAllLimits([]byte(src), "f", DefaultLimits); !errors.Is(err, ErrParserFailed) ||
+			!strings.Contains(err.Error(), "tok.next_byte == b") {
+			t.Errorf("%q: %v", src, err)
+		}
+		if _, err := GreenDump([]byte(src)); !errors.Is(err, ErrParserFailed) {
+			t.Errorf("%q: GreenDump: %v", src, err)
+		}
+		ex := ParseAll([]byte(src), "f")
+		if !expr.Is(ex, "error") || !strings.Contains(ex.(*expr.Expr).Args[0].(*expr.ParseError).Msg, "flisp") {
+			t.Errorf("%q: ParseAll: %s", src, expr.Serialize(ex))
+		}
+	}
+	// JuliaSyntax throws a BoundsError in _internal_node_to_Expr on the
+	// error tree of `0:0:<` (julia 1.12.6 then answers from flisp).
+	if _, err := ParseAllLimits([]byte("0:0:<"), "f", DefaultLimits); !errors.Is(err, ErrParserFailed) ||
+		!strings.Contains(err.Error(), "index out of range") {
+		t.Errorf("0:0:<: %v", err)
+	}
+}
+
 func TestWrapperExpr(t *testing.T) {
 	s := newParseStream([]byte("a b"), 1, SyntaxVersion, DefaultLimits)
 	ps := newParseState(s)
@@ -113,7 +140,7 @@ func FuzzParse(f *testing.F) {
 	f.Fuzz(func(t *testing.T, src []byte) {
 		ex, err := ParseAllLimits(src, "fuzz", fuzzLimits)
 		if err != nil {
-			if !errors.Is(err, ErrLimit) {
+			if !errors.Is(err, ErrLimit) && !errors.Is(err, ErrParserFailed) {
 				t.Fatalf("non-limit error %v", err)
 			}
 			return
