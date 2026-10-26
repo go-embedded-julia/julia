@@ -5,4 +5,8 @@ import "github.com/go-embedded-julia/julia/syntax"
 // The levels of the Go parser that exist, for the corpus manifest.
 func init() {
 	goSide.Tokens = func(src []byte) string { return syntax.TokenDump(src) }
+	goSide.Green = func(src []byte) string {
+		s, _ := syntax.GreenDump(src) // a limit error leaves s empty: no parity
+		return s
+	}
 }
