@@ -50,6 +50,10 @@ type Process struct {
 	in      io.WriteCloser
 	out     *bufio.Reader
 	version string
+	// broken is the I/O failure that ended the session: once a write or a
+	// read has failed the process is gone (or the stream out of step), and
+	// every later Call reports it rather than racing the dead pipe.
+	broken error
 }
 
 // ErrJulia is wrapped by every error that julia itself reported in answer to
@@ -107,6 +111,9 @@ func split(line string) (tag, payload string, err error) {
 func (p *Process) Call(op string, args ...string) (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.broken != nil {
+		return "", fmt.Errorf("oracle: process is gone: %w", p.broken)
+	}
 	var b strings.Builder
 	b.WriteString(op)
 	for _, a := range args {
@@ -115,11 +122,13 @@ func (p *Process) Call(op string, args ...string) (string, error) {
 	}
 	b.WriteByte('\n')
 	if _, err := io.WriteString(p.in, b.String()); err != nil {
-		return "", fmt.Errorf("oracle: write: %w", err)
+		p.broken = fmt.Errorf("oracle: write: %w", err)
+		return "", p.broken
 	}
 	line, err := p.out.ReadString('\n')
 	if err != nil {
-		return "", fmt.Errorf("oracle: read: %w", err)
+		p.broken = fmt.Errorf("oracle: read: %w", err)
+		return "", p.broken
 	}
 	tag, payload, err := split(line)
 	if err != nil {

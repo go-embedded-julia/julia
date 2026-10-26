@@ -94,11 +94,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { goarch: riscv64, qemu: qemu-riscv64-static }
-          - { goarch: loong64, qemu: qemu-loongarch64-static }
-          - { goarch: ppc64le, qemu: qemu-ppc64le-static }
-          - { goarch: s390x,   qemu: qemu-s390x-static }
-          - { goarch: arm,     qemu: qemu-arm-static }
+          - { goarch: riscv64, qemu: qemu-riscv64 }
+          - { goarch: loong64, qemu: qemu-loongarch64 }
+          - { goarch: ppc64le, qemu: qemu-ppc64le }
+          - { goarch: s390x,   qemu: qemu-s390x }
+          - { goarch: arm,     qemu: qemu-arm }
     env:
       CGO_ENABLED: "0"
     steps:
@@ -108,16 +108,24 @@ jobs:
           go-version: 1.27.2
       # Bounded install, retried on refreshed package lists (rbgo's recipe:
       # an unbounded apt-get update once hung for the better part of an hour).
-      - name: Install qemu-user-static
+      # Ubuntu 26.04 (ubuntu-latest since 2026-10-19) no longer ships a real
+      # qemu-user-static: qemu-user provides the emulators, without the
+      # -static suffix. Both package sets and both names are accepted.
+      - name: Install qemu-user
         run: |
           apt=(-y -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
-          if timeout 240 sudo apt-get install "${apt[@]}" qemu-user-static; then exit 0; fi
-          for attempt in 1 2; do
-            timeout 240 sudo apt-get update "${apt[@]}" || true
+          for attempt in 0 1 2; do
+            if [ $attempt -gt 0 ]; then timeout 240 sudo apt-get update "${apt[@]}" || true; fi
+            if timeout 240 sudo apt-get install "${apt[@]}" qemu-user qemu-user-binfmt; then exit 0; fi
             if timeout 240 sudo apt-get install "${apt[@]}" qemu-user-static; then exit 0; fi
           done
-          echo "::error::qemu-user-static could not be installed"; exit 1
-      - run: GOARCH=${{ matrix.goarch }} go test -timeout=60m -exec=${{ matrix.qemu }} ./...
+          echo "::error::qemu-user could not be installed"; exit 1
+      - name: Test under ${{ matrix.qemu }}
+        run: |
+          q=$(command -v ${{ matrix.qemu }} || command -v ${{ matrix.qemu }}-static) || {
+            echo "::error::neither ${{ matrix.qemu }} nor ${{ matrix.qemu }}-static is installed"; exit 1; }
+          echo "emulator: $q"
+          GOARCH=${{ matrix.goarch }} go test -timeout=60m -exec="$q" ./...
 
   # Every GOOS/GOARCH pair Go supports must compile the module and its tests:
   # a target that does not compile is one nobody can embed the parser on.
@@ -148,7 +156,9 @@ jobs:
               android|ios) ;; # go vet refuses a target without its external linker
               *) GOOS=${{ matrix.goos }} GOARCH=$arch go vet ./... || { echo "::error::$t does not vet"; fail=1; } ;;
             esac
-            libs=$(GOOS=${{ matrix.goos }} GOARCH=$arch go list -f '{{if ne .Name "main"}}{{.ImportPath}}{{end}}' ./...)
+            # listed on the host: go list refuses android/ios without cgo
+            # too, and no package of the module is OS-specific.
+            libs=$(go list -f '{{if ne .Name "main"}}{{.ImportPath}}{{end}}' ./...)
             GOOS=${{ matrix.goos }} GOARCH=$arch go build $libs || { echo "::error::$t does not compile"; fail=1; }
           done
           exit $fail

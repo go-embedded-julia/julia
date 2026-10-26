@@ -126,8 +126,26 @@ func TestParseAllFraming(t *testing.T) {
 	if _, err := p.Call("die"); err == nil || !strings.Contains(err.Error(), "read") {
 		t.Fatalf("die: %v", err)
 	}
-	if _, err := p.Call("echo"); err == nil || !strings.Contains(err.Error(), "write") {
+	// Whether the dead pipe still accepts a write is a race; the session is
+	// over either way and says so.
+	if _, err := p.Call("echo"); err == nil || !strings.Contains(err.Error(), "process is gone") {
 		t.Fatalf("after death: %v", err)
+	}
+}
+
+func TestWriteFailureEndsSession(t *testing.T) {
+	withFake(t, "ok")
+	p, err := Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	p.in.Close()
+	if _, err := p.Call("echo"); err == nil || !strings.Contains(err.Error(), "oracle: write") {
+		t.Fatalf("closed stdin: %v", err)
+	}
+	if _, err := p.Call("echo"); err == nil || !strings.Contains(err.Error(), "process is gone") {
+		t.Fatalf("after a failed write: %v", err)
 	}
 }
 
