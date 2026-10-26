@@ -24,8 +24,6 @@ type level struct {
 	// digest is the digest of julia's output for a corpus file, and whether
 	// the Go side was recorded as identical.
 	digest func(gen.CorpusEntry) (string, bool)
-	// skip, when set, names the snippets this level does not handle yet.
-	skip func(gen.Snippet) bool
 }
 
 var levels []level
@@ -64,12 +62,8 @@ func TestSnippets(t *testing.T) {
 	}
 	var failures []string
 	for _, lv := range levels {
-		n, skipped := 0, 0
+		n := 0
 		for _, sn := range snippets {
-			if lv.skip != nil && lv.skip(sn) {
-				skipped++
-				continue
-			}
 			src := sn.Source()
 			if got, want := lv.run(t, []byte(src), gen.SnippetFilename), lv.golden(sn); got == want {
 				n++
@@ -77,7 +71,7 @@ func TestSnippets(t *testing.T) {
 				failures = append(failures, lv.name+" of "+strconv.Quote(src)+"\n"+firstDiff(got, want))
 			}
 		}
-		t.Logf("snippets: %s identical to julia for %d of %d (%d not handled yet)", lv.name, n, len(snippets)-skipped, skipped)
+		t.Logf("snippets: %s identical to julia for %d of %d", lv.name, n, len(snippets))
 	}
 	for i, f := range failures {
 		if i >= 40 {
