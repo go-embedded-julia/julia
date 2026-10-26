@@ -1,6 +1,9 @@
 package main
 
-import "github.com/go-embedded-julia/julia/syntax"
+import (
+	"github.com/go-embedded-julia/julia/expr"
+	"github.com/go-embedded-julia/julia/syntax"
+)
 
 // The levels of the Go parser that exist, for the corpus manifest.
 func init() {
@@ -8,5 +11,8 @@ func init() {
 	goSide.Green = func(src []byte) string {
 		s, _ := syntax.GreenDump(src) // a limit error leaves s empty: no parity
 		return s
+	}
+	goSide.Expr = func(src []byte, filename string) string {
+		return expr.Serialize(syntax.ParseAll(src, filename))
 	}
 }
