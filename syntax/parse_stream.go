@@ -425,6 +425,12 @@ func (s *parseStream) bumpSplit(specs ...splitSpec) streamPosition {
 		}
 		s.tokens = append(s.tokens, syntaxToken{SyntaxHead{sp.kind, sp.flags}, orig, false, b})
 	}
+	// JuliaSyntax's @assert: the pieces must cover the token exactly. It
+	// fails where a split meets whitespace instead of the dots it expected
+	// (`import. ..`), and the tree built past it would overrun the source.
+	if tok.nextByte != b {
+		panic(parseAssertError{"tok.next_byte == b"})
+	}
 	s.peekCount = 0
 	return s.position()
 }

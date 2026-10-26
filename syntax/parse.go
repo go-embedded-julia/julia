@@ -11,7 +11,8 @@ import (
 // Expr(:toplevel, …). Code that does not parse yields, as in Julia, the
 // statements before the first error followed by an Expr(:error, …) or
 // Expr(:incomplete, …) holding the formatted diagnostics. Inputs over the
-// DefaultLimits yield an Expr(:error, …) naming the exceeded limit.
+// DefaultLimits yield an Expr(:error, …) naming the exceeded limit, and so
+// do the rare inputs on which JuliaSyntax itself fails (ErrParserFailed).
 func ParseAll(src []byte, filename string) any {
 	ex, err := ParseAllLimits(src, filename, DefaultLimits)
 	if err != nil {
@@ -21,7 +22,8 @@ func ParseAll(src []byte, filename string) any {
 }
 
 // ParseAllLimits is ParseAll with explicit limits; exceeding one is
-// reported as an error wrapping ErrLimit.
+// reported as an error wrapping ErrLimit, a failure of the JuliaSyntax
+// algorithm itself as one wrapping ErrParserFailed.
 func ParseAllLimits(src []byte, filename string, lim Limits) (any, error) {
 	if len(src) > lim.MaxBytes {
 		return nil, fmt.Errorf("%w: %d bytes, the limit is %d", ErrLimit, len(src), lim.MaxBytes)

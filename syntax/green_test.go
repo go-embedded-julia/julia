@@ -46,7 +46,7 @@ func FuzzGreen(f *testing.F) {
 			s.validateTokens()
 			g = s.buildGreen()
 		}); err != nil {
-			if !errors.Is(err, ErrLimit) {
+			if !errors.Is(err, ErrLimit) && !errors.Is(err, ErrParserFailed) {
 				t.Fatalf("non-limit error %v", err)
 			}
 			return
