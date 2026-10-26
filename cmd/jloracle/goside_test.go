@@ -9,4 +9,7 @@ func TestGoSide(t *testing.T) {
 	if g := goSide.Green([]byte("x")); g != "(toplevel 0 1 (Identifier 0 1))" {
 		t.Fatalf("green: %q", g)
 	}
+	if e := goSide.Expr([]byte("x"), "f"); e != `(:toplevel {L 1 :f} :x)` {
+		t.Fatalf("Expr: %q", e)
+	}
 }
