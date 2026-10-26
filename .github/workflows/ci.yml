@@ -206,6 +206,7 @@ jobs:
         include:
           - { pkg: ./expr,   target: FuzzDecodeChar }
           - { pkg: ./syntax, target: FuzzLex }
+          - { pkg: ./syntax, target: FuzzGreen }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

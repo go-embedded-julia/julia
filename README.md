@@ -16,7 +16,7 @@ expectations written by hand.
 | milestone | contents | state |
 |---|---|---|
 | M0 oracle harness | `internal/oracle`, `cmd/jloracle`, golden files | **done** |
-| M1 parser | Go port of JuliaSyntax → `expr.Expr` | in progress: lexer done |
+| M1 parser | Go port of JuliaSyntax → `expr.Expr` | in progress: lexer, parse stream and grammar done |
 | M2 lowering | JuliaLowering → `CodeInfo` | planned |
 | M3 – M7 | Core runtime, Base, numeric stdlib, notebook bridge, wasm playground | planned |
 
@@ -29,8 +29,13 @@ JuliaSyntax's own sources and tests), `Compiler/`, `stdlib/v1.12/` and
 | level | compared with | corpus files identical | snippets identical |
 |---|---|---|---|
 | tokens | `JuliaSyntax.Tokenize.tokenize` | **1191 / 1191** | **975 / 975** |
-| green tree + diagnostics | `parse!` then `build_tree(GreenNode)` | next step | next step |
-| `Expr` | `Meta.parseall(text; filename)` | next steps | next steps |
+| green tree + diagnostics | `parse!` then `build_tree(GreenNode)` | **1191 / 1191** | **975 / 975** |
+| `Expr` | `Meta.parseall(text; filename)` | next step | next step |
+
+The green tree is the parser's whole output: every node's kind, flags and
+byte span, trivia included, and the diagnostics with their byte ranges and
+messages. Parsing is bounded (`syntax.DefaultLimits`: 64 MiB of input, 4000
+levels of nesting) and fuzzed (`FuzzLex`, `FuzzGreen`).
 
 ## The oracle
 
@@ -63,7 +68,7 @@ oracle prints the same trees in.
 | package | role |
 |---|---|
 | `expr` | Julia syntax-tree values, canonical serialisation |
-| `syntax` | the parser, a port of JuliaSyntax (so far `kinds.go`, `tokenize.go`) |
+| `syntax` | the parser, a port of JuliaSyntax (so far `kinds.go`, `tokenize.go`, `parse_stream.go`, `parser*.go`) |
 | `internal/unitab` | Unicode tables from the reference build, utf8proc's grapheme breaks |
 | `internal/oracle` | the reference julia as a differential oracle |
 | `internal/gen`, `cmd/jloracle` | the golden-file generators |
