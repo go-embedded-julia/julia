@@ -16,7 +16,7 @@ expectations written by hand.
 | milestone | contents | state |
 |---|---|---|
 | M0 oracle harness | `internal/oracle`, `cmd/jloracle`, golden files | **done** |
-| M1 parser | Go port of JuliaSyntax → `expr.Expr` | in progress: all but julia's error Expr |
+| M1 parser | Go port of JuliaSyntax → `expr.Expr` | **done** — see parity below |
 | M2 lowering | JuliaLowering → `CodeInfo` | planned |
 | M3 – M7 | Core runtime, Base, numeric stdlib, notebook bridge, wasm playground | planned |
 
@@ -32,7 +32,11 @@ errors, invalid UTF-8, Unicode, line endings).
 |---|---|---|---|
 | tokens | `JuliaSyntax.Tokenize.tokenize` | **1191 / 1191** | **975 / 975** |
 | green tree + diagnostics | `parse!` then `build_tree(GreenNode)` | **1191 / 1191** | **975 / 975** |
-| `Expr` | `Meta.parseall(text; filename)` | **1191 / 1191** | **697 / 697** parse without error; the 278 that do not need julia's error Expr (next step) |
+| `Expr` | `Meta.parseall(text; filename)` | **1191 / 1191** | **975 / 975**, error messages included |
+
+Code that does not parse yields julia's own result: the statements before
+the first error, then `Expr(:error)` or `Expr(:incomplete)` holding the
+formatted `ParseError` text, byte for byte.
 
 Speed, one core each (`jloracle bench`, Apple M4 Max): Go parses the corpus in
 0.98 s, julia's `Meta.parseall` in 1.39 s (go/julia = 0.70).
@@ -50,8 +54,8 @@ fmt.Println(expr.Serialize(ex))
 // (:toplevel {L 1 :"cell.jl"} (:"=" (:call :f :x) (:block {L 1 :"cell.jl"} (:call :"+" (:call :"^" :x 2) 1))))
 ```
 
-- `syntax.ParseAll` — the Expr tree julia's `Meta.parseall` returns;
-  `syntax.ParseAllLimits` with explicit `Limits`.
+- `syntax.ParseAll` — the Expr tree julia's `Meta.parseall` returns, errors
+  included; `syntax.ParseAllLimits` with explicit `Limits`.
 - `syntax.Tokenize`, `syntax.TokenDump`, `syntax.GreenDump` — the lexer and
   the lossless green tree, for tools.
 - `expr` — the Go values of Julia's syntax tree (`*expr.Expr`, `expr.Symbol`,
@@ -91,7 +95,7 @@ with the official release tarball).
 | package | role |
 |---|---|
 | `expr` | Julia syntax-tree values, canonical serialisation |
-| `syntax` | the parser (port of JuliaSyntax: `tokenize.go`, `parse_stream.go`, `parser*.go`, `build.go`) |
+| `syntax` | the parser (port of JuliaSyntax: `tokenize.go`, `parse_stream.go`, `parser*.go`, `build.go`, `errors.go`) |
 | `internal/unitab` | Unicode tables from the reference build, utf8proc's grapheme breaks |
 | `internal/oracle` | the reference julia as a differential oracle |
 | `internal/gen`, `cmd/jloracle` | the golden-file generators |

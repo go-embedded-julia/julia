@@ -18,17 +18,7 @@ func init() {
 		run:    func(_ testing.TB, src []byte, filename string) string { return expr.Serialize(ParseAll(src, filename)) },
 		golden: func(s gen.Snippet) string { return s.Expr },
 		digest: func(e gen.CorpusEntry) (string, bool) { return e.ExprSHA256, e.Parity },
-		// julia's error Expr (with the formatted diagnostics) is the next
-		// step of the port.
-		skip: func(s gen.Snippet) bool { return strings.Contains(s.Expr, "{ParseError") },
 	})
-}
-
-func TestErrorPlaceholder(t *testing.T) {
-	ex := expr.Serialize(ParseAll([]byte("x = (1,"), "f"))
-	if ex != "(:toplevel (:error {ParseError \"Expected `)` or `,`\"}))" {
-		t.Fatalf("error Expr: %s", ex)
-	}
 }
 
 // TestPrograms replays the parse column of the program goldens (the lower

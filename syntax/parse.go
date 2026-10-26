@@ -8,13 +8,10 @@ import (
 
 // ParseAll parses src as a file of top-level statements, as
 // Meta.parseall(src; filename) does in Julia: the result is an
-// Expr(:toplevel, …). Inputs over the DefaultLimits yield an Expr(:error, …)
-// naming the exceeded limit.
-//
-// Code that does not parse yields, for now, Expr(:toplevel, Expr(:error,
-// …)) with the first error message only; julia's own error Expr (the
-// statements before the error and the formatted diagnostics) is the next
-// step of the port.
+// Expr(:toplevel, …). Code that does not parse yields, as in Julia, the
+// statements before the first error followed by an Expr(:error, …) or
+// Expr(:incomplete, …) holding the formatted diagnostics. Inputs over the
+// DefaultLimits yield an Expr(:error, …) naming the exceeded limit.
 func ParseAll(src []byte, filename string) any {
 	ex, err := ParseAllLimits(src, filename, DefaultLimits)
 	if err != nil {
@@ -36,13 +33,8 @@ func ParseAllLimits(src []byte, filename string, lim Limits) (any, error) {
 		s.validateTokens()
 		if !anyError(s.diagnostics) {
 			ex = s.buildExpr(filename, 1)
-			return
-		}
-		for _, d := range s.diagnostics {
-			if d.IsError() {
-				ex = expr.New("toplevel", expr.New("error", &expr.ParseError{Msg: d.Message}))
-				return
-			}
+		} else {
+			ex = s.errorExpr(filename, 1)
 		}
 	})
 	return ex, err
