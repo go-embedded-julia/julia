@@ -56,7 +56,11 @@ func TestNormalizeSingletons(t *testing.T) {
 		cp, _ := strconv.ParseUint(cpStr, 10, 32)
 		var want strings.Builder
 		for _, s := range strings.Split(outStr, ",") {
-			v, _ := strconv.ParseUint(s, 10, 32)
+			v, err := strconv.ParseUint(s, 10, 32)
+			if err != nil {
+				// A golden checked out with CRLF line ends lands here.
+				t.Fatalf("testdata/normalize.txt: %q: %v", line, err)
+			}
 			want.WriteRune(rune(v))
 		}
 		if got := NormalizeIdentifier(string(rune(cp))); got != want.String() {
