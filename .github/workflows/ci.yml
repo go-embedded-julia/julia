@@ -183,7 +183,7 @@ jobs:
           # go_wasip1_wasm_exec (GOROOT/lib/wasm) runs the test binary under
           # the runtime GOWASIRUNTIME names.
           export PATH="$(go env GOROOT)/lib/wasm:$(go env GOPATH)/bin:$PATH"
-          GOOS=wasip1 GOARCH=wasm go test ./expr ./internal/unitab
+          GOOS=wasip1 GOARCH=wasm go test ./expr ./internal/unitab ./syntax
 
   govulncheck:
     runs-on: ubuntu-latest
@@ -205,6 +205,7 @@ jobs:
       matrix:
         include:
           - { pkg: ./expr,   target: FuzzDecodeChar }
+          - { pkg: ./syntax, target: FuzzLex }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -221,7 +222,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [oracle]
+        check: [corpus, oracle]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

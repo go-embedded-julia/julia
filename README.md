@@ -16,9 +16,21 @@ expectations written by hand.
 | milestone | contents | state |
 |---|---|---|
 | M0 oracle harness | `internal/oracle`, `cmd/jloracle`, golden files | **done** |
-| M1 parser | Go port of JuliaSyntax → `expr.Expr` | in progress |
+| M1 parser | Go port of JuliaSyntax → `expr.Expr` | in progress: lexer done |
 | M2 lowering | JuliaLowering → `CodeInfo` | planned |
 | M3 – M7 | Core runtime, Base, numeric stdlib, notebook bridge, wasm playground | planned |
+
+### Parser parity with julia 1.12.6
+
+Measured on the whole `share/julia` tree of the release: `base/` (with
+JuliaSyntax's own sources and tests), `Compiler/`, `stdlib/v1.12/` and
+`test/` — 1191 files, 18.5 MB — and on the 975 golden snippets.
+
+| level | compared with | corpus files identical | snippets identical |
+|---|---|---|---|
+| tokens | `JuliaSyntax.Tokenize.tokenize` | **1191 / 1191** | **975 / 975** |
+| green tree + diagnostics | `parse!` then `build_tree(GreenNode)` | next step | next step |
+| `Expr` | `Meta.parseall(text; filename)` | next steps | next steps |
 
 ## The oracle
 
@@ -51,6 +63,7 @@ oracle prints the same trees in.
 | package | role |
 |---|---|
 | `expr` | Julia syntax-tree values, canonical serialisation |
+| `syntax` | the parser, a port of JuliaSyntax (so far `kinds.go`, `tokenize.go`) |
 | `internal/unitab` | Unicode tables from the reference build, utf8proc's grapheme breaks |
 | `internal/oracle` | the reference julia as a differential oracle |
 | `internal/gen`, `cmd/jloracle` | the golden-file generators |
