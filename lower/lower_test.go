@@ -98,7 +98,7 @@ var _ = errors.Is
 // lowering reproduces; every step of the port raises it.
 const minSnippetsIdentical = 5
 
-func readGolden[T any](t *testing.T, name string) []T {
+func readGolden[T any](t testing.TB, name string) []T {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "testdata", "golden", name))
 	if err != nil {

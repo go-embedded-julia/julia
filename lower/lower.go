@@ -36,6 +36,39 @@ var ErrUnsupported = errors.New("lower: not ported yet")
 // ErrInternal is wrapped by the errors of broken invariants of the port.
 var ErrInternal = errors.New("lower: internal error")
 
+// ErrLimit is wrapped by the errors of inputs beyond the limits lowering
+// accepts.
+var ErrLimit = errors.New("lower: input exceeds a limit")
+
+// MaxDepth is the deepest expression Lower accepts. The passes recurse on
+// the tree, several frames per level: the bound keeps hostile input from
+// exhausting the stack, and the whole corpus of share/julia lowers within it.
+const MaxDepth = 1000
+
+// tooDeep reports whether an expr value nests deeper than MaxDepth.
+func tooDeep(v any, depth int) bool {
+	if depth > MaxDepth {
+		return true
+	}
+	switch x := v.(type) {
+	case *expr.Expr:
+		for _, a := range x.Args {
+			if tooDeep(a, depth+1) {
+				return true
+			}
+		}
+	case expr.Vector:
+		for _, a := range x {
+			if tooDeep(a, depth+1) {
+				return true
+			}
+		}
+	case expr.QuoteNode:
+		return tooDeep(x.Value, depth+1)
+	}
+	return false
+}
+
 // debugPanics lets a test see the stack of a port failure.
 var debugPanics = false
 
@@ -90,6 +123,9 @@ func (st *State) Lower(ex any) (out any, err error) {
 			}
 		}
 	}()
+	if tooDeep(ex, 0) {
+		return nil, fmt.Errorf("%w: an expression nested deeper than %d", ErrLimit, MaxDepth)
+	}
 	lw := &lowerer{st: st}
 	st.gensyms.passInput(ex)
 	res := lw.errorWrap(func() any { return lw.expandToplevelExpr(toSxChecked(ex), sym("none"), 0) })
@@ -206,38 +242,6 @@ func (lw *lowerer) expandToplevelExpr_(e any, file sym, line int64) any {
 	return list(sym("thunk"), th)
 }
 
-// expandMacroscope is julia-expand-macroscope (macroexpand.scm). The input
-// is already macro-expanded with hygiene resolved, so only quoted forms
-// and stray hygienic scopes would be left to handle.
-func (lw *lowerer) expandMacroscope(e any) any {
-	e = lw.expandQuotes(e)
-	if hasMacroscope(e) {
-		panic(unsupported("hygienic-scope in a macro-expanded form"))
-	}
-	return e
-}
-
-// hasMacroscope is whether julia-expand-macroscopes- would reach a
-// hygienic-scope: it does not look inside inert, module or toplevel forms.
-func hasMacroscope(e any) bool {
-	l, ok := e.([]any)
-	if !ok || len(l) == 0 {
-		return false
-	}
-	switch l[0] {
-	case sInert, sym("module"), sym("toplevel"):
-		return false
-	case sym("hygienic-scope"):
-		return true
-	}
-	for _, x := range l {
-		if hasMacroscope(x) {
-			return true
-		}
-	}
-	return false
-}
-
 // expandQuotes is julia-expand-quotes.
 func (lw *lowerer) expandQuotes(e any) any {
 	switch {
@@ -257,10 +261,12 @@ func (lw *lowerer) expand0(ex any, lno any) any {
 	saved := lw.desugarLoc
 	lw.desugarLoc = lno
 	defer func() {
+		// the location is the one current when the error was raised
+		loc := lw.desugarLoc
 		lw.desugarLoc = saved
 		if r := recover(); r != nil {
 			if msg, ok := r.(loweringError); ok {
-				panic(loweringError(string(msg) + formatLoc(lw.desugarLoc)))
+				panic(loweringError(string(msg) + formatLoc(loc)))
 			}
 			panic(r)
 		}

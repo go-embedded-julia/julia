@@ -169,6 +169,10 @@ func deparse(e any) string {
 	case sym("macrocall"):
 		return deparse(cadr(e)) + " " + deparseArglist(cddr(e), " ")
 	}
+	if !isSymbol(h) {
+		// no case of ast.scm's deparse matches: (else (string e))
+		return symString(e)
+	}
 	panic(unsupportedf("deparse of %s", deparseHead(e)))
 }
 

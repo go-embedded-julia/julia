@@ -105,8 +105,90 @@ func symString(x any) string {
 		return string(v)
 	case int64:
 		return strconv.FormatInt(v, 10)
+	case []any:
+		// a list, as femtolisp's display prints it: a closure named after
+		// a hygienic (globalref m f) becomes "#(globalref #<julia: M> f)#1"
+		p := &flPrinter{labels: map[string]int{}, seen: map[string]int{}}
+		p.traverse(v)
+		return p.print(v)
+	case bool:
+		if v {
+			return "#t"
+		}
+		return "#f"
+	case expr.Module:
+		return moduleString(v)
 	}
-	panic(internalError("string of a non-atom"))
+	panic(internalError("string of an opaque value"))
+}
+
+// moduleString is how femtolisp prints a julia Module (print.c:
+// "#<julia: " jl_static_print ">"); jl_static_show leaves out the Main of
+// a module's path.
+func moduleString(v expr.Module) string {
+	path := v.Path
+	if len(path) > 1 && path[0] == "Main" {
+		path = path[1:]
+	}
+	parts := make([]string, len(path))
+	for i, p := range path {
+		parts[i] = string(p)
+	}
+	return "#<julia: " + strings.Join(parts, ".") + ">"
+}
+
+// flPrinter prints a list as femtolisp's display does (print.c), with the
+// labels it gives an object printed more than once: `#0=` before its
+// first occurrence, `#0#` for the others. The port keeps no identity for
+// the conses and strings, so only a julia Module, which hygiene shares
+// between its (globalref m x) forms, is labelled.
+type flPrinter struct {
+	seen   map[string]int // occurrences found by traverse
+	labels map[string]int // print_traverse's label of a shared object
+	next   int
+	done   map[string]bool
+}
+
+func (p *flPrinter) traverse(v any) {
+	switch x := v.(type) {
+	case []any:
+		for _, e := range x {
+			p.traverse(e)
+		}
+	case expr.Module:
+		k := moduleString(x)
+		p.seen[k]++
+		if p.seen[k] == 2 {
+			p.labels[k] = p.next
+			p.next++
+		}
+	}
+}
+
+func (p *flPrinter) print(v any) string {
+	switch x := v.(type) {
+	case []any:
+		parts := make([]string, len(x))
+		for i, e := range x {
+			parts[i] = p.print(e)
+		}
+		return "(" + strings.Join(parts, " ") + ")"
+	case expr.Module:
+		k := moduleString(x)
+		n, shared := p.labels[k]
+		if !shared {
+			return k
+		}
+		if p.done == nil {
+			p.done = map[string]bool{}
+		}
+		if p.done[k] {
+			return "#" + strconv.Itoa(n) + "#"
+		}
+		p.done[k] = true
+		return "#" + strconv.Itoa(n) + "=" + k
+	}
+	return symString(v)
 }
 
 func quoted(e any) bool {
