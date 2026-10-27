@@ -1,0 +1,553 @@
+Int <: Integer	1
+Integer <: Int	0
+Array{Int,1} <: AbstractArray{Int,1}	1
+Tuple{Int,Int} <: Tuple{Integer,Integer}	1
+Tuple{Integer,Integer} <: Tuple{Int,Int}	0
+Tuple{Array{Int,1}} <: Tuple{AbstractArray{Int,1}}	1
+Tuple{Int,Int} <: Tuple{Int}	0
+Tuple{Int} <: Tuple{Integer,Integer}	0
+Array{Int,1} <: Array{Integer,1}	0
+Tuple{Int,Int} <: Tuple{Vararg{Int}}	1
+Tuple{Vararg{Int}} <: Tuple{Int,Int}	0
+Tuple{Int,Int} <: Tuple{Int,Vararg{Int}}	1
+Tuple{Int,Int} <: Tuple{Int,Vararg{Integer}}	1
+Tuple{Int,Int} <: Tuple{Int,Int,Vararg{Integer}}	1
+Tuple{Int,Vararg{Int}} <: Tuple{Vararg{Int}}	1
+Tuple{Vararg{Int}} <: Tuple{Int,Vararg{Int}}	0
+Tuple{Int,Int,Int} <: Tuple{Integer,Vararg{Int}}	1
+Tuple{} <: Tuple{Vararg{Any}}	1
+Tuple{} <: Tuple{Int, Vararg{Int}}	0
+Tuple{Int} <: Tuple{Int, Int, Vararg{Int}}	0
+Tuple{Int, Tuple{Real, Integer}} <: Tuple{Vararg{Int}}	0
+Tuple{Int,Int} <: Tuple{Vararg{Int,2}}	1
+Tuple{Vararg{Int,2}} <: Tuple{Int,Int}	1
+Tuple{Int,Vararg{Int,2}} <: Tuple{Int,Int,Int,Vararg{Int,1}}	0
+(Tuple{Int,Vararg{Int,N}} where N) <: (Tuple{Int,Vararg{Int,N}} where N)	1
+Tuple{Tuple{Int,Int},Tuple{Int,Int}} <: (Tuple{NTuple{N,Int},NTuple{N,Int}} where N)	1
+(Tuple{NTuple{N,Int},NTuple{N,Int}} where N) <: Tuple{Tuple{Int,Int},Tuple{Int,Int}}	0
+Tuple{Tuple{Int,Int},Tuple{Int,}} <: (Tuple{NTuple{N,Int},NTuple{N,Int}} where N)	0
+Tuple{Val{3}, Vararg{Val{3}}} <: (Tuple{Vararg{Val{N}, N}} where N)	0
+Tuple{Int,Int} <: (Tuple{Int,Int,Vararg{Int,N}} where N)	1
+(Tuple{Int,Int,Vararg{Int,N}} where N) <: Tuple{Int,Int}	0
+Tuple{Int,Int} <: (Tuple{E,E,Vararg{E,N}} where E where N)	1
+(Tuple{E,E,Vararg{E,N}} where E where N) <: Tuple{Int,Int}	0
+Type{Tuple{Vararg{Int,N}} where N} <: Type{Tuple{Vararg{Int}}}	1
+Type{Tuple{Vararg{Int}}} <: Type{Tuple{Vararg{Int,N}} where N}	1
+Tuple{Integer,Integer} <: (Tuple{T,T} where T)	0
+Tuple{Integer,Int} <: (Tuple{T,S} where S<:T where T)	1
+Tuple{Integer,Int} <: (Tuple{T,S} where T<:S<:T where T)	1
+Tuple{Integer,Int,Int} <: (Tuple{T,S,S} where T<:S<:T where T)	1
+(Tuple{R,R} where R) <: (Tuple{T,S} where S where T)	1
+(Tuple{T,S} where S where T) <: (Tuple{R,R} where R)	0
+(Tuple{R,R} where R) <: (Tuple{T,S} where S<:T where T)	1
+(Tuple{T,S} where S<:T where T) <: (Tuple{R,R} where R)	0
+(Tuple{R,R} where R) <: (Tuple{T,S} where T<:S<:T where T)	1
+(Tuple{R,R} where R) <: (Tuple{T,S} where S>:T where T)	1
+(Tuple{T,S} where S>:T where T) <: (Tuple{R,R} where R)	0
+Tuple{Real,Real} <: (Tuple{T,T} where T<:Real)	0
+(Tuple{S,R,Vector{Any}} where R<:AbstractString where S<:Int) <: (Tuple{T, T, Array{T,1}} where T)	1
+Tuple{String, Real, Ref{Number}} <: (Tuple{Union{T,String}, T, Ref{T}} where T)	1
+(Tuple{Union{T,String}, T, Ref{T}} where T) <: Tuple{String, Real, Ref{Number}}	0
+Tuple{String, Real} <: (Tuple{Union{T,String}, T} where T)	1
+Tuple{Real, Real} <: (Tuple{Union{T,String}, T} where T)	0
+Tuple{Int, Int} <: (Tuple{Union{T,String}, T} where T)	1
+(Tuple{Vararg{A}} where A>:Integer) <: (Tuple{Vararg{A}} where A>:Integer)	1
+(Tuple{T, T, Ref{T}} where T) <: (Tuple{S, S, Ref{Q} where Q} where S)	0
+(Tuple{T, T, Ref{T}} where T) <: (Tuple{S, S, Ref{Q} where Q} where S<:Integer)	0
+(Tuple{T, T, Ref{T}} where T) <: (Tuple{S, S, Ref{Q} where Q} where S<:Int)	0
+(Tuple{T, T, Ref{T}} where T<:Int) <: (Tuple{S, S, Ref{Q} where Q} where S)	1
+(Tuple{T, T, Ref{T}} where T>:Int) <: (Tuple{S, S, Ref{Q} where Q} where S)	0
+(Tuple{T, T, Ref{T}} where T>:Integer) <: (Tuple{S, S, Ref{Q} where Q} where S)	0
+(Tuple{T, T, Ref{T}} where T>:Any) <: (Tuple{S, S, Ref{Q} where Q} where S)	0
+(Tuple{T, T} where Int<:T<:Int) <: (Tuple{T, T} where Int<:T<:Int)	1
+(Tuple{T, T} where T>:Int) <: (Tuple{T, T} where T>:Int)	1
+Tuple{Tuple{T, T} where T>:Int} <: Tuple{Tuple{T, T} where T>:Int}	1
+Tuple{Tuple{T, T} where T>:Int} <: (Tuple{Tuple{T, T}} where T>:Int)	1
+(Tuple{Tuple{T, T}} where T>:Int) <: Tuple{Tuple{T, T} where T>:Int}	1
+Vector{Tuple{T, T} where Number<:T<:Number} <: Vector{Tuple{Number, Number}}	1
+Type{Tuple{T,Any} where T} <: (Type{Tuple{T,T}} where T)	0
+Type{Tuple{T,Any,T} where T} <: (Type{Tuple{T,T,T}} where T)	0
+Type{Tuple{T} where T} <: (Type{Tuple{T}} where T)	0
+Ref{Tuple{T} where T} <: (Ref{Tuple{T}} where T)	1
+Type{Tuple{T,T} where T} <: (Type{Tuple{T,T}} where T)	0
+Type{Tuple{T,T,T} where T} <: (Type{Tuple{T,T,T}} where T)	0
+Ref{Tuple{T, T} where Int<:T<:Int} <: (Ref{Tuple{S, S}} where Int<:S<:Int)	1
+(Ref{Tuple{S, S}} where Int<:S<:Int) <: Ref{Tuple{T, T} where Int<:T<:Int}	1
+(Tuple{X, X} where {X<:Union{}}) <: (Tuple{X, X, Vararg{Any}} where {Int<:X<:Int})	1
+(Tuple{Integer, X, Vararg{X}} where {X<:Int}) <: (Tuple{Any, Vararg{X}} where {X>:Int})	1
+(Tuple{Any, X, Vararg{X}} where {X<:Int}) <: (Tuple{Vararg{X}} where X>:Integer)	1
+Tuple{Integer, Integer, Any, Vararg{Any}} <: (Tuple{Vararg{X}} where X>:Integer)	1
+(Tuple{T,T} where {T<:Int}) <: (Tuple{T,T} where {T>:Int})	1
+Tuple{Int,Int8,Vector{Integer}} <: (Tuple{T,T,Vector{T}} where T>:Integer)	1
+(Tuple{T,T,Vector{T}} where T>:Integer) <: (Tuple{T,T,Vector{Union{Integer,T}}} where T)	1
+(Tuple{T,T,Vector{Union{Integer,T}}} where T) <: (Tuple{T,T,Vector{T}} where T>:Integer)	1
+Tuple{Int,Int8,Vector{Integer}} <: (Tuple{T,T,Vector{Union{Integer,T}}} where T)	1
+Tuple{Int,Int8,Vector{Any}} <: (Tuple{T,T,Vector{Union{Integer,T}}} where T)	1
+(Tuple{T, T, Array{T, 1}} where T) <: (Tuple{T, T, Any} where T)	0
+(Union{Tuple{Int,Bool}, Tuple{P,Bool}} where P) <: (Tuple{Union{T,Int}, T} where T)	0
+(Tuple{Ref{Tuple{N,N}}, Ref{N}} where N) <: (Tuple{Ref{Tuple{N1,N1}}, Ref{N2}} where {N1, N2})	1
+(Tuple{Ref{Tuple{N1,N1}}, Ref{N2}} where {N1, N2}) <: (Tuple{Ref{Tuple{N,N}}, Ref{N}} where N)	0
+Tuple{Type{Tuple{Vararg{T}} where T <: Integer}, Tuple{Float64, Int}} <: (Tuple{Type{Tuple{Vararg{T}}}, Tuple{Vararg{T}}} where T)	0
+Tuple{3,3} <: NTuple	1
+NTuple <: Tuple{3,3}	0
+Tuple{3,4} <: NTuple	0
+Array{Int,1} <: (Vector{T} where T)	1
+(Pair{T,T} where T) <: Pair	1
+Pair <: (Pair{T,T} where T)	0
+Pair{Int,Int8} <: Pair	1
+Pair{Int,Int8} <: (Pair{Int,S} where S)	1
+(T where T<:Real) <: (T where T<:Integer)	0
+(Tuple{T,T} where T) <: (Tuple{R,R} where R)	1
+(Tuple{T,S} where S<:Number where T<:Integer) <: (Tuple{S,T} where S<:Number where T<:Integer)	0
+(Tuple{Array{T},Array{T}} where T) <: Tuple{Array, Array}	1
+Tuple{Array, Array} <: (Tuple{Array{T},Array{T}} where T)	0
+Array{(Array{T,1} where T), 1} <: (Array{Array{T,1}, 1} where T)	0
+(Array{Array{T,1}, 1} where T) <: Array{(Array{T,1} where T), 1}	0
+(Int where T) <: (Integer where T<:Integer)	1
+(Tuple{T, Tuple{S}} where S where T) <: (Tuple{T, Tuple{S} where S} where T)	1
+(Tuple{T, Tuple{S} where S} where T) <: (Tuple{T, Tuple{S}} where S where T)	1
+(Pair{T,T} where T) <: Pair{Int,Int8}	0
+(Pair{T,T} where T) <: Pair{Int,Int}	0
+(Tuple{T} where T) <: Tuple{Any}	1
+Tuple{Any} <: (Tuple{T} where T)	1
+(Tuple{T} where T<:Real) <: Tuple{Real}	1
+Tuple{Array{Integer,1}, Int} <: (Tuple{Array{T,1},S} where S<:T where T<:Integer)	1
+Tuple{Array{Integer,1}, Real} <: (Tuple{Array{T,1},T} where T<:Integer)	0
+Tuple{Int,String,Vector{Integer}} <: (Tuple{T, T, Array{T,1}} where T)	0
+Tuple{String,Int,Vector{Integer}} <: (Tuple{T, T, Array{T,1}} where T)	0
+Tuple{Int,String,Vector{Tuple{Integer}}} <: (Tuple{T,T,Array{Tuple{T},1}} where T)	0
+Tuple{Int,String,Vector{Any}} <: (Tuple{T, T, Array{T,1}} where T)	1
+Array{Int,1} <: Array{(T where T<:Int), 1}	1
+Array{Tuple{Any},1} <: Array{(Tuple{T} where T), 1}	1
+Array{Tuple{Int,Int},1} <: Array{(Tuple{T,T} where T<:Int), 1}	1
+Array{(Tuple{T,T} where T<:Int), 1} <: Array{Tuple{Int,Int},1}	1
+Array{Tuple{Int,Integer},1} <: Array{(Tuple{T,T} where T<:Integer), 1}	0
+Pair{Int,Int8} <: (Pair{T,T} where T)	0
+Tuple{Array{Int,1}, Integer} <: (Tuple{Array{T,1},T} where T<:Integer)	0
+Tuple{Integer, Array{Int,1}} <: (Tuple{T, Array{T,1}} where T<:Integer)	0
+Pair{Array{Int,1},Integer} <: (Pair{Array{T,1},T} where T)	0
+Pair{Array{Int,1},Int} <: (Pair{Array{T,1},T} where T)	1
+Tuple{Integer,Int} <: (Tuple{T,S} where S<:T where T<:Integer)	1
+Tuple{Integer,Int} <: (Tuple{T,S} where S<:T where T<:Int)	0
+Tuple{Integer,Int} <: (Tuple{T,S} where S<:T where T<:String)	0
+Tuple{Float32,Array{Float32,1}} <: (Tuple{T,S} where S<:AbstractArray{T,1} where T<:Real)	1
+Tuple{Float32,Array{Float64,1}} <: (Tuple{T,S} where S<:AbstractArray{T,1} where T<:Real)	0
+Tuple{Float32,Array{Real,1}} <: (Tuple{T,S} where S<:AbstractArray{T,1} where T<:Real)	1
+Tuple{Number,Array{Real,1}} <: (Tuple{T,S} where S<:AbstractArray{T,1} where T<:Real)	0
+(T where Int<:T<:Integer) <: (T where T<:Real)	1
+(Array{T,1} where Int<:T<:Integer) <: (Array{T,1} where T<:Real)	1
+(T where Int<:T<:Integer) <: (T where Integer<:T<:Real)	1
+(Array{T,1} where Int<:T<:Integer) <: (Array{T,1} where Integer<:T<:Real)	0
+(Tuple{T,S} where S<:AbstractArray{T,1} where T<:Real) <: (Tuple{A,B} where B<:AbstractArray{A,1} where A<:Real)	1
+(Tuple{T,S} where S<:AbstractArray{T,1} where T<:Real) <: (Tuple{Real,B} where B<:AbstractArray{A,1} where A<:Real)	1
+(Tuple{Real,B} where B<:AbstractArray{A,1} where A<:Real) <: (Tuple{T,S} where S<:AbstractArray{T,1} where T<:Real)	0
+(Pair{T,S} where S<:T where T) <: (Pair{T,S} where S where T)	1
+(Pair{T,S} where S where T) <: (Pair{T,S} where S<:T where T)	0
+(Pair{T,S} where S>:T where T) <: (Pair{T,S} where S where T)	1
+(Tuple{Ref{T}, T} where T) <: (Tuple{Ref{T},S} where T<:S<:T where T)	1
+(Tuple{Ref{T},S} where T<:S<:T where T) <: (Tuple{Ref{T}, T} where T)	1
+(Tuple{Ref{T}, T} where T) <: (Tuple{Ref{T}, S} where S>:T where T)	1
+(Tuple{T,Ptr{T}} where T) <: (Tuple{Ptr{T},T} where T)	0
+(Tuple{Ptr{T},T} where T) <: (Tuple{T,Ptr{T}} where T)	0
+(Tuple{Ptr{T},Ptr{S}} where S>:Ptr where T>:Ptr) <: (Tuple{T,Ptr{T}} where T)	1
+(Tuple{Ptr{T},Ptr{S}} where S>:Ptr where T>:Ptr) <: (Tuple{Ptr{T},T} where T)	1
+(Tuple{Ptr{T},Ptr{S}} where S>:Ptr where T>:Ptr) <: (Tuple{Ptr{T},Ptr{S}} where S>:Ptr{T} where T>:Ptr)	1
+Union{(Tuple{Ptr{T},Ptr{S}} where S>:Ptr{T} where T>:Ptr), (Tuple{Ptr{S},Ptr{T}} where S>:Ptr{T} where T>:Ptr)} <: (Tuple{T,Ptr{T}} where T)	1
+(Tuple{Ptr{T},Ptr{S}} where Ptr<:S<:Ptr where T>:Ptr) <: (Tuple{Ptr{T},Ptr{S}} where S>:Ptr{T} where T>:Ptr)	1
+(Tuple{Ptr{T},Ptr{S}} where S>:Ptr where T>:Ptr) <: (Tuple{Ptr{T},Ptr{S}} where Ptr{T}<:S<:Ptr where T>:Ptr)	0
+(Tuple{Ptr{T},Ptr{S}} where S>:Ptr where T>:Integer) <: (Tuple{Ptr{T},T} where T)	0
+(Tuple{Ptr{T},Ptr{S}} where S>:Integer where T>:Ptr) <: (Tuple{Ptr{T},T} where T)	1
+(Type{AbstractArray{Array{T}} where T}) <: (Type{AbstractArray{S}} where S)	0
+(Val{AbstractArray{Array{T}} where T}) <: (Val{AbstractArray{T}} where T)	0
+(Array{Array{Array{T}} where T}) <: (Array{Array{T}} where T)	0
+(Array{Array{T, 1}, 1} where T) <: AbstractArray{Vector}	0
+(Ref{Pair{Pair{T, R}, R} where R} where T) <: (Ref{Pair{A, B} where B} where A)	0
+(Ref{Pair{Pair{A, B}, B} where B} where A) <: (Ref{Pair{A, B2} where B2 <: B} where A where B)	0
+Val{1} <: Val{1}	1
+Val{1} <: Val{2}	0
+Val{:a} <: (Val{T} where T)	1
+Val{true} <: (Val{T} where T)	1
+Val{:a} <: Val{:b}	0
+Union{} <: Union{}	1
+Union{Int,Union{}} <: Int	1
+DataType <: Type	1
+Union <: Type	1
+UnionAll <: Type	1
+Core.TypeofBottom <: Type	1
+Type{Int} <: DataType	1
+Type{Union{Int,String}} <: Union	1
+Type{Vector} <: UnionAll	1
+Type{Union{}} <: Core.TypeofBottom	1
+Core.TypeofBottom <: Type{Union{}}	1
+DataType <: (Type{T} where T)	1
+DataType <: (Type{T} where T<:Integer)	0
+Union <: (Type{T} where T)	1
+(Type{T} where T<:Integer) <: DataType	0
+Type{Int} <: (Type{T} where T<:Integer)	1
+Type{Integer} <: (Type{T} where T<:Integer)	1
+Type{Real} <: (Type{T} where T<:Integer)	0
+Type{Type{Int}} <: (Type{Type{T}} where T)	1
+Union{Int,String} <: Union{Integer,AbstractString}	1
+Union{Int,String} <: Union{Int8,String}	0
+Union{Int,Float64,String} <: Union{Real,String}	1
+Tuple{Union{Int,Float64}} <: Union{Tuple{Int},Tuple{Float64}}	1
+Union{Tuple{Int},Tuple{Float64}} <: Tuple{Union{Int,Float64}}	1
+Tuple{Union{Int,String},Union{Int,String}} <: (Tuple{T,T} where T)	0
+Tuple{Union{Int,String},Union{Int,String}} <: Union{Tuple{Int,Int},Tuple{String,String},Tuple{Int,String},Tuple{String,Int}}	1
+Union{Tuple{Int,Int},Tuple{String,String}} <: (Tuple{T,T} where T)	1
+Ref{Union{Int,String}} <: (Ref{T} where T>:Int)	1
+Ref{Union{Int,String}} <: (Ref{Union{T,String}} where T)	1
+Ref{Union{Int,String}} <: (Ref{Union{T,S}} where {T,S})	1
+Ref{Union{Int,Float64,String}} <: (Ref{Union{T,String}} where T<:Real)	1
+(Ref{Union{T,Int}} where T) <: (Ref{Union{S,Int}} where S)	1
+(Union{T,Int} where T<:Real) <: Real	1
+(Tuple{Vararg{Int,N}} where N) <: (Tuple{Vararg{T,N}} where {T,N})	1
+(Tuple{Vararg{T,N}} where {T,N}) <: (Tuple{Vararg{Int,N}} where N)	0
+(Tuple{Vararg{Int,N}} where N) <: (Tuple{Int, Vararg{Int,N}} where N)	0
+(Tuple{Int, Vararg{Int,N}} where N) <: (Tuple{Vararg{Int,N}} where N)	1
+(Tuple{Vararg{Int,N}} where N) <: Tuple{Int,Int}	0
+(Tuple{Vararg{Int,N}} where N) <: Tuple{Vararg{Int}}	1
+Tuple{Vararg{Int}} <: (Tuple{Vararg{Int,N}} where N)	1
+Tuple{Int,Int,Int} <: (Tuple{Vararg{T,N}} where {T,N})	1
+Tuple{Int,String} <: (Tuple{Vararg{T,N}} where {T,N})	0
+Tuple{Int,Vararg{Int}} <: (Tuple{Vararg{T,N}} where {T,N})	1
+(Tuple{Int,Vararg{Int,N}} where N) <: (Tuple{Vararg{Int,M}} where M)	1
+(Tuple{Vararg{Int,N}} where N) <: (Tuple{Int,Int,Vararg{Int,M}} where M)	0
+(Tuple{Int,Vararg{Int,N}} where N) <: (Tuple{Int,Int,Vararg{Int,M}} where M)	0
+(Tuple{NTuple{N,Int},NTuple{N,Int}} where N) <: (Tuple{NTuple{N,Int},NTuple{M,Int}} where {N,M})	1
+(Tuple{NTuple{N,Int},NTuple{M,Int}} where {N,M}) <: (Tuple{NTuple{N,Int},NTuple{N,Int}} where N)	0
+(Tuple{Vararg{Any,N}} where N) <: (Tuple{Vararg{Any,N}} where N)	1
+Tuple{Int,Vararg{Int,2}} <: (Tuple{Vararg{Int,N}} where N)	1
+(Tuple{Int,Vararg{Int,N}} where N) <: Tuple{Int,Vararg{Int,2}}	0
+(Tuple{Vararg{T}} where T<:Integer) <: (Tuple{Vararg{T}} where T)	1
+Tuple{Int,Int8} <: (Tuple{Vararg{T}} where T<:Integer)	0
+Tuple{Int,Int8} <: (Tuple{T,Vararg{T}} where T)	0
+Tuple{Int,Int,Int} <: (Tuple{T,Vararg{T}} where T)	1
+Tuple{Int,Vararg{Int}} <: (Tuple{T,Vararg{T}} where T)	1
+Tuple{Int,Vararg{Integer}} <: (Tuple{T,Vararg{T}} where T)	0
+(Tuple{Int,Vararg{Int,N}} where N) <: (Tuple{T,Vararg{T}} where T)	1
+Tuple{Type{Int},Type{Int8}} <: (Tuple{T,T} where T)	1
+Tuple{Type{Int},DataType} <: (Tuple{T,T} where T)	1
+Tuple{DataType,DataType} <: (Tuple{T,T} where T)	1
+Tuple{Type{Int},Type{Int}} <: (Tuple{Type{T},Type{T}} where T)	1
+Tuple{Int,Vararg{Type{Int}}} <: (Tuple{T,Vararg{T}} where T)	0
+Tuple{Type{Int},Vararg{Type{Int8}}} <: (Tuple{T,Vararg{T}} where T)	1
+Tuple{Union{},Int} <: Tuple{Int,Int}	E
+Tuple{Union{Int,Nothing},Nothing} <: (Tuple{Union{T,Nothing},T} where T)	0
+(Union{Ref{T},T} where T) <: (Union{Ref{S},S} where S)	1
+(Ref{T} where T<:Union{Int,String}) <: Ref{<:Union{Int,String,Nothing}}	1
+(Ref{T} where T>:Union{Int,String}) <: (Ref{T} where T>:Int)	1
+(Ref{S} where S<:T where T<:Integer) <: (Ref{U} where U<:Real)	1
+(Tuple{T,S} where S<:Ref{T} where T) <: (Tuple{A,B} where B<:Ref{A} where A)	1
+(Tuple{T,Ref{S}} where S<:T where T) <: (Tuple{A,Ref{B}} where B where A)	1
+Tuple{Ref{Int},Int} <: (Tuple{Ref{S},T} where S<:T where T)	1
+Tuple{Ref{Integer},Int} <: (Tuple{Ref{S},T} where S<:T where T)	1
+Pair{Int,Union{}} <: (Pair{T,S} where S<:T where T)	1
+(Pair{T,S} where S>:T where T>:Int) <: (Pair{A,B} where B>:Integer where A)	0
+Ref{Ref{Int}} <: (Ref{Ref{T}} where T<:Integer)	1
+(Ref{Ref{T}} where T) <: (Ref{S} where S<:Ref)	1
+Ref{Ref} <: (Ref{S} where S<:Ref)	1
+Ref{Ref{T} where T} <: (Ref{Ref{T}} where T)	0
+Ref{Union{Ref{Int},Ref{String}}} <: (Ref{Union{Ref{T},Ref{String}}} where T)	1
+(Ref{Union{T,Ref{T}}} where T) <: (Ref{Union{S,Ref{S}}} where S)	1
+Tuple{Int,Int} <: Tuple{Int,Int,Vararg{Int,0}}	1
+Tuple{Int,Vararg{Int,0}} <: Tuple{Int}	1
+(Tuple{Int,Vararg{Int,N}} where N) <: Tuple{Int}	0
+Tuple{Int} <: (Tuple{Int,Vararg{Int,N}} where N)	1
+Tuple{Int,Int} <: (Tuple{Vararg{Int,N}} where N<:Int)	0
+Tuple{Vararg{Union{Int,String}}} <: Tuple{Vararg{Union{Int,String,Nothing}}}	1
+Tuple{Vararg{Union{Int,String}}} <: (Tuple{Vararg{T}} where T)	0
+(Tuple{Vararg{Union{T,Int}}} where T) <: Tuple{Vararg{Any}}	1
+Union{Tuple{Int},Tuple{Int,Int}} <: Tuple{Vararg{Int}}	1
+Union{Tuple{},Tuple{Int},Tuple{Int,Int,Vararg{Int}}} <: Tuple{Vararg{Int}}	1
+Tuple{Vararg{Int}} <: Union{Tuple{},Tuple{Int},Tuple{Int,Int,Vararg{Int}}}	1
+Union{Tuple{},Tuple{Int},Tuple{Int,Int},Tuple{Int,Int,Int,Vararg{Int}}} <: Tuple{Vararg{Int}}	1
+Union{Tuple{Int,Vararg{Int}},Tuple{}} <: Tuple{Vararg{Int}}	1
+Union{Vector{Int},Vector{String}} <: (Vector{T} where T)	1
+(Vector{T} where T) <: Union{Vector{Int},Vector{String}}	0
+Union{Ref{Int},Int} <: (Union{Ref{T},T} where T)	1
+Union{Ref{Int},String} <: (Union{Ref{T},T} where T)	1
+isa(Int, DataType)	1
+isa(Int, Type{Int})	1
+isa(Int, Type{Integer})	0
+isa(Vector, UnionAll)	1
+isa(Union{Int,String}, Union)	1
+isa(Int, Type{<:Integer})	1
+isa(Int, Type{<:AbstractString})	0
+isa(Integer, Type{T} where T>:Signed)	1
+isa(Int, Type{T} where T>:Signed)	0
+isa(Int, Type{T} where Int<:T<:Real)	1
+isa(Int, Type{Type{T}} where T)	0
+isa(1, Int)	1
+isa(1, Integer)	1
+isa(1, Real)	1
+isa(1, String)	0
+isa(1, Union{Int,String})	1
+isa(:a, Symbol)	1
+isa(true, Bool)	1
+isa(true, Integer)	1
+isa(Union{}, Core.TypeofBottom)	1
+isa(Union{}, Type{Union{}})	1
+isa(Union{}, Type{Int})	0
+isa(Int, Type)	1
+isa(Int, Any)	1
+isa(Vector{Int}, Type{<:AbstractVector})	1
+isa(Vector{Int}, Type{<:Vector})	1
+isa(Int, Union{Type{Int},Int})	1
+isa(Int, Union{DataType,Int})	1
+isa(Int, Union{Type{T} where T<:Integer, String})	1
+isa(Pair{Int,T} where T, Type{<:Pair})	1
+isa(Pair{Int,T} where T, UnionAll)	1
+isa(Vector{T} where T, Type{Vector{T} where T})	1
+isa(Union{Int,String}, Type{<:Union{Int,String,Nothing}})	1
+isa(Union{Int,String}, DataType)	0
+isa(Int, Ref{Int})	0
+isa(1, Type{Int})	0
+isa(1, Val{1})	0
+isa(Val{1}, Type{Val{T}} where T)	1
+isa(Tuple{Int}, Type{Tuple{T}} where T<:Integer)	1
+isa(Int, Type{T} where T<:Union{Int,String})	1
+isa(Int, Type{T} where T>:Union{Int,String})	0
+isa(Int, Union{Type{T} where T>:Int, Nothing})	1
+Int == Int	1
+Int == Integer	0
+Integer == Int	0
+Vector{Int} == Array{Int,1}	1
+(Vector{T} where T) == (Array{T,1} where T)	1
+(Vector{T} where T) == (Array{T,N} where {T,N})	0
+Union{Int,String} == Union{String,Int}	1
+Union{Int,String} == Union{Int,String,Nothing}	0
+Union{Int,Integer} == Integer	1
+Tuple{Int,Int} == Tuple{Vararg{Int,2}}	1
+(Tuple{Vararg{Int,N}} where N) == Tuple{Vararg{Int}}	1
+Tuple{Vararg{Int}} == (Tuple{Vararg{Int,N}} where N)	1
+(Tuple{T} where T<:Int) == Tuple{Int}	1
+Tuple{Int} == (Tuple{T} where T<:Int)	1
+Type{Int} == DataType	0
+DataType == Type{Int}	0
+Type{Union{}} == Core.TypeofBottom	1
+Core.TypeofBottom == Type{Union{}}	1
+Union{} == Union{}	1
+Any == Union{Int,Any}	1
+(Ref{T} where T) == Ref	1
+Ref{Int} == (Ref{T} where T<:Int)	0
+(Ref{T} where Int<:T<:Int) == Ref{Int}	1
+(Pair{T,T} where T) == (Pair{S,S} where S)	1
+(Pair{T,S} where {T,S}) == Pair	1
+Tuple{Int,String} == Tuple{Int,AbstractString}	0
+Union{Int8,Int} == Union{Int,Float64}	0
+(Tuple{Int,Vararg{Int}}) == Tuple{Vararg{Int}}	0
+Union{Tuple{},Tuple{Int,Vararg{Int}}} == Tuple{Vararg{Int}}	1
+Tuple{3} == Tuple{3}	1
+Tuple{3} == Tuple{4}	0
+Tuple{:a} == Tuple{:b}	0
+Val{1} == Val{1}	1
+Ref{Union{}} == Ref{Union{}}	1
+env(Vector{Int}, Vector{T} where T)	1 Int64
+env(Vector{Int}, Vector{T} where T<:Real)	1 Int64
+env(Vector{String}, Vector{T} where T<:Real)	0 #null
+env(Pair{Int,String}, Pair{A,B} where {A,B})	1 Int64 String
+env(Pair{Int,Int}, Pair{A,A} where A)	1 Int64
+env(Tuple{Int,Int}, Tuple{T,T} where T)	1 Int64
+env(Tuple{Int,Int8}, Tuple{T,T} where T)	0 T
+env(Tuple{Int,Int8}, Tuple{T,S} where {T,S})	1 Int64 Int8
+env(Tuple{Int,Vararg{Int}}, Tuple{Vararg{T,N}} where {T,N})	1 Int64 Vararg
+env(Tuple{Int,Int,Int}, Tuple{Vararg{T,N}} where {T,N})	1 Int64 3
+env(Tuple{}, Tuple{Vararg{T,N}} where {T,N})	1 T 0
+env(Tuple{Int}, Tuple{T} where T>:Int)	1 Int64
+env(Tuple{Integer}, Tuple{T} where T)	1 T
+env(Tuple{Union{Int,String}}, Tuple{T} where T)	1 T
+env(Union{Tuple{Int},Tuple{String}}, Tuple{T} where T)	1 T
+env(Tuple{Type{Int}}, Tuple{T} where T)	1 DataType
+env(Tuple{Type{Int}}, Tuple{Type{T}} where T)	1 Int64
+env(Tuple{Vector{Int}, Int}, Tuple{Vector{T}, T} where T)	1 Int64
+env(Tuple{Vector{T}} where T, Tuple{Vector{S}} where S)	1 T
+env(Vector{T} where T, Vector{S} where S)	1 T
+env(Tuple{Vector{T}} where T, Tuple{S} where S)	1 S
+env(Tuple{Ref{T}} where T<:Integer, Tuple{Ref{S}} where S<:Real)	1 T
+env(Ref{Vector{T}} where T, Ref{Vector{S}} where S)	1 T
+env(Tuple{Int,Vararg{Int,N}} where N, Tuple{Vararg{Int,M}} where M)	1 N
+env(Int, Any)	1
+env(Union{}, Vector{T} where T)	1 #null
+env(Tuple{Pair{Int,T}} where T, Tuple{Pair{A,B}} where {A,B})	1 Int64 T
+env(Tuple{Union{Int,Nothing}}, Tuple{Union{T,Nothing}} where T)	1 T
+env(Pair{Vector{Int},Int}, Pair{Vector{T},T} where T)	1 Int64
+env(Tuple{Int,String}, Tuple{Union{T,String},T} where T)	0 T
+Tuple{Union{}} <: Any	E
+Tuple{Int,Union{}} <: Any	E
+Array{Int,1,2} <: Any	E
+Int{Int} <: Any	E
+Vararg{Int,-1} <: Any	E
+Tuple{Vararg{Int,-1}} <: Any	E
+Tuple{Vararg{Int,:a}} <: Any	E
+Tuple{Vararg{Vararg{Int}}} <: Any	E
+Union{1} <: Any	E
+Union{Int,1} <: Any	E
+Array{Int,Int} <: Any	1
+(Ref{T} where T<:1) <: Any	E
+(Ref{T} where T>:1) <: Any	E
+Type{Int,Int} <: Any	E
+Tuple{Vararg{Union{}}} <: Tuple{}	1
+Tuple{Int,Vararg{Union{}}} <: Tuple{Int}	1
+Tuple{Vararg{Union{},0}} <: Tuple{}	1
+Tuple{Vararg{Union{},2}} <: Any	E
+Tuple{Vararg{Int,0}} <: Tuple{}	1
+NTuple{2,Int} <: Tuple{Int,Int}	1
+NTuple{0,Int} <: Tuple{}	1
+NTuple{3,Union{Int,String}} <: Tuple{Vararg{Union{Int,String}}}	1
+NTuple{2,T} where T <: (Tuple{T,T} where T)	E
+(NTuple{N,Int} where N) <: Tuple{Vararg{Int}}	1
+Tuple{Int,Vararg{Int,0}} <: Tuple{Int}	1
+Tuple{Int,Vararg{T,2}} where T <: Tuple{Int,Any,Any}	E
+(Tuple{Int,Vararg{T,2}} where T) <: Tuple{Int,Any,Any}	1
+Tuple{Vararg{Vector{T} where T,2}} <: Tuple{Vector,Vector}	1
+Tuple{Vararg{(Vector{T} where T),2}} <: Tuple{Vector,Vector}	1
+Union{Tuple{},Tuple{Int},Tuple{Int,Int},Tuple{Int,Int,Vararg{Int}}} == Tuple{Vararg{Int}}	1
+Union{Tuple{Int},Tuple{Int,Int},Tuple{Int,Int,Int,Vararg{Int}}} == Tuple{Int,Vararg{Int}}	1
+Union{Tuple{},Tuple{String,Vararg{String}}} == Tuple{Vararg{String}}	1
+Union{Tuple{Int,Int},Tuple{Int,Int,Int,Vararg{Int}}} <: Tuple{Int,Int,Vararg{Int}}	1
+Union{Tuple{Int8},Tuple{Int8,Int8,Vararg{Int8}},Tuple{}} == Tuple{Vararg{Int8}}	1
+Union{Vector{T} where T, Int} <: Any	1
+Union{(Vector{T} where T), (Ref{T} where T)} <: (Union{Vector{T},Ref{T}} where T)	1
+(Union{Vector{T},Ref{T}} where T) <: Union{(Vector{T} where T), (Ref{T} where T)}	1
+Union{Union{Vector{T},Ref{T}} where T, Int} <: Any	1
+Union{(Union{Vector{T},Ref{T}} where T), Int} <: Union{Int,(Vector{T} where T),(Ref{T} where T)}	1
+Union{Type{Int},Type{Int8}} <: DataType	1
+Union{Type{Int},DataType} <: DataType	1
+Union{DataType,Type{Int}} == DataType	1
+Union{Core.TypeofBottom,Type{Union{}}} == Core.TypeofBottom	1
+Union{Type{Union{}},Type{Int}} <: DataType	0
+Union{Type{Int},Type{Vector}} <: Union{DataType,UnionAll}	1
+(Ref{Union{T,Int}} where T<:Int8) <: (Ref{Union{S,Int}} where S<:Integer)	1
+(Tuple{T,Union{T,Nothing}} where T<:Int) <: (Tuple{S,Union{S,Nothing}} where S)	1
+(Ref{T} where T<:Union{Int,Nothing}) <: (Ref{S} where S<:Union{Integer,Nothing})	1
+Ref{Union{Int,Nothing}} <: (Ref{Union{T,Nothing}} where T<:Int)	1
+(Ref{Union{T,Nothing}} where T) <: (Ref{S} where S>:Nothing)	1
+(Tuple{T} where T<:Union{Int,String}) <: Union{Tuple{Int},Tuple{String}}	1
+Union{Tuple{Int},Tuple{String}} <: (Tuple{T} where T<:Union{Int,String})	1
+(Tuple{T,T} where T<:Union{Int,String}) <: Union{Tuple{Int,Int},Tuple{String,String}}	0
+Tuple{Union{Int,Nothing},Union{Int,Nothing}} <: (Tuple{T,T} where T>:Nothing)	0
+(Tuple{Union{T,Nothing},T} where T) <: (Tuple{Union{S,Nothing},S} where S)	1
+(Tuple{Union{Int,T}} where T) <: (Tuple{Union{Int,S}} where S<:Real)	0
+(Tuple{T,S} where {T<:Integer, S<:T}) <: (Tuple{T,T} where T<:Integer)	0
+(Tuple{T,Ref{S}} where {T, S<:T}) <: (Tuple{A,Ref{A}} where A)	0
+(Tuple{Ref{T},Ref{S}} where {T, S<:T}) <: (Tuple{Ref{A},Ref{B}} where {A, B<:A})	1
+(Tuple{Ref{T},Ref{S}} where {T, S>:T}) <: (Tuple{Ref{A},Ref{B}} where {A, B<:A})	0
+(Tuple{T,Ref{T}} where T<:Integer) <: (Tuple{Integer,Ref{S}} where S<:Integer)	1
+(Tuple{Vector{T},T} where T<:Integer) <: (Tuple{Vector{S},Integer} where S)	1
+(Ref{T} where T<:Vector{S} where S<:Integer) <: (Ref{U} where U<:Vector)	1
+(Ref{Ref{T}} where T) <: (Ref{U} where U<:(Ref{S} where S))	1
+(Tuple{T,Vararg{T}} where T<:Integer) <: (Tuple{Vararg{T}} where T<:Integer)	1
+(Tuple{Vararg{T,N}} where {T,N}) <: (Tuple{Vararg{S,M}} where {S,M})	1
+(Tuple{Vararg{T,N}} where {T<:Integer,N}) <: (Tuple{Vararg{Integer,M}} where M)	1
+(Tuple{Vararg{Int,N}} where N>:Int) <: Any	1
+(Tuple{Vararg{Int,N}} where N) <: (Tuple{Int,Vararg{Int,N}} where N)	0
+(Tuple{Int,Int,Vararg{Int,N}} where N) <: (Tuple{Vararg{Int,M}} where M)	1
+(Tuple{Vararg{Int,N}} where N) <: (Tuple{Int,Int,Vararg{Int,M}} where M)	0
+(Tuple{Int,Vararg{Int,N}} where N) <: (Tuple{Int,Int,Vararg{Int,N}} where N)	0
+(Tuple{NTuple{N,Int},Vararg{Int,N}} where N) <: (Tuple{NTuple{M,Int},Vararg{Int,M}} where M)	1
+(Tuple{NTuple{N,Int},Vararg{Int,N}} where N) <: (Tuple{Tuple,Vararg{Int}})	1
+Tuple{Tuple{Int,Int},Int,Int} <: (Tuple{NTuple{N,Int},Vararg{Int,N}} where N)	1
+Tuple{Tuple{Int,Int},Int} <: (Tuple{NTuple{N,Int},Vararg{Int,N}} where N)	0
+Tuple{Tuple{},Vararg{Int}} <: (Tuple{NTuple{N,Int},Vararg{Int,N}} where N)	0
+(Tuple{NTuple{N,Int},Vararg{Int}} where N) <: (Tuple{NTuple{M,Int},Vararg{Int,M}} where M)	0
+(Tuple{Val{N},Vararg{Int,N}} where N) <: (Tuple{Val{M},Vararg{Int,M}} where M)	1
+Tuple{Val{2},Int,Int} <: (Tuple{Val{N},Vararg{Int,N}} where N)	1
+Tuple{Val{2},Int} <: (Tuple{Val{N},Vararg{Int,N}} where N)	0
+Tuple{Val{1},Vararg{Int}} <: (Tuple{Val{N},Vararg{Int,N}} where N)	0
+(Tuple{Vararg{Int,N}} where N) <: (Tuple{Vararg{Int,N}} where N<:Integer)	0
+(Tuple{Vararg{Int,N}} where N) <: Tuple{Vararg{Any,2}}	0
+Tuple{Int,Int} <: (Tuple{Int,Vararg{Int,N}} where N)	1
+Tuple{Int,Int,Int} <: (Tuple{Int,Vararg{T,N}} where {T,N})	1
+Tuple{Int,Vararg{Int,2}} <: (Tuple{Vararg{T,N}} where {T,N})	1
+(Tuple{Vararg{Int,2}}) <: (Tuple{Vararg{Int,N}} where N>:Int)	0
+Tuple{Vararg{Type{Int}}} <: (Tuple{Vararg{T}} where T)	1
+Tuple{Type{Int},Type{Int}} <: (Tuple{Vararg{T}} where T)	1
+Tuple{Type{Int},Type{Int8}} <: (Tuple{Vararg{T}} where T)	1
+Tuple{Type{Int},Type{Int},Type{Int}} <: (Tuple{T,Vararg{T}} where T<:DataType)	1
+Tuple{Int,Int,Union{Int,String}} <: (Tuple{Vararg{T}} where T)	0
+Tuple{Union{Int,String},Vararg{Int}} <: (Tuple{Vararg{T}} where T)	0
+Tuple{Int,Vararg{Union{Int,String}}} <: (Tuple{T,Vararg{T}} where T)	0
+Tuple{Vararg{Any}} <: (Tuple{T,Vararg{T}} where T)	0
+Tuple{Integer,Vararg{Int}} <: (Tuple{T,Vararg{T}} where T)	0
+Tuple{Vector{Int},Vararg{Vector{Int}}} <: (Tuple{Vararg{Vector{T}}} where T)	1
+Tuple{Vector{Int},Vector{Int8}} <: (Tuple{Vararg{Vector{T}}} where T)	0
+Tuple{Int,Int} <: (Tuple{Vararg{T}} where T<:Union{Int,String})	1
+Tuple{Int,String} <: (Tuple{Vararg{T}} where T<:Union{Int,String})	0
+Tuple{Int,Int,Int} <: (Tuple{Vararg{T,3}} where T)	1
+Tuple{Int,Int,Int8} <: (Tuple{Vararg{T,3}} where T)	0
+Tuple{Int,Vararg{Int}} <: Tuple{Vararg{Int,3}}	0
+Tuple{Vararg{Int}} <: Tuple{Int,Vararg{Int,2}}	0
+(Tuple{Vararg{T}} where T) <: Tuple{Vararg{Any,2}}	0
+Tuple{Int,Int} <: Tuple{Vararg{Union{Int,String}}}	1
+Tuple{Int,Union{Int,String},Vararg{Union{Int,String}}} <: Tuple{Vararg{Union{Int,String}}}	1
+Tuple{Vararg{Union{Int,String}}} <: Tuple{Union{Int,String},Vararg{Union{Int,String}}}	0
+Union{} <: (Tuple{T} where T)	1
+(Tuple{T} where T<:Union{}) <: Tuple{Int}	1
+(Ref{T} where T<:Union{}) <: Ref{Union{}}	1
+(T where T<:Union{}) <: Int	1
+(Ref{T} where Int<:T<:Int) <: Ref{Int}	1
+(Ref{T} where Int<:T<:Integer) <: (Ref{S} where S<:Integer)	1
+(Ref{T} where T>:Int) <: (Ref{S} where S>:Integer)	0
+(Ref{T} where T>:Integer) <: (Ref{S} where S>:Int)	1
+Union{Ref{Int}, Ref{Integer}} <: (Ref{T} where T>:Int)	1
+Union{Ref{Int}, Ref{Integer}} <: (Ref{T} where Int<:T<:Integer)	1
+(Union{Ref{T}, Vector{T}} where T>:Int) <: (Union{Ref{S}, Vector{S}} where S>:Int)	1
+Val{Union{}} <: (Val{T} where T)	1
+Val{Int} <: (Val{T} where T<:Integer)	1
+Val{Int} <: (Val{T} where T<:Type{Int})	0
+Val{1} <: (Val{T} where T<:Integer)	0
+Val{true} <: (Val{T} where T<:Bool)	0
+(Val{T} where T<:Int) <: Val	1
+Type{Val{1}} <: (Type{Val{T}} where T)	1
+Type{Int} <: Type{<:Type}	0
+Type{DataType} <: Type{<:Type}	1
+Type{Type{Int}} <: Type{<:Type}	1
+Type{Vector} <: Type{<:UnionAll}	0
+Type{Type{T} where T} <: Type{<:UnionAll}	0
+Type{Type} <: (Type{Type{T}} where T)	0
+Type{Union{Int,String}} <: Type{<:Union}	0
+Type{Union{Int,String}} <: (Type{Union{T,String}} where T)	1
+(Type{T} where T<:Union{Int,String}) <: (Type{T} where T<:Union{Int,String,Nothing})	1
+(Type{T} where T<:Int) <: (Type{T} where T<:Integer)	1
+DataType <: (Type{T} where T<:Any)	1
+UnionAll <: (Type{T} where T>:Int)	0
+Core.TypeofBottom <: (Type{T} where T)	1
+Core.TypeofBottom <: (Type{T} where T<:Int)	1
+Core.TypeofBottom <: DataType	0
+Type{Union{}} <: DataType	0
+Type{Union{}} <: (Type{T} where T<:Int)	1
+Type{Core.TypeofBottom} <: (Type{T} where T)	1
+(Type{T} where T>:Int) <: Type	1
+(Type{T} where T>:Int) <: DataType	0
+Tuple{DataType} <: (Tuple{Type{T}} where T)	1
+Tuple{UnionAll} <: (Tuple{Type{T}} where T)	1
+Tuple{Union} <: (Tuple{Type{T}} where T<:Union{Int,String})	0
+Ref{DataType} <: (Ref{T} where T<:Type)	1
+Tuple{Type{Int}, Int} <: (Tuple{Type{T}, T} where T)	1
+Tuple{Type{Integer}, Int} <: (Tuple{Type{T}, T} where T)	1
+Tuple{Type{Int}, Integer} <: (Tuple{Type{T}, T} where T)	0
+Tuple{Type{Vector{Int}}, Int} <: (Tuple{Type{Vector{T}}, T} where T)	1
+Tuple{Type{Vector{T}} where T, Int} <: (Tuple{Type{Vector{T}}, T} where T)	0
+Type{Vector{T}} where T <: (Type{Vector{T}} where T)	E
+(Type{Vector{T}} where T) <: (Type{Vector{T}} where T)	1
+(Type{Vector{T}} where T) <: Type{Vector}	0
+Type{Vector} <: (Type{Vector{T}} where T)	0
+Type{Vector} <: Type{<:Vector}	1
+Type{Array{T,1} where T} <: Type{Vector}	1
+Union{Int8,Union{Int16,Int}} <: Union{Union{Int,Int8},Int16}	1
+Union{Nothing,Missing,Int} <: Union{Int,Missing,Nothing}	1
+Union{Int,Missing} <: Union{Int8,Missing,Int}	1
+Union{Tuple{Nothing},Tuple{Missing}} <: Tuple{Union{Nothing,Missing}}	1
+Union{Pair{Nothing,Missing},Pair{Int,Int}} <: Pair	1
+Union{Pair{Int,Int},Pair{Nothing,Nothing}} <: (Pair{T,T} where T)	1
+Union{Val{1},Val{2},Val{:a}} <: (Val{T} where T)	1
+Union{Val{1},Val{2},Val{:a}} <: Union{Val{1},Val{:a}}	0
+Union{Some{Int},Some{Nothing}} <: (Some{T} where T)	1
+Union{Some{Int},Nothing} <: Union{Some{T},Nothing} where T	1
+Union{Ptr{Int},Ptr{Nothing}} <: Ptr	1
+Union{Ptr{Int},Ptr{Nothing}} <: (Ptr{T} where T<:Union{Int,Nothing})	1
+Union{Missing,Nothing,Tuple{},Val{1}} <: Union{Missing,Val{1},Nothing,Tuple{}}	1
+Union{Char,Bool,Missing,Int8,Nothing} <: Union{Nothing,Missing,Int8,Bool,Char}	1
+Union{Ref{Int},Vector{Int},Pair{Int,Int},Int} <: Union{Int,Pair{Int,Int},Vector{Int},Ref{Int}}	1
+Union{Union{Vector{T},Ref{T}} where T, Nothing} <: Any	1
