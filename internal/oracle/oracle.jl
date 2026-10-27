@@ -226,13 +226,23 @@ end
 # Meta.lower of each top-level statement (lowering a whole :toplevel only
 # wraps it), printed as julia shows the result: a CodeInfo listing for
 # lowered code.
+#
+# The front end's gensyms (`#s12`, `#15#Shape`) come from counters that live
+# for the whole julia session (src/ast.scm: *gensy-counter*, and a pool that
+# reset-gensyms rewinds), so their numbers depend on what the session lowered
+# before -- they differ between two platforms' julia. They are numbered here
+# by first appearance instead.
 function lower(text)
     m = Module(:OracleLower)
     io = IOBuffer()
     for a in Meta.parseall(text).args
         a isa LineNumberNode && continue
-        show(io, MIME"text/plain"(), Meta.lower(m, a))
-        println(io)
+        s = sprint(show, MIME"text/plain"(), Meta.lower(m, a))
+        seen = Dict{String,String}()
+        s = replace(s, r"#(s\d+|\d+#)" => g -> get!(seen, g) do
+            "#g$(length(seen) + 1)" * (endswith(g, "#") ? "#" : "")
+        end)
+        println(io, s)
     end
     String(take!(io))
 end
