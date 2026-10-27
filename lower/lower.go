@@ -91,6 +91,7 @@ func (st *State) Lower(ex any) (out any, err error) {
 		}
 	}()
 	lw := &lowerer{st: st}
+	st.gensyms.passInput(ex)
 	res := lw.errorWrap(func() any { return lw.expandToplevelExpr(toSxChecked(ex), sym("none"), 0) })
 	c := &converter{mod: st.mod}
 	return c.fromSx(res), nil
