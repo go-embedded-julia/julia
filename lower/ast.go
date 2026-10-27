@@ -6,6 +6,8 @@ package lower
 import (
 	"strconv"
 	"strings"
+
+	"github.com/go-embedded-julia/julia/expr"
 )
 
 // gensyms is the front end's gensym state (ast.scm: *gensyms*,
@@ -19,6 +21,53 @@ type gensyms struct {
 }
 
 func (g *gensyms) reset() { g.current = 0 }
+
+// passInput moves the counter past every front-end gensym of an input
+// form. In julia, macro expansion names its renamings (`#12#x`) from the
+// same session-wide *gensy-counter* lowering then draws from, so a name
+// lowering makes never equals one already in its input; a State that
+// starts its counter elsewhere must keep that property, or a fresh
+// `#12#y` shares its number with the input's `#12#x`.
+func (g *gensyms) passInput(v any) {
+	walkSymbols(v, 0, func(s string) {
+		id, _, ok := gensymID(s)
+		if !ok {
+			return
+		}
+		digits := strings.TrimPrefix(strings.TrimPrefix(id, "#"), "s")
+		n, err := strconv.Atoi(digits)
+		if err == nil && n >= g.counter && n < 1<<40 {
+			g.counter = n + 1
+		}
+	})
+}
+
+// walkSymbols calls f on every symbol of an expr value, to a bounded depth.
+func walkSymbols(v any, depth int, f func(string)) {
+	if depth > maxWalkDepth {
+		return
+	}
+	switch x := v.(type) {
+	case expr.Symbol:
+		f(string(x))
+	case *expr.Expr:
+		f(string(x.Head))
+		for _, a := range x.Args {
+			walkSymbols(a, depth+1, f)
+		}
+	case expr.Vector:
+		for _, a := range x {
+			walkSymbols(a, depth+1, f)
+		}
+	case expr.QuoteNode:
+		walkSymbols(x.Value, depth+1, f)
+	case expr.GlobalRef:
+		f(string(x.Name))
+	}
+}
+
+// maxWalkDepth bounds the recursion of walkSymbols on hostile input.
+const maxWalkDepth = 10000
 
 // gensy is (gensy).
 func (g *gensyms) gensy() sym {

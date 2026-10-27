@@ -229,9 +229,10 @@ func analyzeTypevar(e any) []any {
 	return nil
 }
 
+// unescape is (unescape e), macroexpand.scm: every level of escape.
 func unescape(e any) any {
-	if is(e, "escape") {
-		return cadr(e)
+	for is(e, "escape") {
+		e = cadr(e)
 	}
 	return e
 }
