@@ -598,6 +598,29 @@ Ref{Array{T,1} where T} <: Ref{Vector}	1
 (Pair{Tuple{T},Vararg{T}} where T){Int} <: Any	E
 (Tuple{Pair{T,S} where S<:T} where T){Integer} <: Tuple{Pair{Integer,S} where S<:Integer}	1
 (Union{Tuple{T},Tuple{T,T}} where T<:Integer){Int} <: Union{Tuple{Int},Tuple{Int,Int}}	1
+Tuple{Vararg{Int},Int} <: Any	E
+Vararg{Int,2,3} <: Any	E
+Tuple{Vararg{Int}{2}} <: Tuple{Int,Int}	1
+Tuple{Vararg{Int}{1,2}} <: Any	E
+Tuple{Vararg{Int,2}{3}} <: Any	E
+Vector{Vararg{Int}} <: Any	E
+Int{1} <: Any	E
+Tuple{Vararg{Int,Union{Int,String}}} <: Any	1
+Tuple{Vararg{Union{Tuple{T} where T<:Int, Nothing}}} <: Tuple{Vararg{Union{Tuple{Int},Nothing}}}	1
+Tuple{Vararg{(Tuple{T} where T<:Int)}} <: Tuple{Vararg{Tuple{Int}}}	1
+Tuple{Vararg{(Tuple{T,Ref{T}} where T<:Int)}} <: Any	1
+Tuple{Vararg{(Tuple{Ref{S} where S<:T} where T<:Int)}} <: Any	1
+Tuple{Vararg{(Tuple{T, Vararg{T}} where T<:Int)}} <: Any	1
+Tuple{Vararg{(Tuple{Vararg{T, 2}} where T<:Int)}} <: Any	1
+Tuple{Vararg{(Tuple{Vararg{Int, N}} where N)}} <: Any	1
+Tuple{Vararg{(Tuple{Union{T, Nothing}} where T<:Int)}} <: Any	1
+Tuple{Vararg{(Tuple{Union{Ref{T}, Nothing}} where T<:Int)}} <: Any	1
+Tuple{Vararg{(Tuple{T} where Int<:T<:Int)}} <: Tuple{Vararg{Tuple{Int}}}	1
+Ref{Union{(Tuple{T} where T<:Int), Nothing}} <: Ref{Union{Tuple{Int},Nothing}}	1
+Type{1} <: Any	1
+Type{:a} <: Type	1
+isa(1, Type{1})	0
+Tuple{Type{1}} <: Tuple{Any}	1
 let T = TypeVar(:T); T <: T end	E
 let T = TypeVar(:T); T <: Any end	E
 let T = TypeVar(:T); Int <: T end	E

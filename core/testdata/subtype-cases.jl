@@ -607,6 +607,30 @@ Ref{Array{T,1} where T} <: Ref{Vector}
 (Pair{Tuple{T},Vararg{T}} where T){Int} <: Any
 (Tuple{Pair{T,S} where S<:T} where T){Integer} <: Tuple{Pair{Integer,S} where S<:Integer}
 (Union{Tuple{T},Tuple{T,T}} where T<:Integer){Int} <: Union{Tuple{Int},Tuple{Int,Int}}
+# Core.apply_type's checks (jl_f_apply_type, builtins.c:1547-1595)
+Tuple{Vararg{Int},Int} <: Any
+Vararg{Int,2,3} <: Any
+Tuple{Vararg{Int}{2}} <: Tuple{Int,Int}
+Tuple{Vararg{Int}{1,2}} <: Any
+Tuple{Vararg{Int,2}{3}} <: Any
+Vector{Vararg{Int}} <: Any
+Int{1} <: Any
+Tuple{Vararg{Int,Union{Int,String}}} <: Any
+Tuple{Vararg{Union{Tuple{T} where T<:Int, Nothing}}} <: Tuple{Vararg{Union{Tuple{Int},Nothing}}}
+Tuple{Vararg{(Tuple{T} where T<:Int)}} <: Tuple{Vararg{Tuple{Int}}}
+Tuple{Vararg{(Tuple{T,Ref{T}} where T<:Int)}} <: Any
+Tuple{Vararg{(Tuple{Ref{S} where S<:T} where T<:Int)}} <: Any
+Tuple{Vararg{(Tuple{T, Vararg{T}} where T<:Int)}} <: Any
+Tuple{Vararg{(Tuple{Vararg{T, 2}} where T<:Int)}} <: Any
+Tuple{Vararg{(Tuple{Vararg{Int, N}} where N)}} <: Any
+Tuple{Vararg{(Tuple{Union{T, Nothing}} where T<:Int)}} <: Any
+Tuple{Vararg{(Tuple{Union{Ref{T}, Nothing}} where T<:Int)}} <: Any
+Tuple{Vararg{(Tuple{T} where Int<:T<:Int)}} <: Tuple{Vararg{Tuple{Int}}}
+Ref{Union{(Tuple{T} where T<:Int), Nothing}} <: Ref{Union{Tuple{Int},Nothing}}
+Type{1} <: Any
+Type{:a} <: Type
+isa(1, Type{1})
+Tuple{Type{1}} <: Tuple{Any}
 # free type variables (tolerated, subtype.c:19-20)
 let T = TypeVar(:T); T <: T end
 let T = TypeVar(:T); T <: Any end

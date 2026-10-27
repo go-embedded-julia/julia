@@ -22,6 +22,13 @@ func catchError(err *error) {
 	}
 }
 
+// try runs f and returns the *Error it raised, if any.
+func try(f func()) (err error) {
+	defer catchError(&err)
+	f()
+	return nil
+}
+
 // NewTypeVar is jl_new_typevar (builtins.c:1688-1701).
 func NewTypeVar(name string, lb, ub any) (*TypeVar, error) {
 	if lb != any(Bottom) && !IsType(lb) && !isTypeVar(lb) {
@@ -45,18 +52,6 @@ func TypeUnionAll(v *TypeVar, body any) any {
 		return body
 	}
 	return &UnionAll{Var: v, Body: body}
-}
-
-// validTypeParam is jl_valid_type_param (builtins.c:1536-1545) for the
-// values this package handles.
-func validTypeParam(v any) bool {
-	switch v.(type) {
-	case *Vararg:
-		return false
-	case *DataType, *Union, *UnionAll, *bottomType, *TypeVar, Symbol, int64, bool, *Instance:
-		return true
-	}
-	return false
 }
 
 // extractWrapper is extract_wrapper (jltypes.c:1941-1954).
@@ -104,7 +99,7 @@ func wrapVararg(t, n any, check bool) *Vararg {
 			}
 		}
 		if t != nil {
-			if !validTypeParam(t) {
+			if !ValidTypeParam(t) {
 				throwf("TypeError: in Vararg, in type, expected Type, got %s", Show(t))
 			}
 			t = mayEqualWrapper(normalizeUnionAlls(t))
@@ -186,16 +181,11 @@ func normalizeUnionAlls(t any) any {
 		}
 		n := 0
 		if u.Var.LB == u.Var.UB || maySubstituteUB(body, u.Var, false, &n) {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						if _, ok := r.(*Error); !ok {
-							panic(r)
-						}
-					}
-				}()
-				t = instType(u.Body, &typeEnv{u.Var, u.Var.UB, nil}, nil, true)
-			}()
+			// a substitution julia cannot build is skipped (JL_TRY/JL_CATCH)
+			var inst any
+			if try(func() { inst = instType(u.Body, &typeEnv{u.Var, u.Var.UB, nil}, nil, true) }) == nil {
+				t = inst
+			}
 		}
 	}
 	return t
@@ -313,7 +303,7 @@ func instTuple(tt *DataType, env *typeEnv, stack *typeStack, check bool) any {
 // tupletypeFill is jl_tupletype_fill (jltypes.c:2058-2085).
 func tupletypeFill(n int64, t any, check bool) any {
 	if check {
-		if !validTypeParam(t) {
+		if !ValidTypeParam(t) {
 			throwf("TypeError: in Vararg, in type, expected Type, got %s", Show(t))
 		}
 		t = mayEqualWrapper(normalizeUnionAlls(t))
@@ -455,11 +445,9 @@ func typekeyHash(tn *TypeName, key []any, nofail bool) uint32 {
 			hash = bitmix(hp, hash)
 		}
 	}
-	hash = bitmix(^tn.hash, hash)
-	if hash == 0 {
-		return 1
-	}
-	return hash
+	// julia returns `hash ? hash : 1`; 0 means "did not hash", so any
+	// nonzero value serves
+	return bitmix(^tn.hash, hash) | 1
 }
 
 // cacheSlot returns the cache list a key belongs to: the bucket of its hash,
