@@ -46,7 +46,7 @@ func names() map[expr.Symbol]any {
 		"Type": TypeType, "Tuple": AnyTupleType, "Array": ArrayType, "AbstractArray": AbstractArrayType,
 		"DenseArray": DenseArrayType, "Ref": RefType, "Ptr": PtrType, "Pair": PairType, "Val": ValType,
 		"Vector": vector, "NTuple": ntuple, "TypeofBottom": TypeofBottomType, "Symbol": SymbolType,
-		"AbstractVector": absvector, "Int16": Int16Type, "Int32": Int32Type, "UInt8": UInt8Type,
+		"Vararg": VarargType, "AbstractVector": absvector, "Int16": Int16Type, "Int32": Int32Type, "UInt8": UInt8Type,
 		"Some": SomeType, "Dict": DictType, "AbstractDict": AbstractDictType, "Function": FunctionType,
 	}
 }
@@ -88,22 +88,8 @@ func (ev *typeEval) eval(v any) (res any, err error) {
 	return nil, errNotAType
 }
 
+// curly evaluates T{P...} as lowered code does, through Core.apply_type.
 func (ev *typeEval) curly(x *expr.Expr) (any, error) {
-	if x.Args[0] == any(expr.Symbol("Vararg")) {
-		var T, N any
-		var err error
-		if len(x.Args) > 1 {
-			if T, err = ev.eval(x.Args[1]); err != nil {
-				return nil, err
-			}
-		}
-		if len(x.Args) > 2 {
-			if N, err = ev.eval(x.Args[2]); err != nil {
-				return nil, err
-			}
-		}
-		return WrapVararg(T, N)
-	}
 	head, err := ev.eval(x.Args[0])
 	if err != nil {
 		return nil, err
@@ -133,10 +119,8 @@ func (ev *typeEval) curly(x *expr.Expr) (any, error) {
 		}
 		params = append(params, p)
 	}
-	var t any
-	if head == any(UnionType) {
-		t = TypeUnion(params...)
-	} else if t, err = Apply(head, params...); err != nil {
+	t, err := ApplyType(head, params...)
+	if err != nil {
 		return nil, err
 	}
 	for i := len(fresh) - 1; i >= 0; i-- {
@@ -199,7 +183,43 @@ func (ev *typeEval) where(body any, vars []any) (any, error) {
 	return TypeUnionAll(tv, inner), nil
 }
 
-// caseLines returns the question lines of the case file.
+// productAtoms are crossed by productLines.
+var productAtoms = []string{
+	"Int", "Integer", "Real", "Any", "String", "Union{Int,String}", "Union{Int,Nothing}",
+	"Vector{Int}", "AbstractVector{Int}", "Tuple{Int}", "Tuple{Vararg{Int}}", "Tuple{Int,Vararg{Int}}",
+	"Ref{Int}", "Type{Int}", "DataType", "Val{1}", "Nothing", "Union{}",
+}
+
+// productLines are families of questions crossed over productAtoms. They
+// make an existential variable meet a second type in invariant position,
+// so that var_lt narrows its upper bound with simple_meet (and so
+// simple_intersect and obviously_disjoint), var_gt widens its lower bound
+// with simple_join, and equal_var compares the two.
+func productLines() []string {
+	var out []string
+	for _, a := range productAtoms {
+		for _, b := range productAtoms {
+			out = append(out,
+				fmt.Sprintf("Ref{Tuple{%s}} <: (Ref{Tuple{T}} where T<:%s)", a, b),
+				fmt.Sprintf("Ref{Tuple{%s}} <: (Ref{Tuple{T}} where T>:%s)", a, b),
+				fmt.Sprintf("Pair{Tuple{%s},%s} <: (Pair{Tuple{T},T} where T)", a, b),
+				fmt.Sprintf("Tuple{%s,%s} <: (Tuple{T,T} where T)", a, b),
+				fmt.Sprintf("Tuple{%s,Vararg{%s}} <: (Tuple{T,Vararg{T}} where T)", a, b),
+				fmt.Sprintf("Union{%s,%s} <: (Union{T,Ref{T}} where T)", a, b),
+				fmt.Sprintf("Ref{Union{%s,%s}} <: (Ref{Union{T,Nothing}} where T)", a, b),
+				fmt.Sprintf("isa(%s, %s)", a, b),
+				fmt.Sprintf("%s == %s", a, b),
+				fmt.Sprintf("Type{%s} <: (Type{T} where T<:%s)", a, b),
+				fmt.Sprintf("Tuple{Type{%s},%s} <: (Tuple{Type{T},T} where T)", a, b),
+				fmt.Sprintf("%s <: %s", a, b),
+				fmt.Sprintf("env(Tuple{%s,%s}, Tuple{T,S} where S<:T where T)", a, b))
+		}
+	}
+	return out
+}
+
+// caseLines returns the question lines of the case file, then the product
+// families.
 func caseLines(t *testing.T) []string {
 	b, err := os.ReadFile(casesPath)
 	if err != nil {
@@ -211,7 +231,7 @@ func caseLines(t *testing.T) []string {
 			out = append(out, l)
 		}
 	}
-	return out
+	return append(out, productLines()...)
 }
 
 // casePrelude defines, on the julia side, the question forms other than
@@ -242,6 +262,52 @@ func goCase(line string) string {
 		return "E"
 	}
 	ev := &typeEval{names: names(), vars: map[expr.Symbol]*TypeVar{}}
+	if q.Head == "let" {
+		// let T = TypeVar(:T[, ub]) or TypeVar(:T, lb, ub), ...; question end:
+		// free type variables, which subtyping tolerates (subtype.c:19)
+		binds := []any{q.Args[0]}
+		if b, ok := q.Args[0].(*expr.Expr); ok && b.Head == "block" {
+			binds = b.Args
+		}
+		for _, bv := range binds {
+			b, ok := bv.(*expr.Expr)
+			if !ok || b.Head != "=" {
+				return "E"
+			}
+			name, _ := b.Args[0].(expr.Symbol)
+			call, ok := b.Args[1].(*expr.Expr)
+			if !ok || call.Head != "call" || call.Args[0] != any(expr.Symbol("TypeVar")) || len(call.Args) < 2 {
+				return "E"
+			}
+			bounds := make([]any, 0, 2)
+			for _, a := range call.Args[2:] {
+				v, err := ev.eval(a)
+				if err != nil {
+					return "E"
+				}
+				bounds = append(bounds, v)
+			}
+			var lb, ub any = Bottom, AnyType
+			switch len(bounds) {
+			case 1:
+				ub = bounds[0]
+			case 2:
+				lb, ub = bounds[0], bounds[1]
+			}
+			tvv, err := NewTypeVar(string(name), lb, ub)
+			if err != nil {
+				return "E"
+			}
+			ev.vars[name] = tvv
+		}
+		body, ok := q.Args[1].(*expr.Expr)
+		if !ok || len(body.Args) == 0 {
+			return "E"
+		}
+		if q, ok = body.Args[len(body.Args)-1].(*expr.Expr); !ok {
+			return "E"
+		}
+	}
 	var op string
 	var args []any
 	switch {
@@ -269,11 +335,19 @@ func goCase(line string) string {
 	}
 	switch op {
 	case "<:":
-		return goAnswer(a, b)
+		sub, err := BuiltinSubtype(a, b)
+		if err != nil {
+			return "E"
+		}
+		return bit(sub)
 	case "==":
 		return bit(TypesEqual(a, b))
 	case "isa":
-		return bit(Isa(a, b))
+		sub, err := BuiltinIsa(a, b)
+		if err != nil {
+			return "E"
+		}
+		return bit(sub)
 	case "env":
 		n := 0
 		for t := b; ; {
