@@ -56,7 +56,8 @@ func toSx(v any) any {
 // converter is scm_to_julia for one lowering: mod is the module lowering
 // runs in, (thismodule).
 type converter struct {
-	mod expr.Module
+	mod      expr.Module
+	notImage map[sym]bool // modules of GlobalRefs known not to be in the image
 }
 
 // base is jl_base_relative_to(mod) for the modules lowering runs in.
@@ -138,6 +139,14 @@ func (c *converter) fromList(e []any) any {
 		return expr.NewvarNode{Slot: c.fromSx(args[0])}
 	case hd == "globalref":
 		m := c.fromSx(args[0]).(expr.Module)
+		if len(m.Path) > 1 && m.Path[0] == "Main" {
+			// a module defined under Main at run time (a macro's, from a
+			// hygienic scope) is not in the system image
+			if c.notImage == nil {
+				c.notImage = map[sym]bool{}
+			}
+			c.notImage[m.Path[len(m.Path)-1]] = true
+		}
 		return expr.GlobalRef{Mod: m.Path[len(m.Path)-1], Name: c.fromSx(args[1]).(sym)}
 	case hd == sTop:
 		return expr.GlobalRef{Mod: "Base", Name: c.fromSx(args[0]).(sym)}
@@ -350,7 +359,7 @@ const unusedSym sym = "#unused#"
 // code refers to except those created at run time, the module being
 // lowered and the oracle's macro-context modules (Context_*).
 func (c *converter) inImage(m sym) bool {
-	return m != c.mod.Path[len(c.mod.Path)-1] && !strings.HasPrefix(string(m), "Context_")
+	return m != c.mod.Path[len(c.mod.Path)-1] && !strings.HasPrefix(string(m), "Context_") && !c.notImage[m]
 }
 
 // linetableToDebugInfo is jl_linetable_to_debuginfo.
