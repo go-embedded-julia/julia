@@ -32,7 +32,9 @@ func gensymID(s string) (id, rest string, ok bool) {
 		return "", "", false
 	}
 	i := 1
-	if s[i] == 's' {
+	// #s12 (gensy), and #g12, the canonical form itself, so that
+	// renumbering a canonical tree is the identity up to numbering
+	if s[i] == 's' || s[i] == 'g' {
 		i++
 	}
 	j := i
@@ -55,6 +57,9 @@ func runtimeGensym(s string) (prefix string, ok bool) {
 	j := len(s)
 	for j > 2 && s[j-1] >= '0' && s[j-1] <= '9' {
 		j--
+	}
+	if j < len(s) && j >= 3 && s[j-1] == 'r' && s[j-2] == '#' {
+		j-- // ##x#r12, the canonical form
 	}
 	if j == len(s) || s[j-1] != '#' {
 		return "", false

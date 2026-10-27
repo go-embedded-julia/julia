@@ -22,6 +22,7 @@ package lower
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/go-embedded-julia/julia/expr"
@@ -81,6 +82,9 @@ func (st *State) Lower(ex any) (out any, err error) {
 				out, err = nil, fmt.Errorf("%w: %s", ErrUnsupported, string(x))
 			case internalError:
 				out, err = nil, fmt.Errorf("%w: %s", ErrInternal, string(x))
+			case runtime.Error:
+				// a broken invariant the port did not check by name
+				out, err = nil, fmt.Errorf("%w: %v", ErrInternal, x)
 			default:
 				panic(r)
 			}

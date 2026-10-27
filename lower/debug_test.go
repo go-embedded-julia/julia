@@ -48,24 +48,29 @@ func TestDebugLower(t *testing.T) {
 			{"closure", lw.closureConvert, "closure-convert"},
 			{"linear", lw.linearize, "linearize"},
 		}
-		if stage == "expand" {
-			goOut = ex
-		} else {
+		var fs []func(any) any
+		if stage != "expand" {
 			scheme = "`(lambda () () (scope-block ,(blockify " + scheme + " #f)))"
 			for _, s := range steps {
-				goOut = s.f(goOut)
+				fs = append(fs, s.f)
 				scheme = "(" + s.fl + " " + scheme + ")"
 				if s.name == stage {
 					break
 				}
 			}
 		}
-		t.Logf("go:\n%s", schemeText(goOut))
 		prog := schemeSer + "(display (ser " + scheme + "))(newline)\n"
 		cmd := exec.Command("pkgx", "julia@1.12.6", "--lisp")
 		cmd.Stdin = strings.NewReader(prog)
 		out, _ := cmd.CombinedOutput()
 		t.Logf("femtolisp:\n%s", out)
+		if stage == "expand" {
+			goOut = ex
+		}
+		for _, f := range fs {
+			goOut = f(goOut)
+		}
+		t.Logf("go:\n%s", schemeText(goOut))
 		return
 	}
 	out, err := NewState().Lower(in)

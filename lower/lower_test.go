@@ -124,6 +124,9 @@ func lowerForm(t *testing.T, st *State, f gen.LoweringForm) bool {
 		t.Fatalf("%s: %v", f.Output, err)
 	}
 	got, err := st.Lower(in)
+	if failures != nil {
+		failures.record(f.Input, got, err, want)
+	}
 	if err != nil {
 		if os.Getenv("JLGO_SHOWDIFF") != "" {
 			t.Logf("%s:\n  error %v", f.Input, err)
@@ -186,6 +189,13 @@ func TestLoweringCorpus(t *testing.T) {
 		}
 		return out
 	}}
+	if path := os.Getenv("JLGO_FAILDUMP"); path != "" {
+		failures = &failureLog{counts: map[string]int{}, samples: map[string]string{}}
+		defer func() {
+			failures.write(t, path)
+			failures = nil
+		}()
+	}
 	var files, filesSame, forms, same, recorded, drift int
 	for _, want := range readGolden[gen.LoweringCorpusEntry](t, "lowering.jsonl") {
 		got, err := gen.LoweringFile(p, want.Path)

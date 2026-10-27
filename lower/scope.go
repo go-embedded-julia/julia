@@ -159,8 +159,15 @@ func pushVar(tab *ftable, v, val any) {
 	tab.put(v, cons(val, l))
 }
 
+// popVar is pop-var!. The stacks are improper lists ending in #f (pushed
+// onto (get tab v #f)), so popping the last binding leaves #f.
 func popVar(tab *ftable, v any) {
-	tab.put(v, cdr(tab.get(v, nil)))
+	rest := cdr(tab.get(v, nil))
+	if len(rest) == 0 {
+		tab.put(v, false)
+		return
+	}
+	tab.put(v, rest)
 }
 
 func makeScope(lam []any, args, locals, globals, sp []any, renames [][2]any, prev *scope,
@@ -261,6 +268,9 @@ func (lw *lowerer) resolveScopes_(e any, s *scope, sp []any, loc any) any {
 	if isSymbol(e) {
 		if s != nil {
 			if val := s.table.get(e, false); truthy(val) {
+				if isNull(val) {
+					panic(internalError("empty binding stack for " + symString(e)))
+				}
 				return car(val)
 			}
 		}
