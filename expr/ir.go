@@ -51,6 +51,15 @@ type NewvarNode struct {
 	Slot any
 }
 
+// LineInfoNode is Core.LegacyLineInfoNode, what scm_to_julia makes of a
+// (lineinfo file line inlined_at) list: lowering quotes the line table of
+// a closure it builds at run time.
+type LineInfoNode struct {
+	File      Symbol
+	Line      int32
+	InlinedAt int32
+}
+
 // EnterNode enters a try block whose catch starts at statement Catch. Scope
 // is the optional scope value (HasScope reports whether it is present).
 type EnterNode struct {

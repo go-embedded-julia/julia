@@ -266,10 +266,9 @@ func (c *compiler) emitReturn(tail any, x any) any {
 	return rv
 }
 
-func (c *compiler) emitBreak(labl *breakLabel) {
+func (c *compiler) emitBreak(labl *breakLabel) any {
 	if c.finally != nil && c.finally.handlerTokens.length() > labl.handlerTokens.length() {
-		c.enterFinallyBlock(list(sym("break"), labl), true)
-		return
+		return c.enterFinallyBlock(list(sym("break"), labl), true)
 	}
 	if pexc := c.popExcExpr(c.catchTokens, labl.catchTokens); pexc != nil {
 		c.emit(pexc)
@@ -277,7 +276,7 @@ func (c *compiler) emitBreak(labl *breakLabel) {
 	if plist := c.popHandlerList(c.handlerTokens, labl.handlerTokens, nil); plist != nil {
 		c.emit(L(S("leave"), sp(plist)))
 	}
-	c.emit(list(sym("goto"), labl.label))
+	return c.emit(list(sym("goto"), labl.label))
 }
 
 // newMutableVar adds a slot (name nil: a fresh gensym).
@@ -656,8 +655,10 @@ func (c *compiler) compile(e any, breakLabels []*breakLabel, value bool, tail an
 		if labl == nil {
 			errorf("break or continue outside loop")
 		}
-		c.emitBreak(labl)
-		return nil
+		// the value of a break is what emit-break returns: the goto it
+		// emitted, or the finally block's tag (a `try` in value position
+		// assigns it)
+		return c.emitBreak(labl)
 	case sym("label"), sym("symboliclabel"):
 		if car(e) == sym("symboliclabel") {
 			if c.labelNesting.has(cadr(e)) {

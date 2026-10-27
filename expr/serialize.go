@@ -125,6 +125,14 @@ func ser(b *strings.Builder, v any) {
 		b.WriteString("{Newvar ")
 		ser(b, x.Slot)
 		b.WriteByte('}')
+	case LineInfoNode:
+		b.WriteString("{LI ")
+		serSym(b, x.File)
+		b.WriteByte(' ')
+		b.WriteString(strconv.Itoa(int(x.Line)))
+		b.WriteByte(' ')
+		b.WriteString(strconv.Itoa(int(x.InlinedAt)))
+		b.WriteByte('}')
 	case EnterNode:
 		b.WriteString("{Enter ")
 		b.WriteString(strconv.Itoa(x.Catch))
