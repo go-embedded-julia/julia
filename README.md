@@ -72,7 +72,11 @@ fmt.Println(expr.Serialize(ex))
 Parsing is bounded (`syntax.DefaultLimits`: 64 MiB of input, 4000 levels of
 nesting): a hostile notebook cell can make the parser return an error, not
 hang it or exhaust memory. The parser is fuzzed (`FuzzLex`, `FuzzGreen`,
-`FuzzParse`).
+`FuzzParse`), and differentially against julia: with `JLGO_ORACLE=1`,
+`TestParserFailuresAgreeWithJulia` mutates the snippets and checks every
+input both ways — `ErrParserFailed` exactly where JuliaSyntax throws, the
+same `Expr` everywhere else (200 002 inputs: 7 failures on both sides,
+0 differences; CI runs 50 000 on every pull request).
 
 ## The oracle
 

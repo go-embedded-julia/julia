@@ -246,7 +246,9 @@ jobs:
         if: matrix.check == 'oracle'
         run: |
           export JLGO_JULIA="$RUNNER_TEMP/julia/bin/julia"
-          JLGO_ORACLE=1 go test -count=1 ./...
+          # JLGO_MUTATIONS: the differential parser fuzz against julia
+          # (TestParserFailuresAgreeWithJulia) runs on 50000 mutated inputs.
+          JLGO_ORACLE=1 JLGO_MUTATIONS=50000 go test -count=1 ./...
           go run ./cmd/jloracle unicode
           go run ./cmd/jloracle snippets
           go run ./cmd/jloracle programs
