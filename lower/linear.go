@@ -56,16 +56,16 @@ type fixupPoint struct {
 type breakLabel struct {
 	name          any
 	label         int64
-	handlerTokens []any
-	catchTokens   []any
+	handlerTokens *tokens
+	catchTokens   *tokens
 }
 
 type finallyHandler struct {
 	variable      any
 	label         int64
 	actions       [][2]any // (tag . action), newest first
-	handlerTokens []any
-	catchTokens   []any
+	handlerTokens *tokens
+	catchTokens   *tokens
 }
 
 type compiler struct {
@@ -83,15 +83,14 @@ type compiler struct {
 	labelNesting    *ftable
 	finally         *finallyHandler
 	gotoFixups      []gotoFixup
-	handlerTokens   []any // innermost first
-	catchTokens     []any
-	listIdentity    map[*any]bool
+	handlerTokens   *tokens // innermost first
+	catchTokens     *tokens
 }
 
 type gotoFixup struct {
 	point         *fixupPoint
-	handlerTokens []any
-	catchTokens   []any
+	handlerTokens *tokens
+	catchTokens   *tokens
 	label         any
 }
 
@@ -128,12 +127,30 @@ func (c *compiler) makeAndMarkLabel() int64 {
 	return l
 }
 
-// sameTokens is eq? on the token stacks (shared tails of one list).
-func sameTokens(a, b []any) bool {
-	if len(a) != len(b) {
-		return false
+// tokens is a stack of exception-handler tokens, a linked list so that,
+// as in the Scheme code, two stacks are eq? when one is a tail of a
+// common list.
+type tokens struct {
+	tok  any
+	next *tokens
+}
+
+func pushTok(t *tokens, x any) *tokens { return &tokens{x, t} }
+
+func (t *tokens) length() int {
+	n := 0
+	for ; t != nil; t = t.next {
+		n++
 	}
-	return len(a) == 0 || &a[0] == &b[0]
+	return n
+}
+
+func (t *tokens) list() []any {
+	var out []any
+	for ; t != nil; t = t.next {
+		out = append(out, t.tok)
+	}
+	return out
 }
 
 func (c *compiler) enterFinallyBlock(action any, needGoto bool) int64 {
@@ -147,44 +164,44 @@ func (c *compiler) enterFinallyBlock(action any, needGoto bool) int64 {
 		if pexc := c.popExcExpr(c.catchTokens, c.finally.catchTokens); pexc != nil {
 			c.emit(pexc)
 		}
-		plist := c.popHandlerList(c.handlerTokens, c.finally.handlerTokens[1:], nil)
+		plist := c.popHandlerList(c.handlerTokens, c.finally.handlerTokens.next, nil)
 		c.emit(L(S("leave"), sp(plist)))
 		c.emit(list(sym("goto"), c.finally.label))
 	}
 	return tag
 }
 
-func (c *compiler) popExcExpr(src, dest []any) []any {
-	if sameTokens(src, dest) {
+func (c *compiler) popExcExpr(src, dest *tokens) []any {
+	if src == dest {
 		return nil
 	}
-	for s := src; ; s = s[1:] {
-		if len(s) == 0 {
+	for s := src; ; s = s.next {
+		if s == nil {
 			errorf("Attempt to jump into catch block")
 		}
-		if sameTokens(s[1:], dest) {
-			return list(sym("pop_exception"), s[0])
+		if s.next == dest {
+			return list(sym("pop_exception"), s.tok)
 		}
 	}
 }
 
-// popHandlerList returns the tokens to leave, outermost first, or nil when
+// popHandlerList returns the tokens to leave, innermost first, or nil when
 // none (the Scheme code's #f).
-func (c *compiler) popHandlerList(src, dest []any, lab any) []any {
-	if sameTokens(src, dest) {
+func (c *compiler) popHandlerList(src, dest *tokens, lab any) []any {
+	if src == dest {
 		return nil
 	}
 	var l []any
-	for s := src; ; s = s[1:] {
-		if len(s) == 0 {
+	for s := src; ; s = s.next {
+		if s == nil {
 			if lab == nil {
 				errorf("Attempt to jump into catch block")
 			}
 			errorf("cannot goto label \"%s\" inside try/catch block", symString(lab))
 		}
-		l = append([]any{s[0]}, l...)
-		if sameTokens(s[1:], dest) {
-			return reverse(l)
+		l = append(l, s.tok)
+		if s.next == dest {
+			return l
 		}
 	}
 }
@@ -192,7 +209,7 @@ func (c *compiler) popHandlerList(src, dest []any, lab any) []any {
 func (c *compiler) emitReturn(tail any, x any) any {
 	emit_ := func(x any) any {
 		var ok bool
-		if len(c.catchTokens) == 0 {
+		if c.catchTokens == nil {
 			ok = validIRReturn(x)
 		} else {
 			ok = simpleAtom(x)
@@ -222,7 +239,7 @@ func (c *compiler) emitReturn(tail any, x any) any {
 	if x == nil || !truthy(x) {
 		return nil
 	}
-	if len(c.handlerTokens) == 0 {
+	if c.handlerTokens == nil {
 		return actuallyReturn(x)
 	}
 	var tmp any
@@ -243,14 +260,14 @@ func (c *compiler) emitReturn(tail any, x any) any {
 	if c.finally != nil {
 		c.enterFinallyBlock(list(sReturn, rv), true)
 	} else {
-		c.emit(L(S("leave"), sp(c.handlerTokens)))
+		c.emit(L(S("leave"), sp(c.handlerTokens.list())))
 		actuallyReturn(rv)
 	}
 	return rv
 }
 
 func (c *compiler) emitBreak(labl *breakLabel) {
-	if c.finally != nil && len(c.finally.handlerTokens) > len(labl.handlerTokens) {
+	if c.finally != nil && c.finally.handlerTokens.length() > labl.handlerTokens.length() {
 		c.enterFinallyBlock(list(sym("break"), labl), true)
 		return
 	}
@@ -646,7 +663,7 @@ func (c *compiler) compile(e any, breakLabels []*breakLabel, value bool, tail an
 			if c.labelNesting.has(cadr(e)) {
 				errorf("label \"%s\" defined multiple times", symString(cadr(e)))
 			}
-			c.labelNesting.put(cadr(e), [2][]any{c.handlerTokens, c.catchTokens})
+			c.labelNesting.put(cadr(e), [2]*tokens{c.handlerTokens, c.catchTokens})
 		}
 		if m := c.labelMap.get(cadr(e), false); truthy(m) {
 			c.emit(list(sym("label"), m))
@@ -949,7 +966,7 @@ func (c *compiler) compileTry(e any, breakLabels []*breakLabel, value bool, tail
 	}
 	var myFinally *finallyHandler
 	c.emit(list(sAssign, handlerToken, L(S("enter"), catch, sp(c.compileArgs(scope, breakLabels)))))
-	c.handlerTokens = cons(handlerToken, c.handlerTokens)
+	c.handlerTokens = pushTok(c.handlerTokens, handlerToken)
 	if finally != nil {
 		myFinally = &finallyHandler{variable: finally, label: endl.(int64), handlerTokens: c.handlerTokens, catchTokens: c.catchTokens}
 		c.finally = myFinally
@@ -983,7 +1000,7 @@ func (c *compiler) compileTry(e any, breakLabels []*breakLabel, value bool, tail
 		}
 		c.emit(list(sym("goto"), target))
 	}
-	c.handlerTokens = c.handlerTokens[1:]
+	c.handlerTokens = c.handlerTokens.next
 	if els != nil {
 		c.markLabel(els.(int64))
 		v3 := c.compile(cadddr(e), breakLabels, value, tail)
@@ -997,11 +1014,11 @@ func (c *compiler) compileTry(e any, breakLabels []*breakLabel, value bool, tail
 	c.markLabel(catch)
 	if finally != nil {
 		c.finally = lastFinally
-		c.catchTokens = cons(handlerToken, c.catchTokens)
+		c.catchTokens = pushTok(c.catchTokens, handlerToken)
 		c.compile(caddr(e), breakLabels, false, false) // entered via exception
 		c.emit(list(sCall, topRef("rethrow")))
 		c.emitReturn(tail, null()) // unreachable
-		c.catchTokens = c.catchTokens[1:]
+		c.catchTokens = c.catchTokens.next
 		c.markLabel(endl.(int64)) // non-exceptional control flow enters here
 		c.compile(c.lw.renumberAssignedSSAValues(caddr(e)), breakLabels, false, false)
 		// actions at the exit of the finally block, by the tag variable
@@ -1030,7 +1047,7 @@ func (c *compiler) compileTry(e any, breakLabels []*breakLabel, value bool, tail
 			}
 		}
 	} else {
-		c.catchTokens = cons(handlerToken, c.catchTokens)
+		c.catchTokens = pushTok(c.catchTokens, handlerToken)
 		v2 := c.compile(catchcode, breakLabels, value, tail)
 		if val != nil {
 			c.emitAssignment(val, v2, sAssign)
@@ -1041,7 +1058,7 @@ func (c *compiler) compileTry(e any, breakLabels []*breakLabel, value bool, tail
 		if endl != nil {
 			c.markLabel(endl.(int64))
 		}
-		c.catchTokens = c.catchTokens[1:]
+		c.catchTokens = c.catchTokens.next
 	}
 	return val
 }
@@ -1067,7 +1084,7 @@ func (lw *lowerer) compileBody(e any, vi []any, lam []any) any {
 		if !truthy(nest) {
 			errorf("label \"%s\" referenced but not defined", symString(x.label))
 		}
-		tn := nest.([2][]any)
+		tn := nest.([2]*tokens)
 		if plist := c.popHandlerList(x.handlerTokens, tn[0], x.label); plist != nil {
 			x.point.stmt = L(S("leave"), sp(plist))
 		}

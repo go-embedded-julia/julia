@@ -271,7 +271,7 @@ func (c *converter) codeInfo(args []any) *expr.CodeInfo {
 			code[j] = expr.ReturnNode{Val: e.Args[0]}
 		default:
 			if gr, ok := st.(expr.GlobalRef); ok {
-				if inImage(gr.Mod) {
+				if c.inImage(gr.Mod) {
 					ci.HasImageGlobalref = true
 				}
 				break
@@ -340,14 +340,12 @@ const (
 
 const unusedSym sym = "#unused#"
 
-// inImage is jl_object_in_image of a module, for the modules lowered code
-// refers to: those of the system image.
-func inImage(m sym) bool {
-	switch m {
-	case "Core", "Base", "Main":
-		return true
-	}
-	return false
+// inImage is jl_object_in_image of a module, which is true of every module
+// loaded from the system image or a package image: all the modules the
+// code refers to except those created at run time, the module being
+// lowered and the oracle's macro-context modules (Context_*).
+func (c *converter) inImage(m sym) bool {
+	return m != c.mod.Path[len(c.mod.Path)-1] && !strings.HasPrefix(string(m), "Context_")
 }
 
 // linetableToDebugInfo is jl_linetable_to_debuginfo.

@@ -719,8 +719,9 @@ func (lw *lowerer) keywordsMethodDefExpr(name any, sparams, argl []any, body any
 	if truthy(name) {
 		und = undotName(name)
 	}
+	// (string name) of a non-symbol name prints a list, which starts with "("
 	prefix := "#"
-	if truthy(name) && symString(name)[0] == '#' {
+	if isSymbol(name) && symString(name) != "" && symString(name)[0] == '#' {
 		prefix = ""
 	}
 	undStr := "_"
@@ -2053,7 +2054,7 @@ func (lw *lowerer) lowerCcall(name, RT any, atypes, args []any, cconv any, nreq 
 			}
 			return L(sBlock, sp(stmts),
 				L(S("foreigncall"), lw.expandForms(name), lw.expandForms(RT), L(sCall, coreRef("svec"), sp(T)),
-					n, list(sQuote, cconv), sp(C), sp(reverse(GC))))
+					n, list(sQuote, cconv), sp(C), sp(GC)))
 		}
 		a := lw.expandForms(car(A))
 		var tyx any = car(F)
