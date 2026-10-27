@@ -209,10 +209,32 @@ func (lw *lowerer) expandToplevelExpr_(e any, file sym, line int64) any {
 // is already macro-expanded with hygiene resolved, so only quoted forms
 // and stray hygienic scopes would be left to handle.
 func (lw *lowerer) expandMacroscope(e any) any {
-	if contains(func(x any) bool { return is(x, "hygienic-scope") }, e) {
+	e = lw.expandQuotes(e)
+	if hasMacroscope(e) {
 		panic(unsupported("hygienic-scope in a macro-expanded form"))
 	}
-	return lw.expandQuotes(e)
+	return e
+}
+
+// hasMacroscope is whether julia-expand-macroscopes- would reach a
+// hygienic-scope: it does not look inside inert, module or toplevel forms.
+func hasMacroscope(e any) bool {
+	l, ok := e.([]any)
+	if !ok || len(l) == 0 {
+		return false
+	}
+	switch l[0] {
+	case sInert, sym("module"), sym("toplevel"):
+		return false
+	case sym("hygienic-scope"):
+		return true
+	}
+	for _, x := range l {
+		if hasMacroscope(x) {
+			return true
+		}
+	}
+	return false
 }
 
 // expandQuotes is julia-expand-quotes.

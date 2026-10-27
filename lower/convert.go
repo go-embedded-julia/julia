@@ -119,6 +119,11 @@ func (c *converter) fromList(e []any) any {
 		}
 		line, _ := ln.(int64)
 		return expr.LineNumberNode{Line: int(line), File: file}
+	case hd == "lineinfo" && n == 3:
+		file, _ := c.fromSx(args[0]).(sym)
+		line, _ := c.fromSx(args[1]).(int64)
+		at, _ := c.fromSx(args[2]).(int64)
+		return expr.LineInfoNode{File: file, Line: int32(line), InlinedAt: int32(at)}
 	case hd == "goto":
 		return expr.GotoNode(c.fromSx(args[0]).(int64))
 	case hd == "gotoifnot":

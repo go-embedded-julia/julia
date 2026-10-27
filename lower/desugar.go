@@ -395,7 +395,9 @@ func maybeRemoveFunctionloc(body any) (any, any) {
 	var functionloc any
 	if len(lnos) > 0 {
 		functionloc = car(lnos)
-	} else if l := filterL(linenum, asList(body)); len(l) > 0 {
+	} else if l := filterL(linenum, pairs(body)); len(l) > 0 {
+		// femtolisp's filter walks while pair?, so a body that is an atom
+		// (the `#s2` of a destructuring `f() = ...`) has no line nodes
 		functionloc = car(l)
 	} else {
 		functionloc = list(sLine, int64(0), sym("none"))

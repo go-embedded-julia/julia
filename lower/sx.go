@@ -97,6 +97,13 @@ func asList(x any) []any {
 	return l
 }
 
+// pairs is x as a list for the femtolisp loops that walk `while (pair? l)`:
+// an atom is the empty list to them.
+func pairs(x any) []any {
+	l, _ := x.([]any)
+	return l
+}
+
 func car(x any) any {
 	l := asList(x)
 	if len(l) == 0 {
@@ -250,7 +257,12 @@ func eq(a, b any) bool {
 	if _, ok := b.([]any); ok {
 		return false
 	}
-	return comparable(a) && comparable(b) && a == b
+	if comparable(a) && comparable(b) {
+		return a == b
+	}
+	// a julia value Go cannot compare (a Module, a Vector): the same
+	// wrapper is eq? to itself, which equal contents stand in for
+	return expr.Serialize(a) == expr.Serialize(b)
 }
 
 // equal is equal?: structural equality.

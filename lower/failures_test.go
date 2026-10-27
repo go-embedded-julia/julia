@@ -53,7 +53,12 @@ func (f *failureLog) write(t *testing.T, path string) {
 	for k := range f.counts {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool { return f.counts[keys[i]] > f.counts[keys[j]] })
+	sort.Slice(keys, func(i, j int) bool {
+		if f.counts[keys[i]] != f.counts[keys[j]] {
+			return f.counts[keys[i]] > f.counts[keys[j]]
+		}
+		return len(f.samples[keys[i]]) < len(f.samples[keys[j]])
+	})
 	var b strings.Builder
 	for _, k := range keys {
 		fmt.Fprintf(&b, "%6d %s\n       sample: %s\n\n", f.counts[k], k, f.samples[k])

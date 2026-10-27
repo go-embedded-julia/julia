@@ -141,6 +141,16 @@ function ser(io::IO, x)
             ser_field(io, isdefined(x, f) ? getfield(x, f) : nothing)
         end
         print(io, '}')
+    elseif x isa Core.LegacyLineInfoNode
+        print(io, "{LI ")
+        ser_sym(io, x.file)
+        print(io, ' ', x.line, ' ', x.inlined_at, '}')
+    elseif x isa Vector{Any}
+        # What scm_to_julia makes of a list whose head is not a symbol
+        # (src/ast.c: the args of a jl_list_sym Expr), e.g. a quoted
+        # lambda's argument list under copyast: element by element, not
+        # by repr, so that a port can produce it without porting show.
+        ser_field(io, x)
     else
         print(io, "{? ")
         ser_bytes(io, string(typeof(x)))
