@@ -421,10 +421,9 @@ func simpleUnion(a, b any) any {
 	nt := len(temp)
 	count := nt
 	ra, rb := nta, nt-nta
+	// julia skips a NULL temp[i] here (jltypes.c:738); none can be: flatten
+	// yields no NULL and only temp[i] itself is cleared, followed by break
 	for i := 0; i < nta; i++ {
-		if temp[i] == nil {
-			continue
-		}
 		hasFree := HasFreeTypeVars(temp[i])
 		for j := nta; j < nt; j++ {
 			if temp[j] == nil {

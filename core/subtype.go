@@ -1693,14 +1693,13 @@ func obviousSubtype(x, y, y0 any, sub *bool) bool {
 		*sub = false
 		return true
 	}
-	yd, ok := y.(*DataType)
-	if !ok {
-		return false
-	}
-	xd, ok := x.(*DataType)
-	if !ok {
-		return false
-	}
+	// Here both are DataTypes: y is a type that is not Any, Bottom, a Union,
+	// a TypeVar or a UnionAll (unwrapped above), and x is a type that is not
+	// Bottom, Any, a Union, a TypeVar or a UnionAll (the loop above returns
+	// unless both are UnionAlls, and then unwraps both). julia tests
+	// jl_is_datatype on both (subtype.c:2027, 2037), which cannot fail here.
+	yd := y.(*DataType)
+	xd := x.(*DataType)
 	istuple := yd.Name == TupleTypeName
 	iscov := istuple
 	uncertain := false
@@ -1737,11 +1736,13 @@ func obviousSubtype(x, y, y0 any, sub *bool) bool {
 		}
 		return false
 	}
-	if !iscov && !xd.HasFreeTypeVars {
-		if obviousSubtype(xd.Name.Wrapper, y, y0, sub) && *sub {
-			return true
-		}
-	}
+	// julia then asks obvious_subtype(x->name->wrapper, y) and returns when
+	// it answers "subtype" (subtype.c:2074-2078). That answer cannot come:
+	// x has parameters here (a parameterless x with y's name is y itself,
+	// returned at the top), so its wrapper is a UnionAll, y is not one, and
+	// obvious_subtype of a UnionAll against a non-UnionAll only ever answers
+	// "not a subtype" (subtype.c:1940-1945). The call has no other effect,
+	// so it is left out.
 	npx, npy := len(xd.Parameters), len(yd.Parameters)
 	vx, vy := varargNone, varargNone
 	var vxt any
