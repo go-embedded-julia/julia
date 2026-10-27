@@ -17,7 +17,7 @@ expectations written by hand.
 |---|---|---|
 | M0 oracle harness | `internal/oracle`, `cmd/jloracle`, golden files | **done** |
 | M1 parser | Go port of JuliaSyntax → `expr.Expr` | **done** — see parity below |
-| M2 lowering | JuliaLowering → `CodeInfo` | planned |
+| M2 lowering | port of `src/julia-syntax.scm` → `CodeInfo` | in progress — see lowering parity below |
 | M3 – M7 | Core runtime, Base, numeric stdlib, notebook bridge, wasm playground | planned |
 
 ### Parser parity with julia 1.12.6
@@ -47,6 +47,37 @@ parser, which is not ported. There `ParseAll` returns an
 
 Speed, one core each (`jloracle bench`, Apple M4 Max): Go parses the corpus in
 0.98 s, julia's `Meta.parseall` in 1.39 s (go/julia = 0.70).
+
+### Lowering parity with julia 1.12.6
+
+The reference is what `Meta.lower` returns in julia 1.12.6. That release
+lowers with the femtolisp front end, `src/julia-syntax.scm`, by default;
+JuliaLowering is not part of it. So the `lower` package ports
+`julia-syntax.scm`, the code that produces the goldens, pass by pass:
+`expand-forms`, `resolve-scopes`, `analyze-variables!`, `closure-convert`,
+`linearize`, then renumbering into `CodeInfo`.
+
+Macro expansion runs user code, so julia does it. For every top-level form
+of every corpus file, the oracle expands the form with `macroexpand` in the
+module its macros live in: `Base`, `Base.Compiler`, the stdlib, or a module
+using `Test` for test files. It records the expanded form as the input and
+`Meta.lower` of that form, in a fresh module per file, as the output.
+`:toplevel` and `:module` are entered as `include` would enter them.
+
+Outputs are compared after renumbering the front end's gensyms. Names such
+as `#s12` and `#15#x` come from counters that live for the whole julia
+session, so they differ between two sessions (macOS and Linux julia
+disagree). The comparison is therefore "identical modulo numbering"; every
+other part of the `CodeInfo` is compared, field by field.
+
+| measured on | forms julia lowered | identical in Go | files fully identical |
+|---|---|---|---|
+| corpus (`share/julia`: base, Compiler, stdlib, test) | 53 997 | 1 601 (atoms and top-level-only forms) | 28 / 1191 |
+| `testdata/lowering-snippets.jl` | 124 | 5 | — |
+
+A further 3 317 corpus forms are not counted. Their macro expansion throws
+in the oracle, mostly test files using macros from packages that are not
+loaded.
 
 ## Use
 
@@ -98,6 +129,8 @@ with the official release tarball).
 |---|---|
 | `testdata/golden/snippets.jsonl` | tokens, green tree, Expr of each snippet |
 | `testdata/golden/corpus.jsonl` | digests of the three levels for every corpus file |
+| `testdata/golden/lowering-snippets.jsonl` | macro expansion and `Meta.lower` of each form of `testdata/lowering-snippets.jl` |
+| `testdata/golden/lowering.jsonl` | per corpus file: forms lowered, digests of julia's lowered forms, forms the Go lowering reproduces |
 | `testdata/golden/programs.jsonl` | parse, `Meta.lower` and evaluation of `testdata/programs/*.jl` (for M2+) |
 | `internal/unitab/tables_gen.go` | utf8proc's Unicode 16 properties the lexer uses |
 
@@ -107,6 +140,7 @@ with the official release tarball).
 |---|---|
 | `expr` | Julia syntax-tree values, canonical serialisation |
 | `syntax` | the parser (port of JuliaSyntax: `tokenize.go`, `parse_stream.go`, `parser*.go`, `build.go`, `errors.go`) |
+| `lower` | lowering to `CodeInfo` (port of `src/julia-syntax.scm`, in progress) |
 | `internal/unitab` | Unicode tables from the reference build, utf8proc's grapheme breaks |
 | `internal/oracle` | the reference julia as a differential oracle |
 | `internal/gen`, `cmd/jloracle` | the golden-file generators |

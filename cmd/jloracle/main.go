@@ -7,6 +7,8 @@
 //	jloracle snippets   # testdata/golden/snippets.jsonl
 //	jloracle corpus     # testdata/golden/corpus.jsonl
 //	jloracle programs   # testdata/golden/programs.jsonl
+//	jloracle lowering-snippets  # testdata/golden/lowering-snippets.jsonl
+//	jloracle lowering-corpus    # testdata/golden/lowering.jsonl
 //
 // The reference is the release pinned in internal/oracle (run through pkgx,
 // or $JLGO_JULIA).
@@ -55,12 +57,14 @@ func RootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&root, "root", "C", ".", "repository root")
 
 	steps := map[string]func(o gen.Oracle, root string, out io.Writer) error{
-		"unicode":  writeUnicode,
-		"snippets": writeSnippets,
-		"corpus":   writeCorpus,
-		"programs": writePrograms,
+		"unicode":           writeUnicode,
+		"snippets":          writeSnippets,
+		"corpus":            writeCorpus,
+		"programs":          writePrograms,
+		"lowering-snippets": writeLoweringSnippets,
+		"lowering-corpus":   writeLoweringCorpus,
 	}
-	order := []string{"unicode", "snippets", "corpus", "programs"}
+	order := []string{"unicode", "snippets", "corpus", "programs", "lowering-snippets", "lowering-corpus"}
 	run := func(names []string) func(*cobra.Command, []string) error {
 		return func(c *cobra.Command, _ []string) error {
 			o, closer, err := startOracle()
@@ -77,10 +81,12 @@ func RootCmd() *cobra.Command {
 		}
 	}
 	help := map[string]string{
-		"unicode":  "write internal/unitab/tables_gen.go",
-		"snippets": "write testdata/golden/snippets.jsonl",
-		"corpus":   "write testdata/golden/corpus.jsonl",
-		"programs": "write testdata/golden/programs.jsonl",
+		"unicode":           "write internal/unitab/tables_gen.go",
+		"snippets":          "write testdata/golden/snippets.jsonl",
+		"corpus":            "write testdata/golden/corpus.jsonl",
+		"programs":          "write testdata/golden/programs.jsonl",
+		"lowering-snippets": "write testdata/golden/lowering-snippets.jsonl",
+		"lowering-corpus":   "write testdata/golden/lowering.jsonl (lowers the whole corpus)",
 	}
 	for _, n := range order {
 		cmd.AddCommand(&cobra.Command{Use: n, Short: help[n], Args: cobra.NoArgs, RunE: run([]string{n})})
