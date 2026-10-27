@@ -135,6 +135,12 @@ func isDottableOperatorStartChar(c rune) bool {
 	return c != '?' && c != '$' && c != ':' && c != '\'' && isOperatorStartChar(c)
 }
 
+// IsOpSuffixChar reports whether c may follow an operator as part of it
+// (primes, sub- and superscripts, combining marks): JuliaSyntax's
+// is_op_suffix_char, and femtolisp's jl_op_suffix_char, which list the
+// same characters.
+func IsOpSuffixChar(c rune) bool { return isOpSuffix(c) }
+
 func isOpSuffix(c rune) bool {
 	if c < 0xa1 || c > 0x10ffff {
 		return false // also eofChar and badChar
