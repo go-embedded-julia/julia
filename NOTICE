@@ -41,7 +41,10 @@ package and is also licensed under the MIT "Expat" License:
 
 ------------------------------------------------------------------------------
 Julia (syntax/repr.go: escape_string and show(::Char) of base/strings/io.jl
-and base/char.jl; expr/: the Char layout of base/char.jl), Julia 1.12.6
+and base/char.jl; expr/: the Char layout of base/char.jl and the lowered-IR
+node types of doc/src/devdocs/ast.md; lower/: the femtolisp front end
+src/julia-syntax.scm, src/ast.scm, src/jlfrontend.scm and the C glue of
+src/ast.c and src/method.c), Julia 1.12.6
 
 > MIT License
 >

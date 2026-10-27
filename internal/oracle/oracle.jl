@@ -94,12 +94,72 @@ function ser(io::IO, x)
         print(io, "{ParseError ")
         ser_bytes(io, x.msg)
         print(io, '}')
+    # The lowered IR (doc/src/devdocs/ast.md, "Lowered form").
+    elseif x isa Core.SSAValue
+        print(io, "{SSA ", x.id, '}')
+    elseif x isa Core.SlotNumber
+        print(io, "{Slot ", x.id, '}')
+    elseif x isa Core.Argument
+        print(io, "{Arg ", x.n, '}')
+    elseif x isa Core.GotoNode
+        print(io, "{Goto ", x.label, '}')
+    elseif x isa Core.GotoIfNot
+        print(io, "{GotoIfNot ")
+        ser(io, x.cond)
+        print(io, ' ', x.dest, '}')
+    elseif x isa Core.ReturnNode
+        if isdefined(x, :val)
+            print(io, "{Return ")
+            ser(io, x.val)
+            print(io, '}')
+        else
+            print(io, "{Unreachable}")
+        end
+    elseif x isa Core.NewvarNode
+        print(io, "{Newvar ")
+        ser(io, x.slot)
+        print(io, '}')
+    elseif x isa Core.EnterNode
+        print(io, "{Enter ", x.catch_dest)
+        if isdefined(x, :scope)
+            print(io, ' ')
+            ser(io, x.scope)
+        end
+        print(io, '}')
+    elseif x isa Module
+        print(io, "{M")
+        for n in fullname(x)
+            print(io, ' ')
+            ser_sym(io, n)
+        end
+        print(io, '}')
+    elseif x isa Core.CodeInfo || x isa Core.DebugInfo
+        # Every field, in declaration order; vectors as [...].
+        print(io, x isa Core.CodeInfo ? "{CodeInfo" : "{DI")
+        for f in fieldnames(typeof(x))
+            print(io, ' ')
+            ser_field(io, isdefined(x, f) ? getfield(x, f) : nothing)
+        end
+        print(io, '}')
     else
         print(io, "{? ")
         ser_bytes(io, string(typeof(x)))
         print(io, ' ')
         ser_bytes(io, repr(x))
         print(io, '}')
+    end
+end
+
+function ser_field(io::IO, v)
+    if v isa AbstractVector || v isa Core.SimpleVector
+        print(io, '[')
+        for (i, e) in enumerate(v)
+            i > 1 && print(io, ' ')
+            ser(io, e)
+        end
+        print(io, ']')
+    else
+        ser(io, v)
     end
 end
 
@@ -247,6 +307,114 @@ function lower(text)
     String(take!(io))
 end
 
+# --- Lowering goldens -------------------------------------------------------
+#
+# The contract of the Go lowering is julia's own `Meta.lower` (the femtolisp
+# front end, src/julia-syntax.scm, which julia 1.12 uses by default) applied
+# to a *macro-expanded* top-level form. Macro expansion runs user code, so it
+# is done here, by julia, in the module the macros live in; the expanded form
+# is recorded as the input, and Meta.lower of it, in a fresh module per file,
+# as the output. Forms are visited in file order, as `include` would, and
+# :toplevel / :module are entered (lowering leaves them for the evaluator).
+
+# The module whose macros a corpus file is expanded with.
+const CONTEXTS = Dict{String,Module}()
+
+function context_module(rel)
+    get!(CONTEXTS, context_key(rel)) do
+        key = context_key(rel)
+        key == "base" && return Base
+        key == "Compiler" && return Base.Compiler
+        if startswith(key, "stdlib-src:")
+            name = Symbol(key[length("stdlib-src:")+1:end])
+            m = try
+                Base.require(Main, name)
+            catch
+                nothing
+            end
+            m isa Module && return m
+        end
+        m = Module(Symbol("Context_", replace(key, r"[^A-Za-z0-9]" => "_")))
+        for pkg in (:Test, :Random, :InteractiveUtils)
+            try
+                Core.eval(m, :(using $pkg))
+            catch
+            end
+        end
+        if startswith(key, "stdlib")
+            try
+                Core.eval(m, :(using $(Symbol(split(key, ':')[2]))))
+            catch
+            end
+        end
+        m
+    end
+end
+
+function context_key(rel)
+    parts = splitpath(rel)
+    parts[1] in ("base", "Compiler") && return parts[1]
+    if parts[1] == "stdlib" && length(parts) >= 4
+        return (parts[4] == "src" ? "stdlib-src:" : "stdlib-test:") * parts[3]
+    end
+    return "test"
+end
+
+const NULL_LOGGER = Base.CoreLogging.NullLogger()
+
+# Each top-level form of `text` as one line: `F\tinput\toutput` (both
+# serialised, base64) for a form that expanded, `E\tinput\tmessage` for one
+# whose macro expansion threw (the input is then the unexpanded form).
+function lower_forms(text, rel)
+    # Macros such as @__DIR__ make the relative file name absolute against
+    # the working directory: fix it, so that the expansion is the same
+    # whoever runs the oracle, from wherever.
+    cd("/")
+    ctx = context_module(rel)
+    lm = Module(:L, false, false)
+    io = IOBuffer()
+    rec(tag, a, b) = println(io, tag, '\t', base64encode(a), '\t', base64encode(b))
+    function visit(ex, expanded::Bool)
+        if ex isa LineNumberNode
+            return
+        elseif ex isa Expr && ex.head === :toplevel
+            foreach(a -> visit(a, false), ex.args)
+            return
+        elseif ex isa Expr && ex.head === :module && length(ex.args) >= 3 && ex.args[3] isa Expr
+            foreach(a -> visit(a, false), ex.args[3].args)
+            return
+        end
+        if !expanded
+            x = try
+                Base.CoreLogging.with_logger(NULL_LOGGER) do
+                    macroexpand(ctx, ex)
+                end
+            catch err
+                rec("E", serialize_expr(ex), sprint(showerror, err))
+                return
+            end
+            if x isa Expr && x.head in (:toplevel, :module)
+                visit(x, true)
+                return
+            end
+            ex = x
+        end
+        out = try
+            Base.CoreLogging.with_logger(NULL_LOGGER) do
+                Meta.lower(lm, ex)
+            end
+        catch err
+            # lowering itself threw (not an Expr(:error) result)
+            rec("L", serialize_expr(ex), sprint(showerror, err))
+            return
+        end
+        rec("F", serialize_expr(ex), serialize_expr(out))
+    end
+    top = Meta.parseall(text; filename=rel)
+    foreach(a -> visit(a, false), top.args)
+    String(take!(io))
+end
+
 function evaluate(text)
     m = Module(:OracleEval)
     Core.eval(m, :(using Base))
@@ -352,6 +520,12 @@ function answer(op, args)
         return syntax_snippets()
     elseif op == "lower"
         return lower(String(base64decode(args[1])))
+    elseif op == "lowerforms"
+        # args: source text and the corpus-relative path it is lowered as.
+        return lower_forms(String(base64decode(args[1])), String(base64decode(args[2])))
+    elseif op == "lowerfile"
+        rel = String(base64decode(args[1]))
+        return lower_forms(read(joinpath(SHARE, rel), String), rel)
     elseif op == "eval"
         return evaluate(String(base64decode(args[1])))
     elseif op == "unicode"

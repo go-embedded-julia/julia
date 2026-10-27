@@ -101,6 +101,79 @@ func ser(b *strings.Builder, v any) {
 		b.WriteString("{ParseError ")
 		serBytes(b, x.Msg)
 		b.WriteByte('}')
+	case SSAValue:
+		tagged(b, "SSA", strconv.Itoa(int(x)))
+	case SlotNumber:
+		tagged(b, "Slot", strconv.Itoa(int(x)))
+	case Argument:
+		tagged(b, "Arg", strconv.Itoa(int(x)))
+	case GotoNode:
+		tagged(b, "Goto", strconv.Itoa(int(x)))
+	case GotoIfNot:
+		b.WriteString("{GotoIfNot ")
+		ser(b, x.Cond)
+		b.WriteByte(' ')
+		b.WriteString(strconv.Itoa(x.Dest))
+		b.WriteByte('}')
+	case ReturnNode:
+		b.WriteString("{Return ")
+		ser(b, x.Val)
+		b.WriteByte('}')
+	case Unreachable:
+		b.WriteString("{Unreachable}")
+	case NewvarNode:
+		b.WriteString("{Newvar ")
+		ser(b, x.Slot)
+		b.WriteByte('}')
+	case EnterNode:
+		b.WriteString("{Enter ")
+		b.WriteString(strconv.Itoa(x.Catch))
+		if x.HasScope {
+			b.WriteByte(' ')
+			ser(b, x.Scope)
+		}
+		b.WriteByte('}')
+	case Module:
+		b.WriteString("{M")
+		for _, p := range x.Path {
+			b.WriteByte(' ')
+			serSym(b, p)
+		}
+		b.WriteByte('}')
+	case Tagged:
+		tagged(b, x.Type, x.Text)
+	case Opaque:
+		b.WriteString("{? ")
+		serBytes(b, x.Type)
+		b.WriteByte(' ')
+		serBytes(b, x.Repr)
+		b.WriteByte('}')
+	case Vector:
+		b.WriteByte('[')
+		for i, e := range x {
+			if i > 0 {
+				b.WriteByte(' ')
+			}
+			ser(b, e)
+		}
+		b.WriteByte(']')
+	case *CodeInfo:
+		b.WriteString("{CodeInfo")
+		for _, f := range x.Values() {
+			b.WriteByte(' ')
+			ser(b, f)
+		}
+		b.WriteByte('}')
+	case *DebugInfo:
+		b.WriteString("{DI ")
+		ser(b, x.Def)
+		b.WriteByte(' ')
+		ser(b, x.Linetable)
+		b.WriteByte(' ')
+		ser(b, x.Edges)
+		b.WriteByte(' ')
+		serBytes(b, x.Codelocs)
+		b.WriteByte('}')
 	default:
 		b.WriteString("{? ")
 		serBytes(b, fmt.Sprintf("%T", v))

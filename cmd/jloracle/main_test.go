@@ -75,6 +75,11 @@ func (f fakeOracle) Call(op string, args ...string) (string, error) {
 		}
 	case "benchparse":
 		return "2000000 6", nil
+	case "lowerforms", "lowerfile":
+		enc := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+		rec := func(tag, in, out string) string { return tag + "\t" + enc(in) + "\t" + enc(out) + "\n" }
+		return rec("F", ":x", ":x") + rec("F", "(:call :f)", "(:thunk)") +
+			rec("E", ":y", "UndefVarError") + rec("L", ":z", "boom"), nil
 	}
 	return op, nil
 }
@@ -104,6 +109,7 @@ func scaffold(t *testing.T) string {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, "testdata", "programs"), 0o755)
 	os.WriteFile(filepath.Join(root, "testdata", "snippets-extra.jl"), []byte("#----\ny\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "testdata", "lowering-snippets.jl"), []byte("x\n#----\nf()\n"), 0o644)
 	os.WriteFile(filepath.Join(root, "testdata", "programs", "p.jl"), []byte("1 + 1\n"), 0o644)
 	os.WriteFile(filepath.Join(root, "testdata", "programs", "README"), []byte("not a program"), 0o644)
 	return root
@@ -118,7 +124,8 @@ func TestRegen(t *testing.T) {
 	}
 	for _, f := range []string{"internal/unitab/tables_gen.go", "internal/unitab/testdata/normalize.txt",
 		"internal/unitab/testdata/graphemebreak.txt", "testdata/golden/snippets.jsonl",
-		"testdata/golden/corpus.jsonl", "testdata/golden/programs.jsonl"} {
+		"testdata/golden/corpus.jsonl", "testdata/golden/programs.jsonl",
+		"testdata/golden/lowering-snippets.jsonl", "testdata/golden/lowering.jsonl"} {
 		if _, err := os.Stat(filepath.Join(root, f)); err != nil {
 			t.Errorf("%s not written: %v", f, err)
 		}
@@ -144,12 +151,46 @@ func TestRegen(t *testing.T) {
 	if !strings.Contains(out, want) {
 		t.Errorf("output:\n%s\nwant %s", out, want)
 	}
+	// :x lowers to itself; the call is not ported yet.
+	if want := "lowering parity: 0/1 files, 1/2 forms (1 forms not expandable, 1 lowering errors in julia)"; !strings.Contains(out, want) {
+		t.Errorf("output:\n%s\nwant %s", out, want)
+	}
+}
+
+func TestLoweringParityCount(t *testing.T) {
+	saved := loweringSide
+	defer func() { loweringSide = saved }()
+	loweringSide.Lower = func(forms []gen.LoweringForm) []bool {
+		out := make([]bool, len(forms))
+		for i := range out {
+			out[i] = true
+		}
+		return out
+	}
+	withFake(t, fakeOracle{})
+	out, err := run(t, "lowering-corpus", "-C", scaffold(t))
+	if err != nil || !strings.Contains(out, "lowering parity: 1/1 files, 2/2 forms") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+func TestLowerForms(t *testing.T) {
+	got := lowerForms([]gen.LoweringForm{
+		{Tag: "F", Input: ":x", Output: ":x"},
+		{Tag: "F", Input: "(bad", Output: ":x"},
+		{Tag: "F", Input: ":x", Output: "(bad"},
+		{Tag: "F", Input: ":x", Output: ":y"},
+	})
+	if fmt.Sprint(got) != "[true false false false]" {
+		t.Fatalf("lowerForms: %v", got)
+	}
 }
 
 func TestStepFailures(t *testing.T) {
 	for _, tc := range []struct{ step, fail string }{
 		{"unicode", "unicode"}, {"unicode", "normalize"}, {"unicode", "graphemebreak"},
 		{"snippets", "snippets"}, {"corpus", "corpus"}, {"programs", "lower"},
+		{"lowering-snippets", "lowerforms"}, {"lowering-corpus", "lowerfile"},
 	} {
 		withFake(t, fakeOracle{fail: tc.fail})
 		if _, err := run(t, tc.step, "-C", scaffold(t)); err == nil {
@@ -179,6 +220,9 @@ func TestStepFailures(t *testing.T) {
 	}
 	if _, err := run(t, "programs", "-C", empty); err == nil {
 		t.Error("programs without the programs directory succeeded")
+	}
+	if _, err := run(t, "lowering-snippets", "-C", empty); err == nil {
+		t.Error("lowering-snippets without the snippet file succeeded")
 	}
 	unreadable := scaffold(t)
 	os.MkdirAll(filepath.Join(unreadable, "testdata", "programs", "dir.jl"), 0o755)
