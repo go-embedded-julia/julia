@@ -50,7 +50,7 @@ type stenv struct {
 // bound: a hostile type (unions nested inside unions on both sides) makes
 // the ∀/∃ enumeration exponential, and an untrusted notebook cell can write
 // one. Exceeding it raises an error instead of running for hours.
-const maxSubtypeCalls = 1 << 22
+var maxSubtypeCalls = 1 << 22
 
 func (e *stenv) lookup(v *TypeVar) *varBinding {
 	for b := e.vars; b != nil; b = b.prev {
