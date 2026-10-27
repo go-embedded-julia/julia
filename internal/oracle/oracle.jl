@@ -147,6 +147,40 @@ function ser_green(io, g)
     print(io, ')')
 end
 
+# Whether JuliaSyntax itself throws on `text`: the body of the `try` in
+# core_parser_hook (hooks.jl) for options=:all, without its `catch`, which
+# would log "JuliaSyntax parser failed" and answer from flisp instead. The
+# answer is "ok" or "throws <exception type>".
+function jsfails(text, filename)
+    try
+        stream = JS.ParseStream(text, 1)
+        JS.parse!(stream; rule=:all)
+        if JS.any_error(stream)
+            pos_before_comments = JS.last_non_whitespace_byte(stream)
+            tree = JS.build_tree(JS.SyntaxNode, stream, first_line=1, filename=filename)
+            tag = JS._incomplete_tag(tree, pos_before_comments)
+            exc = JS.ParseError(stream, filename=filename, first_line=1, incomplete_tag=tag)
+            msg = sprint(showerror, exc)
+            error_ex = Expr(tag === :none ? :error : :incomplete, Meta.ParseError(msg, exc))
+            topex = Expr(tree)
+            @assert topex.head == :toplevel
+            i = findfirst(JS._has_nested_error, topex.args)
+            if i > 1 && topex.args[i-1] isa LineNumberNode
+                i -= 1
+            end
+            resize!(topex.args, i-1)
+            _, errort = JS._first_error(tree)
+            push!(topex.args, LineNumberNode(JS.source_line(errort), filename))
+            push!(topex.args, error_ex)
+        else
+            JS.build_tree(Expr, stream; filename=filename, first_line=1)
+        end
+        return "ok"
+    catch exc
+        return "throws " * string(typeof(exc))
+    end
+end
+
 # Every *.jl file of the corpus roots, relative to SHARE, sorted.
 function corpus_files()
     out = String[]
@@ -298,6 +332,8 @@ function answer(op, args)
         return tokens(String(base64decode(args[1])))
     elseif op == "green"
         return green(String(base64decode(args[1])))
+    elseif op == "jsfails"
+        return jsfails(String(base64decode(args[1])), String(base64decode(args[2])))
     elseif op == "readfile"
         return read(joinpath(SHARE, String(base64decode(args[1]))), String)
     elseif op == "corpus"
