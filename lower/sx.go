@@ -325,6 +325,11 @@ func truthy(x any) bool {
 // loweringError is (error msg): error-wrap turns it into Expr(:error, msg).
 type loweringError string
 
+// loweringErrorValue is (error v) for a message that is not a femtolisp
+// string (a julia String from an Expr(:error) of the input): error-wrap
+// returns (error v) unchanged.
+type loweringErrorValue struct{ msg any }
+
 // internalError marks a broken invariant of the port (femtolisp would
 // raise a type error there).
 type internalError string

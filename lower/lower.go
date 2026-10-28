@@ -143,8 +143,19 @@ func toSxChecked(ex any) (out any) {
 func (lw *lowerer) errorWrap(f func() any) (out any) {
 	defer func() {
 		if r := recover(); r != nil {
-			msg, ok := r.(loweringError)
-			if !ok {
+			var msg loweringError
+			switch x := r.(type) {
+			case loweringError:
+				msg = x
+			case loweringErrorValue:
+				out = list(sym("error"), x.msg)
+				return
+			case internalError, runtime.Error:
+				// femtolisp's own errors (a car of an atom, a missing
+				// argument) on a malformed form
+				out = list(sym("error"), sstr("malformed expression"))
+				return
+			default:
 				panic(r)
 			}
 			if strings.HasPrefix(string(msg), "incomplete:") {
@@ -312,19 +323,18 @@ func formatFileLine(file, line any, exact bool) string {
 func reprJuliaString(s string) string { return syntax.ReprString(s) }
 
 // juliaRepr is the text julia prints for an opaque value in an error
-// message.
+// message: jl_static_show, which femtolisp prints a julia value with.
 func juliaRepr(v any) string {
 	switch x := v.(type) {
 	case expr.Opaque:
 		return x.Repr
 	case expr.Module:
-		parts := make([]string, len(x.Path))
-		for i, p := range x.Path {
-			parts[i] = string(p)
-		}
-		return strings.Join(parts, ".")
+		s := moduleString(x)
+		return strings.TrimSuffix(strings.TrimPrefix(s, "#<julia: "), ">")
 	case expr.Char:
 		return syntax.ReprChar(x)
+	case string:
+		return reprJuliaString(x)
 	}
 	panic(unsupportedf("repr of %T", v))
 }

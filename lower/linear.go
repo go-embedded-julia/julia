@@ -846,20 +846,23 @@ func (c *compiler) compile(e any, breakLabels []*breakLabel, value bool, tail an
 	case sym("escape"):
 		errorf("\"esc(...)\" used outside of macro expansion")
 	case sym("error"):
-		errorf("%s", symString(cadr(e)))
+		// (error (cadr e)) raises the message as it is, a julia String:
+		// error-wrap returns it unchanged
+		panic(loweringErrorValue{cadr(e)})
 	}
 	errorf("invalid syntax %s", deparse(e))
 	return nil
 }
 
+// linenodeString is linenode-string.
 func linenodeString(lno any) string {
-	if !truthy(lno) || lno == nil {
-		return ""
+	switch {
+	case lengthEq(lno, 2):
+		return " around line " + symString(cadr(lno))
+	case lengthEq(lno, 3):
+		return " around " + symString(caddr(lno)) + ":" + symString(cadr(lno))
 	}
-	if lengthEq(lno, 2) {
-		return " at line " + symString(cadr(lno))
-	}
-	return " at " + symString(caddr(lno)) + ":" + symString(cadr(lno))
+	return ""
 }
 
 func (c *compiler) compileBlock(e any, breakLabels []*breakLabel, value bool, tail any) any {

@@ -120,7 +120,8 @@ func symString(x any) string {
 	case expr.Module:
 		return moduleString(v)
 	}
-	panic(internalError("string of an opaque value"))
+	// print.c: a julia value is "#<julia: " jl_static_print ">"
+	return "#<julia: " + juliaRepr(x) + ">"
 }
 
 // moduleString is how femtolisp prints a julia Module (print.c:

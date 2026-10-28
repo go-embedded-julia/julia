@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-embedded-julia/julia/expr"
 	"github.com/go-embedded-julia/julia/internal/gen"
 	"github.com/go-embedded-julia/julia/internal/oracle"
 )
@@ -72,7 +73,7 @@ func TestLoweringExprs(t *testing.T) {
 		st := NewState()
 		for _, f := range forms {
 			got, err := st.Lower(mustParse(t, f.Input))
-			if g := serializeCanonical(got); err != nil || g != f.Output {
+			if g := expr.Serialize(Canonical(got)); err != nil || g != f.Output {
 				k := 0
 				for k < len(g) && k < len(f.Output) && g[k] == f.Output[k] {
 					k++
