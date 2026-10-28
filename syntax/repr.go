@@ -111,6 +111,12 @@ func escapeString(b *strings.Builder, s string, esc string) {
 	}
 }
 
+// ReprString is julia's repr(::String).
+func ReprString(s string) string { return reprString(s) }
+
+// ReprChar is julia's repr(::Char).
+func ReprChar(c expr.Char) string { return reprChar(c) }
+
 // reprString is repr(::String): print_quoted, escaping " and $.
 func reprString(s string) string {
 	var b strings.Builder

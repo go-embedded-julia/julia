@@ -1,0 +1,119 @@
+{"input":":x","text":"x"}
+{"input":"1","text":"1"}
+{"input":"\"s\"","text":"\"s\""}
+{"input":"true","text":"true"}
+{"input":"nothing","text":"nothing"}
+{"input":"(:call :f :x)","text":"f(x)"}
+{"input":"(:call :\"+\" :a :b)","text":"(a + b)"}
+{"input":"(:call :\":\" :a :b)","text":"a:b"}
+{"input":"(:call :\":\" :a :b :c)","text":"a:b:c"}
+{"input":"(:call (:\"::\" :f :T) :x)","text":"(f::T)(x)"}
+{"input":"(:call :\":\")","text":"(:)()"}
+{"input":"(:call :f (:parameters :k) :x)","text":"f(x,; k)"}
+{"input":"(:call :f (:parameters :k))","text":"f(; k)"}
+{"input":"(:ref :\":\" 1)","text":"(:)[1]"}
+{"input":"(:\".\" :a {Q :b})","text":"a.b"}
+{"input":"(:\".\" :a (:copyast (:inert :b)))","text":"a.b"}
+{"input":"(:\".\" :a :b)","text":"a.(b)"}
+{"input":"(:\".\" :f)","text":"(.f)"}
+{"input":"(:\".\" :a {Q :\".+\"})","text":"a.:.+"}
+{"input":"(:\"...\" :x)","text":"x..."}
+{"input":"(:\"'\" :x)","text":"x'"}
+{"input":"(:\"&&\" :a :b)","text":"a && b"}
+{"input":"(:\"=\" :a 1)","text":"a = 1"}
+{"input":"(:\"->\" :x :y)","text":"x -> y"}
+{"input":"(:\"<:\" :a :b)","text":"a <: b"}
+{"input":"(:\"<:\" :a)","text":"<:a"}
+{"input":"(:\">:\" :a :b)","text":"a >: b"}
+{"input":"(:\"-->\" :a :b)","text":"a --> b"}
+{"input":"(:\"...\" (:call :f))","text":"f()..."}
+{"input":"(:as (:\".\" :A) :B)","text":"A as B"}
+{"input":"(:\"$\" :x)","text":"$x"}
+{"input":"(:\"$\" (:call :f :x))","text":"$(f(x))"}
+{"input":"(:\"$\" (:tuple :a))","text":"$(a,)"}
+{"input":"(:\"&\" :x)","text":"&x"}
+{"input":"(:\"::\" :x :T)","text":"x::T"}
+{"input":"(:\"::\" :T)","text":"::T"}
+{"input":"(:comparison :a :\"<\" :b)","text":"a < b"}
+{"input":"(:macrocall :@m nothing :x)","text":"@m nothing x"}
+{"input":"(:kw :a 1)","text":"a = 1"}
+{"input":"(:where :T :S)","text":"T where S"}
+{"input":"(:where :T :S :U)","text":"T where {S, U}"}
+{"input":"(:parameters :a :b)","text":"; a, b"}
+{"input":"(:tuple :a)","text":"(a,)"}
+{"input":"(:tuple :a :b)","text":"(a, b)"}
+{"input":"(:tuple (:parameters :k) :a)","text":"(a,; k)"}
+{"input":"(:tuple (:parameters :k) :a :b)","text":"(a, b; k)"}
+{"input":"(:ref :a 1)","text":"a[1]"}
+{"input":"(:curly :A :T)","text":"A{T}"}
+{"input":"(:vect 1 2)","text":"[1, 2]"}
+{"input":"(:vcat 1 2)","text":"[1; 2]"}
+{"input":"(:typed_vcat :T 1 2)","text":"T[1; 2]"}
+{"input":"(:hcat 1 2)","text":"[1 2]"}
+{"input":"(:typed_hcat :T 1 2)","text":"T[1 2]"}
+{"input":"(:ncat 2 1 2)","text":"[1;; 2]"}
+{"input":"(:ncat 3 1)","text":"[1;;;]"}
+{"input":"(:typed_ncat :T 2 1 2)","text":"T[1;; 2]"}
+{"input":"(:row 1 2)","text":"1 2"}
+{"input":"(:nrow 2 1 2)","text":"1;; 2"}
+{"input":"(:braces 1 2)","text":"{1, 2}"}
+{"input":"(:bracescat 1 2)","text":"{1; 2}"}
+{"input":"(:string \"a\" :b (:call :f))","text":"\"a$b$(f())\""}
+{"input":"(:generator :x (:\"=\" :x :y))","text":"(x for x = y)"}
+{"input":"(:generator :x (:\"=\" :x :y) (:\"=\" :z :w))","text":"(x for x = y, z = w)"}
+{"input":"(:flatten (:generator (:generator :x (:\"=\" :x :y)) (:\"=\" :y :z)))","text":"(x for y = z for x = y)"}
+{"input":"(:filter :c (:\"=\" :x :y))","text":"x = y if c"}
+{"input":"(:comprehension (:generator :x (:\"=\" :x :y)))","text":"[ x for x = y ]"}
+{"input":"(:typed_comprehension :T (:generator :x (:\"=\" :x :y)))","text":"T[ x for x = y ]"}
+{"input":"(:block :a :b)","text":"begin\n    a\n    b\nend"}
+{"input":"(:block)","text":"begin\nend"}
+{"input":"(:toplevel :a :b)","text":"a\nb"}
+{"input":"(:function (:call :f :x) (:block :x))","text":"function f(x)\n    x\nend"}
+{"input":"(:function :f)","text":"function f\nend"}
+{"input":"(:macro (:call :m) (:block))","text":"macro m()\nend"}
+{"input":"(:for (:\"=\" :i :r) (:block :i))","text":"for i = r\n    i\nend"}
+{"input":"(:while :c (:block :x))","text":"while c\n    x\nend"}
+{"input":"(:function (:call :f) :x)","text":"function f()\n    x\nend"}
+{"input":"(:return :x)","text":"return x"}
+{"input":"(:break)","text":"break"}
+{"input":"(:continue)","text":"continue"}
+{"input":"(:if :c (:block :a))","text":"if c\n    a\nend"}
+{"input":"(:if :c (:block :a) (:block :b))","text":"if c\n    a\nelse\n    b\nend"}
+{"input":"(:if :c (:block :a) (:elseif (:block {L 1 :f} :d) (:block :b)))","text":"if c\n    a\nelseif d\n    b\nend"}
+{"input":"(:if :c (:block :a) (:elseif (:block {L 1 :f} :d) (:block :b) (:block :e)))","text":"if c\n    a\nelseif d\n    b\nelse\n    e\nend"}
+{"input":"(:let (:block (:\"=\" :a 1) :b) (:block :a))","text":"let a = 1, b\n    a\nend"}
+{"input":"(:try (:block :a) :e (:block :b))","text":"try\n    a\ncatch e\n    b\nend"}
+{"input":"(:try (:block :a) false (:block :b))","text":"try\n    a\ncatch\n    b\nend"}
+{"input":"(:try (:block :a) false false (:block :f))","text":"try\n    a\nfinally\n    f\nend"}
+{"input":"(:try (:block :a) :e (:block :b) false (:block :g))","text":"try\n    a\ncatch e\n    b\nelse\n    g\nend"}
+{"input":"(:try (:block :a) false false false)","text":"try\n    a\nend"}
+{"input":"(:do (:call :f :x) (:\"->\" (:tuple :y) (:block :y)))","text":"f(x) do y\n    y\nend"}
+{"input":"(:do (:call :f) (:\"->\" (:tuple) (:block :y)))","text":"f() do\n    y\nend"}
+{"input":"(:struct true :S (:block :a))","text":"mutable struct S\n    a\nend"}
+{"input":"(:struct false :S (:block))","text":"struct S\nend"}
+{"input":"(:abstract :A)","text":"abstract type A end"}
+{"input":"(:primitive :P 8)","text":"primitive type P 8 end"}
+{"input":"(:module true :M (:block :a :b))","text":"module M\na\nb\nend"}
+{"input":"(:module false :M (:block))","text":"baremodule M\n\nend"}
+{"input":"(:import (:\".\" :A :b))","text":"import A.b"}
+{"input":"(:using (:\".\" :\".\" :A))","text":"using .A"}
+{"input":"(:import (:\":\" (:\".\" :A) (:\".\" :b) (:\".\" :c)))","text":"import A: b, c"}
+{"input":"(:import :x)","text":"import x"}
+{"input":"(:global :a :b)","text":"global a, b"}
+{"input":"(:local :a)","text":"local a"}
+{"input":"(:export :a)","text":"export a"}
+{"input":"(:public :a)","text":"public a"}
+{"input":"(:const (:\"=\" :a 1))","text":"const a = 1"}
+{"input":"(:top :x)","text":"x"}
+{"input":"(:core :x)","text":"Core.x"}
+{"input":"(:ssavalue 1)","text":"SSAValue(1)"}
+{"input":"(:line 1)","text":"# line 1"}
+{"input":"(:line 1 :f)","text":"# f, line 1"}
+{"input":"(:copyast :x)","text":"x"}
+{"input":"(:quote :x)","text":":x"}
+{"input":"(:quote :\"=x\")","text":":(=x)"}
+{"input":"(:quote :\":x\")","text":":(:x)"}
+{"input":"(:quote (:call :f))","text":":(f())"}
+{"input":"(:inert :x)","text":":x"}
+{"input":"(:unknown 1 2)","text":"(unknown 1 2)"}
+{"input":"(:function (:call :f) (:block (:if :c (:block :a)) (:try (:block :a) :e (:block :b) (:block :c)) (:let (:block) (:block :z))))","text":"function f()\n    if c\n        a\n    end\n    try\n        a\n    catch e\n        b\n    finally\n        c\n    end\n    let \n        z\n    end\nend"}

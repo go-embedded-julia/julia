@@ -32,7 +32,9 @@ func gensymID(s string) (id, rest string, ok bool) {
 		return "", "", false
 	}
 	i := 1
-	if s[i] == 's' {
+	// #s12 (gensy), and #g12, the canonical form itself, so that
+	// renumbering a canonical tree is the identity up to numbering
+	if s[i] == 's' || s[i] == 'g' {
 		i++
 	}
 	j := i
@@ -56,6 +58,9 @@ func runtimeGensym(s string) (prefix string, ok bool) {
 	for j > 2 && s[j-1] >= '0' && s[j-1] <= '9' {
 		j--
 	}
+	if j < len(s) && j >= 3 && s[j-1] == 'r' && s[j-2] == '#' {
+		j-- // ##x#r12, the canonical form
+	}
 	if j == len(s) || s[j-1] != '#' {
 		return "", false
 	}
@@ -75,10 +80,21 @@ func (c *canon) sym(s expr.Symbol) expr.Symbol {
 	if !ok {
 		return s
 	}
-	g, seen := c.ids[id]
+	// A bare `#12` is an anonymous function's name from the module counter
+	// and `#12#x` a named gensym from the front end's counter: two series
+	// whose numbers can meet, so they are renumbered apart.
+	key := id
+	if rest == "" {
+		key += "$"
+	}
+	g, seen := c.ids[key]
 	if !seen {
 		g = "#g" + strconv.Itoa(len(c.ids)+1)
-		c.ids[id] = g
+		c.ids[key] = g
+	}
+	if len(rest) > 1 && rest[1] == '#' {
+		// a renamed gensym, `#3##s137`: the inner one is renumbered too
+		rest = "#" + string(c.sym(expr.Symbol(rest[1:])))
 	}
 	return expr.Symbol(g + rest)
 }

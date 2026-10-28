@@ -276,6 +276,8 @@ func (p *parser) tagged(depth int) (any, error) {
 		v = NewvarNode{Slot: x}
 	case "Enter":
 		v, err = p.enter(depth)
+	case "LI":
+		v, err = p.lineInfo()
 	default:
 		v, err = p.scalar(tag, p.word())
 	}
@@ -310,6 +312,28 @@ func (p *parser) lineNumber(depth int) (any, error) {
 		return nil, err
 	}
 	return LineNumberNode{Line: int(n), File: f}, nil
+}
+
+func (p *parser) lineInfo() (any, error) {
+	f, err := p.symbol()
+	if err != nil {
+		return nil, err
+	}
+	var n [2]int32
+	for i := range n {
+		if err := p.space(); err != nil {
+			return nil, err
+		}
+		v, err := p.int(p.word())
+		if err != nil {
+			return nil, err
+		}
+		if int64(int32(v)) != v {
+			return nil, p.fail("line info out of Int32 range")
+		}
+		n[i] = int32(v)
+	}
+	return LineInfoNode{File: f, Line: n[0], InlinedAt: n[1]}, nil
 }
 
 func (p *parser) globalRef() (any, error) {

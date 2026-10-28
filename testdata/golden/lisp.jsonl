@@ -1,0 +1,151 @@
+{"call":["vars-introduced","(try a #f b)"],"ssa":0,"out":"|none|"}
+{"call":["vars-introduced","(try a #f b c)"],"ssa":1,"out":"|none|"}
+{"call":["vars-introduced","(function (where f T) (block))"],"ssa":2,"out":"(|varlist| |T|)"}
+{"call":["vars-introduced","(function (where (|::| (call f x) T) S) (block))"],"ssa":3,"out":"(|varlist| |x| |S|)"}
+{"call":["vars-introduced","(generator)"],"ssa":4,"out":"|none|"}
+{"call":["vars-introduced","(generator x)"],"ssa":5,"out":"(|varlist|)"}
+{"call":["vars-introduced","(let (block (escape (|::| x Int)) (|::| y)) 1)"],"ssa":6,"out":"(|varlist| () |x|)"}
+{"call":["vars-introduced","(let (block (= (hygienic-scope a m) 1)) 1)"],"ssa":7,"out":"|none|"}
+{"call":["typevar-names","(T (<: S 1) 1 (comparison A <: T >: B) (var-bounds V #f #f))"],"ssa":8,"out":"(|T| |S| |V|)"}
+{"call":["let-decl-var","(hygienic-scope (escape (|::| x Int)) m)"],"ssa":9,"out":"|x|"}
+{"call":["let-decl-var","(|::| Int)"],"ssa":10,"out":"()"}
+{"call":["let-decl-var","(call f)"],"ssa":11,"out":"(|call| |f|)"}
+{"call":["decl-var*","(where (curly (call f x) T) S)"],"ssa":12,"out":"|f|"}
+{"call":["try-arg-name","(escape x)","#t"],"ssa":13,"out":"(|x|)"}
+{"call":["try-arg-name","(tuple (escape x) y (meta nospecialize (escape z)))","#t"],"ssa":14,"out":"(|x| |z|)"}
+{"call":["try-arg-name","(tuple (escape x) y (meta nospecialize z) (meta foo w))","#f"],"ssa":15,"out":"(|y| |z|)"}
+{"call":["try-arg-name","(|::| T)","#f"],"ssa":16,"out":"()"}
+{"call":["try-arg-name","1","#f"],"ssa":17,"out":"()"}
+{"call":["try-arg-name","(call f)","#f"],"ssa":18,"out":"()"}
+{"call":["find-declared-vars-in-expansion","(block (local x) (hygienic-scope (block (local y) (escape (local z)) (hygienic-scope (escape (escape (local w))) m)) m) (quote (local q)) (lambda (local l)))","local"],"ssa":19,"out":"(|x| |z| |w| |l|)"}
+{"call":["find-declared-vars-in-expansion","(block (hygienic-scope (block (lambda () (escape (local a))) (module (escape (local b))) (toplevel (escape (local c))) (quote (escape (local d))) 1) m))","local"],"ssa":20,"out":"()"}
+{"call":["find-assigned-vars-in-expansion","(block (= x 1) (hygienic-scope (block (= y 1) (escape (= z 1))) m) (function (call f) (= a 1)) (tuple (= b 1) c))"],"ssa":21,"out":"(|x| |z| |f|)"}
+{"call":["find-assigned-vars-in-expansion","(block (function f) (function (tuple a b) 1) (function (call g x) 1) (= (call h x) 1) (-> x 1) (= (tuple p (escape q)) 1))"],"ssa":22,"out":"(|f| |g| |h| |p|)"}
+{"call":["resolve-expansion-vars","(block (= x 1) (escape (escape y)) (begin end ccall cglobal _ __) (ssavalue 1) (symboliclabel a) (symbolicgoto a) (macrocall m) (meta inline) (using (escape A)) (line 1))","m"],"ssa":23,"out":"(|block| (|=| |#1#x| 1) (|escape| |y|) (|begin| |end| |ccall| |cglobal| |_| |__|) (|ssavalue| 1) (|symboliclabel| |a|) (|symbolicgoto| |a|) (|macrocall| |m|) (|meta| |inline|) (|using| |A|) (|line| 1))"}
+{"call":["resolve-expansion-vars","(block (global (escape x) (= (escape y) 1) (tuple (escape a) b) (|::| (escape c) Int) (kw (escape d) 1) (call f)) (toplevel (line 1 f) (= z 1) (line 2 (null))))","m"],"ssa":24,"out":"(|block| (|global| |x| (|=| |y| 1) (|tuple| |a| |b|) (|::| |c| (|globalref| |m| |Int|)) (|kw| |d| 1) (|call| (|globalref| |m| |f|))) (|toplevel| (|line| 1 |f|) (|hygienic-scope| (|=| |z| 1) |m|) (|line| 2 (|null|))))"}
+{"call":["resolve-expansion-vars","(block (parameters x (escape y) (kw z 1)) (kw a) (kw (|::| Int) 1) (kw (|::| b Int) 1) (call f (kw (|::| c Int) 2) (kw d 3) (parameters e)))","m"],"ssa":25,"out":"(|block| (|parameters| (|kw| |x| (|globalref| |m| |x|)) (|kw| |y| |y|) (|kw| |z| 1)) (|kw| |a|) (|kw| (|::| (|globalref| |m| |Int|)) 1) (|kw| (|::| |b| (|globalref| |m| |Int|)) 1) (|call| (|globalref| |m| |f|) (|kw| (|::| |c| (|globalref| |m| |Int|)) 2) (|kw| |d| 3) (|parameters| (|kw| |e| (|globalref| |m| |e|)))))"}
+{"call":["resolve-expansion-vars","(block (-> (where (tuple x) T) x))","m"],"ssa":26,"out":"ERROR"}
+{"call":["resolve-expansion-vars","(block (-> (escape x) x) (-> x x) (-> (tuple x) x) (-> (call f x) x))","m"],"ssa":27,"out":"(|block| (|->| (|tuple| |x|) (|globalref| |m| |x|)) (|->| (|tuple| |#3#x|) |#3#x|) (|->| (|tuple| |#4#x|) |#4#x|) (|->| (|tuple| (|call| (|globalref| |m| |f|) (|globalref| |m| |x|))) (|globalref| |m| |x|)))"}
+{"call":["resolve-expansion-vars","(block (struct #f S (block a (escape (|::| b Int)) (const (escape c)) (atomic d) (escape (escape (|::| e T))) (= f 1))))","m"],"ssa":28,"out":"(|block| (|struct| #f |S| (|block| |a| (|::| |b| |Int|) (|const| |c|) (|atomic| |d|) (|::| |e| (|escape| |T|)) (|=| |#5#f| 1))))"}
+{"call":["resolve-expansion-vars","(block (let (block (= x 1) y (escape z) (= (escape w) 2)) x) (for (escape (block (= i 1) (= j 2))) i) (for (= k 1) k) (generator x (filter c (= x r))) (generator y (= y s)))","m"],"ssa":29,"out":"(|block| (|let| (|block| (|=| |#8#x| 1) |#9#y| |z| (|=| |w| 2)) |#8#x|) (|for| (|block| (|=| |i| 1) (|=| |j| 2)) (|globalref| |m| |i|)) (|for| (|block| (|=| |#7#k| 1)) |#7#k|) (|generator| |#8#x| (|filter| (|globalref| |m| |c|) (|=| |#8#x| (|globalref| |m| |r|)))) (|generator| |#9#y| (|=| |#9#y| (|globalref| |m| |s|))))"}
+{"call":["resolve-expansion-vars","(block (hygienic-scope (block (= p 1) (escape (= q 1)) (toplevel (= r 1))) n (line 3 g)) (tuple (= s 1) t))","m"],"ssa":30,"out":"(|block| (|block| (|=| |#23#p| 1) (|=| |#22#q| 1) (|toplevel| (|hygienic-scope| (|hygienic-scope| (|=| |r| 1) |n| (|line| 3 |g|)) |m|))) (|tuple| (|=| |s| 1) (|globalref| |m| |t|)))"}
+{"call":["julia-expand-macroscope","(block (hygienic-scope (block (symboliclabel a) (symbolicgoto a) (symbolicgoto 1) (escape (symbolicgoto b)) (hygienic-scope (block (symboliclabel a) (escape (symboliclabel a))) n)) m) (symbolicgoto c) (quote (symbolicgoto d)))"],"ssa":31,"out":"(|block| (|block| (|symboliclabel| |#25#a|) (|symbolicgoto| |#25#a|) (|symbolicgoto| 1) (|symbolicgoto| |b|) (|block| (|symboliclabel| |#26#a|) (|symboliclabel| |#25#a|))) (|symbolicgoto| |c|) (|copyast| (|inert| (|symbolicgoto| |d|))))"}
+{"call":["julia-expand-macroscope","(block (escape (hygienic-scope (= x 1) m)) (inert (hygienic-scope 1 m)) (module (hygienic-scope 1 m)) (toplevel (hygienic-scope 1 m)))"],"ssa":32,"out":"(|block| (|escape| (|=| |#27#x| 1)) (|inert| (|hygienic-scope| 1 |m|)) (|module| (|hygienic-scope| 1 |m|)) (|toplevel| (|hygienic-scope| 1 |m|)))"}
+{"call":["keywords-introduced-by","(function (where (call (curly f T) (parameters (kw k 1) (escape j) (... r)) x) S) (block))"],"ssa":33,"out":"(|k| |j|)"}
+{"call":["keywords-introduced-by","(= (|::| (call f (parameters k)) T) 1)"],"ssa":34,"out":"(|k|)"}
+{"call":["keywords-introduced-by","(= (where (call f (parameters k)) T) 1)"],"ssa":35,"out":"(|k|)"}
+{"call":["keywords-introduced-by","(= (call (curly f T) (parameters k)) 1)"],"ssa":36,"out":"(|k|)"}
+{"call":["keywords-introduced-by","(function (where (tuple x) T) 1)"],"ssa":37,"out":"()"}
+{"call":["expand-toplevel-expr","(block (lambda))"],"ssa":38,"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (= x (lambda (a) () (scope-block (block a)))))"],"ssa":39,"out":"(|thunk| (|lambda| (|list|) (|list| (|list| (|list| |#s28| |Any| 10)) (|list|) 14 (|list|)) (|block| (|globaldecl| (|globalref| (|thismodule|) |x|)) (|latestworld|) (|lambda| (|list| |a|) (|list| (|list| (|list| |a| (|core| |Any|) 8)) (|list|) 2 (|list|)) (|block| (|slot| 1) (|return| (|ssavalue| 1))) (|list| 1 0) (|list| (|lineinfo| |none| 0 0))) (|call| (|core| |get_binding_type|) (|thismodule|) (|inert| |x|)) (|=| (|slot| 1) (|ssavalue| 3)) (|slot| 1) (|call| (|core| |isa|) (|ssavalue| 6) (|ssavalue| 4)) (|gotoifnot| (|ssavalue| 7) 10) (|goto| 12) (|slot| 1) (|=| (|slot| 1) (|call| (|top| |convert|) (|ssavalue| 4) (|ssavalue| 10))) (|slot| 1) (|call| (|top| |setglobal!|) (|thismodule|) (|inert| |x|) (|ssavalue| 12)) (|return| (|ssavalue| 3))) (|list| 1 1 1 1 1 1 1 1 0 1 1 1 1 0) (|list| (|lineinfo| |none| 0 0))))"}
+{"call":["expand-toplevel-expr","(block (const x y z))"],"ssa":47,"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (with-static-parameters (= x 1) T))"],"ssa":48,"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (call f (escape x)))"],"ssa":49,"out":"ERROR: \"esc(...)\" used outside of macro expansion"}
+{"call":["expand-toplevel-expr","(block (incomplete \"x\"))"],"ssa":51,"out":"ERROR: invalid syntax (incomplete x)"}
+{"call":["expand-toplevel-expr","(block (error \"x\"))"],"ssa":52,"out":"ERROR: x"}
+{"call":["expand-toplevel-expr","(block (line 1) (call f (error \"incomplete: x\")))"],"ssa":53,"out":"ERROR: incomplete: x"}
+{"call":["expand-toplevel-expr","(block (= f (lambda (x) (block x))))"],"ssa":55,"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (string (string \"a\") b))"],"ssa":56,"out":"(|thunk| (|lambda| (|list|) (|list| (|list|) (|list|) 3 (|list|)) (|block| (|globalref| (|thismodule|) |b|) (|call| (|top| |string|) \"a\" (|ssavalue| 1)) (|return| (|ssavalue| 2))) (|list| 1 1 0) (|list| (|lineinfo| |none| 0 0))))"}
+{"call":["expand-toplevel-expr","(block (break-block foo (block (break foo))))"],"ssa":59,"out":"(|thunk| (|lambda| (|list|) (|list| (|list|) (|list|) 2 (|list|)) (|block| (|goto| 2) (|return| (|null|))) (|list| 1 0) (|list| (|lineinfo| |none| 0 0))))"}
+{"call":["expand-toplevel-expr","(block (scope-block (block (local x) (assign-const-if-global x))))"],"ssa":60,"out":"ERROR"}
+{"call":["resolve-expansion-vars","(block x (= y 1))","#f"],"ssa":61,"out":"(|block| |x| (|=| |#29#y| 1))"}
+{"call":["arg-type","1"],"ssa":62,"out":"ERROR: \"1\" is not a valid function argument name"}
+{"call":["arg-type","(... x 2)"],"ssa":63,"out":"(|...| (|core| |Any|) 2)"}
+{"call":["arg-type","(|::| (call f) T)"],"ssa":64,"out":"ERROR: \"f()\" is not a valid function argument name"}
+{"call":["arg-type","(meta foo x)"],"ssa":65,"out":"ERROR: \"(meta foo x)\" is not a valid function argument name"}
+{"call":["arg-type","(meta nospecialize (|::| x T))"],"ssa":66,"out":"|T|"}
+{"call":["arg-type","(kw (|::| x T) 1)"],"ssa":67,"out":"|T|"}
+{"call":["arg-type","(call f)"],"ssa":68,"out":"ERROR: \"f()\" is not a valid function argument name"}
+{"call":["undotop","|.+|"],"ssa":69,"out":"|+|"}
+{"call":["undotop","x"],"ssa":70,"out":"ERROR"}
+{"call":["undotop","(globalref m |.*|)"],"ssa":71,"out":"(|globalref| |m| |*|)"}
+{"call":["flatten-ex","block","x"],"ssa":72,"out":"|x|"}
+{"call":["flatten-ex","block","(block a (block b (block c)) d)"],"ssa":73,"out":"(|block| |a| |b| |c| |d|)"}
+{"call":["deparse","\"s\""],"ssa":74,"out":"|\"s\"|"}
+{"call":["deparse","#t"],"ssa":75,"out":"|#t|"}
+{"call":["deparse","#f"],"ssa":76,"out":"|#f|"}
+{"call":["deparse","()"],"ssa":77,"out":"|()|"}
+{"call":["deparse","(false)"],"ssa":78,"out":"|false|"}
+{"call":["deparse","(string \"a\" x (call f))"],"ssa":79,"out":"|\"a$x$(f())\"|"}
+{"call":["string","#t"],"ssa":80,"out":"|#t|"}
+{"call":["string","#f"],"ssa":81,"out":"|#f|"}
+{"call":["string","()"],"ssa":82,"out":"|()|"}
+{"call":["string","x"],"ssa":83,"out":"|x|"}
+{"call":["string","\"s\""],"ssa":84,"out":"|s|"}
+{"call":["string","12"],"ssa":85,"out":"|12|"}
+{"call":["string","(a (b c))"],"ssa":86,"out":"|(a (b c))|"}
+{"call":["format-loc","(foo 1)"],"ssa":87,"out":"ERROR: lno is not a line number node"}
+{"call":["format-loc","(line 3)"],"ssa":88,"out":"||"}
+{"call":["format-loc","(line 3 f)"],"ssa":89,"out":"| around f:3|"}
+{"call":["format-loc","(line 0 f)"],"ssa":90,"out":"||"}
+{"call":["format-loc","#f"],"ssa":91,"out":"||"}
+{"call":["format-loc","()"],"ssa":92,"out":"||"}
+{"call":["format-file-line","f","3","#t"],"ssa":93,"out":"| at f:3|"}
+{"call":["format-file-line","f","3","#f"],"ssa":94,"out":"| around f:3|"}
+{"call":["format-file-line","none","3","#t"],"ssa":95,"out":"||"}
+{"call":["strip-op-suffix","|+′|"],"ssa":96,"out":"|+|"}
+{"call":["strip-op-suffix","|′|"],"ssa":97,"out":"|′|"}
+{"call":["strip-op-suffix","|+|"],"ssa":98,"out":"|+|"}
+{"call":["strip-op-suffix","|+₁′|"],"ssa":99,"out":"|+|"}
+{"call":["something","((null) (null))"],"ssa":100,"out":"#f"}
+{"call":["something","((null) 1 2)"],"ssa":101,"out":"1"}
+{"call":["dots->vararg","()"],"ssa":102,"out":"()"}
+{"call":["dots->vararg","(a (... b))"],"ssa":103,"out":"(|a| (|curly| |Vararg| |b|))"}
+{"call":["dots->vararg","(a b)"],"ssa":104,"out":"(|a| |b|)"}
+{"call":["replace-vars","(call f a (quote a) (-> a a) (function a) (scope-block a) b)","((a 1) (b c d))"],"ssa":105,"out":"(|call| |f| (1) (|quote| |a|) (|->| |a| |a|) (|function| |a|) (|scope-block| |a|) (|c| |d|))"}
+{"call":["replace-vars-pairs","(call f a (quote a) (-> a a) (function a) (scope-block a) b)","((a x) (b y))"],"ssa":106,"out":"(|call| |f| |x| (|quote| |a|) (|->| |a| |a|) (|function| |a|) (|scope-block| |a|) |y|)"}
+{"call":["macroify-name","(call f)"],"ssa":107,"out":"ERROR: invalid macro usage \"@(f())\""}
+{"call":["macroify-name","(quote m)"],"ssa":108,"out":"(|quote| |@m|)"}
+{"call":["macroify-name","(inert m)"],"ssa":109,"out":"(|inert| |@m|)"}
+{"call":["macroify-name","(|.| A (quote m))"],"ssa":110,"out":"(|.| |A| (|quote| |@m|))"}
+{"call":["macroify-name","(globalref M m)"],"ssa":111,"out":"(|globalref| |M| |@m|)"}
+{"call":["ctor-sig","(call (|::| x T) a)"],"ssa":112,"out":"#f"}
+{"call":["ctor-sig","(call (|::| |#ctor-self#| T) a)"],"ssa":113,"out":"(|call| (|::| |#ctor-self#| |T|) |a|)"}
+{"call":["ctor-sig","(|::| (block) T)"],"ssa":114,"out":"#f"}
+{"call":["ctor-sig","(where (call S x) T)"],"ssa":115,"out":"(|where| (|call| (|::| |#ctor-self#| (|curly| (|core| |Type|) |S|)) |x|) |T|)"}
+{"call":["ctor-sig","(foo)"],"ssa":116,"out":"#f"}
+{"call":["expand-unionall-def","A","(curly B T)","#t"],"ssa":117,"out":"(|block| (|=| (|ssavalue| 118) (|call| (|core| |apply_type|) |B| |T|)) (|const| |A| (|ssavalue| 118)) (|latestworld|) (|unnecessary| (|ssavalue| 118)))"}
+{"call":["expand-unionall-def","(curly A)","T","#f"],"ssa":119,"out":"ERROR: empty type parameter list in \"A{} = T\""}
+{"call":["expand-unionall-def","(curly A T)","(curly B T)","#f"],"ssa":121,"out":"(|block| (|block| (|=| (|ssavalue| 123) (|call| (|core| |TypeVar|) (|quote| |T|))) (|=| (|ssavalue| 122) (|scope-block| (|block| (|hardscope|) (|local-def| |T|) (|=| |T| (|ssavalue| 123)) (|call| (|core| |UnionAll|) |T| (|call| (|core| |apply_type|) |B| |T|)))))) (|assign-const-if-global| |A| (|ssavalue| 122)) (|latestworld-if-toplevel|) (|ssavalue| 122))"}
+{"call":["table-keys","(#t #f \"a\" \"bc\" x 1 (a b) \"a\" #t)"],"ssa":124,"out":"(|x| \"a\" (|a| |b|) 1 #t #f \"bc\")"}
+{"call":["table-keys","(a1 a2 a3 a4 a5 a6 a7 a8 a9 b1 b2 b3 b4 b5 b6 b7 b8 b9 c1 c2 c3 c4 c5 c6 c7 c8 c9 d1 d2 d3 d4 d5 d6 d7 d8 d9 \"s1\" \"s2\" #t 1 2 3)"],"ssa":125,"out":"(|d5| |b2| |b6| |a5| |a3| 1 |d6| |d4| |c6| |c8| |b5| |c4| 2 |c1| |a6| 3 #t |d1| |d3| |d7| |c7| |b4| |c5| |b7| |a2| |a7| \"s1\" |d8| |a8| |d2| |c3| |c2| |a1| |a4| \"s2\" |c9| |b8| |b3| |b1| |a9| |b9| |d9|)"}
+{"call":["closure-convert","x"],"ssa":126,"out":"|x|"}
+{"call":["closure-convert","(block x (call f y))"],"ssa":127,"out":"(|block| |x| (|call| |f| |y|))"}
+{"call":["closure-convert","(lambda () (() ((x (core Any) 0)) 0 ()) (block (= x 1)))"],"ssa":128,"out":"(|lambda| () (() () 0 ()) (|block| (|=| |x| 1)))"}
+{"call":["closure-convert","(lambda () (() () 0 ()) (block (= y 1)))"],"ssa":129,"out":"(|lambda| () (((|#s30| |Any| 10)) () 0 ()) (|block| (|block| (|globaldecl| |y|) (|=| |y| (|block| (|=| (|ssavalue| 130) (|call| (|core| |get_binding_type|) (|thismodule|) (|inert| |y|))) (|=| |#s30| 1) (|if| (|call| (|core| |isa|) |#s30| (|ssavalue| 130)) (|null|) (|=| |#s30| (|call| (|top| |convert|) (|ssavalue| 130) |#s30|))) |#s30|)) 1)))"}
+{"call":["closure-convert","(lambda () (() () 0 ()) (block (= (call f) 1)))"],"ssa":131,"out":"ERROR: invalid assignment location \"f()\""}
+{"call":["closure-convert","(lambda () (() () 0 ()) (block (scope-block (block 1))))"],"ssa":132,"out":"(|lambda| () (() () 0 ()) (|block| (|scope-block| (|block| 1))))"}
+{"call":["closure-convert","(lambda () (((x (core Any) 4)) () 0 ()) (block (local x) x))"],"ssa":133,"out":"(|lambda| () (((|x| (|core| |Any|) 6)) () 0 ()) (|block| (|null|) |x|))"}
+{"call":["closure-convert","(lambda () (() () 0 ()) (block (const x)))"],"ssa":134,"out":"ERROR"}
+{"call":["closure-convert","(lambda () (() () 0 ()) (block (atomic x) (isdefined anon) (isdefined (ssavalue 1)) (isdefined y)))"],"ssa":135,"out":"(|lambda| () (() () 0 ()) (|block| (|atomic| |x|) (|isdefined| |anon|) (|isdefined| (|ssavalue| 1)) (|isdefined| |y|)))"}
+{"call":["closure-convert","(lambda () (() () 0 ()) (block (with-static-parameters x T)))"],"ssa":136,"out":"(|lambda| () (() () 0 ()) (|block| |x|))"}
+{"call":["linearize","x"],"ssa":137,"out":"|x|"}
+{"call":["linearize","(block (lambda () (() () 0 ()) (block 1)))"],"ssa":138,"out":"(|block| (|lambda| () (() () 0 ()) (|block| (|line| #f) (|return| 1))))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block #f))"],"ssa":139,"out":"(|lambda| () (() () 0 ()) (|block|))"}
+{"call":["linearize","(lambda (x) (((x (core Any) 0)) () 0 ()) (block (toplevel-only struct_type) (null)))"],"ssa":140,"out":"ERROR: \"struct\" expression not at top level"}
+{"call":["linearize","(lambda (x) (((x (core Any) 0)) () 0 ()) (block (toplevel-only method) (null)))"],"ssa":141,"out":"ERROR: method definition not at top level"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (if (return 1) 2)))"],"ssa":142,"out":"(|lambda| () (() () 0 ()) (|block| (|return| 1) (|gotoifnot| (|null|) 0) (|line| #f) (|return| 2) (|label| 0) (|line| #f) (|return| (|null|))))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (_while (true) (null))))"],"ssa":143,"out":"(|lambda| () (() () 0 ()) (|block| (|label| 1) (|gotoifnot| (|true|) 0) (|goto| 1) (|label| 0) (|line| #f) (|return| (|null|))))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (_do_while (null) (true))))"],"ssa":144,"out":"(|lambda| () (() () 0 ()) (|block| (|label| 1) (|gotoifnot| (|true|) 0) (|goto| 1) (|label| 0) (|line| #f) (|return| (|null|))))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (globaldecl x)))"],"ssa":145,"out":"ERROR: misplaced \"global\" declaration"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (local-def x) 1))"],"ssa":146,"out":"(|lambda| () (() () 0 ()) (|block| (|line| #f) (|return| 1)))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (atomic x) 1))"],"ssa":147,"out":"ERROR: misplaced atomic declaration"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (method f (call (core svec)) (lambda (x) (((x (core Any) 0)) () 0 ()) (block x)))))"],"ssa":148,"out":"(|lambda| () (() () 0 ()) (|block| (|=| (|ssavalue| 149) (|call| (|core| |svec|))) (|method| |f| (|ssavalue| 149) (|lambda| (|x|) (((|x| (|core| |Any|) 0)) () 0 ()) (|block| (|=| (|ssavalue| 150) |x|) (|line| #f) (|return| (|ssavalue| 150))))) (|line| #f) (|return| (|null|))))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (method f)))"],"ssa":151,"out":"(|lambda| () (() () 0 ()) (|block| (|=| (|ssavalue| 152) (|method| |f|)) (|line| #f) (|return| (|ssavalue| 152))))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (call g (method f))))"],"ssa":153,"out":"(|lambda| () (() () 0 ()) (|block| (|=| (|ssavalue| 154) |g|) (|=| (|ssavalue| 155) (|method| |f|)) (|=| (|ssavalue| 156) (|call| (|ssavalue| 154) (|ssavalue| 155))) (|line| #f) (|return| (|ssavalue| 156))))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (lambda () (() () 0 ()) (block 1))))"],"ssa":157,"out":"(|lambda| () (() () 0 ()) (|block| (|line| #f) (|return| (|lambda| () (() () 0 ()) (|block| (|line| #f) (|return| 1))))))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (lambda () (() () 0 ()) (block 1)) 2))"],"ssa":158,"out":"(|lambda| () (() () 0 ()) (|block| (|lambda| () (() () 0 ()) (|block| (|line| #f) (|return| 1))) (|line| #f) (|return| 2)))"}
+{"call":["linearize","(lambda (x) (((x (core Any) 0)) () 0 ()) (block (line 3) (method f)))"],"ssa":159,"out":"ERROR: Global method definition around line 3 needs to be placed at the top level, or use \"eval\"."}
+{"call":["linearize","(lambda (x) (((x (core Any) 0)) () 0 ()) (block (method f)))"],"ssa":160,"out":"ERROR: Global method definition needs to be placed at the top level, or use \"eval\"."}
+{"call":["linearize","(lambda () (() () 0 ()) (block (line 3) _))"],"ssa":161,"out":"ERROR: all-underscore identifiers are write-only and their values cannot be used in expressions"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (line 1 a) (block (line 2 b) (core x))))"],"ssa":162,"out":"(|lambda| () (() () 0 ()) (|block| (|line| 1 |a|) (|meta| |push_loc| |b|) (|line| 2) (|line| #f) (|=| (|ssavalue| 163) (|core| |x|)) (|meta| |pop_loc|) (|return| (|ssavalue| 163))))"}
+{"call":["linearize","(lambda () (() () 0 ()) (block (line 1 a) (symboliclabel L) (block (line 2 b) (symbolicgoto L))))"],"ssa":164,"out":"(|lambda| () (() () 0 ()) (|block| (|line| 1 |a|) (|label| 0) (|meta| |push_loc| |b|) (|line| 2) (|null|) (|goto| 0) (|meta| |pop_loc|)))"}
+{"call":["closure-convert","(lambda () (() ((x (block (= (ssavalue 1) (call f)) (call g (ssavalue 1) (ssavalue 2))) 3)) 0 ()) (block x))"],"ssa":165,"out":"(|lambda| () (((|#31#x| |Any| 32)) () 0 ()) (|block| (|block| (|=| (|ssavalue| 166) (|call| (|core| |getfield|) |anon| (|inert| |x|))) (|if| (|call| (|core| |isdefined|) (|ssavalue| 166) (|inert| |contents|)) (|null|) (|block| (|newvar| |#31#x|) |#31#x|)) (|call| (|core| |typeassert|) (|call| (|core| |getfield|) (|ssavalue| 166) (|inert| |contents|)) (|block| (|=| (|ssavalue| 167) (|call| |f|)) (|call| |g| (|ssavalue| 167) (|ssavalue| 2)))))))"}
+{"call":["error-wrap","(block (error \"incomplete: x\"))"],"ssa":168,"out":"(|incomplete| \"incomplete: x\")"}
+{"call":["error-wrap","(block (call f (error \"y\")))"],"ssa":169,"out":"(|error| \"y\")"}
+{"call":["error-wrap","(block (lambda))"],"ssa":171,"out":"(|error| \"malformed expression\")"}
+{"call":["error-wrap","(block (call f (... x)))"],"ssa":172,"out":"(|thunk| (|lambda| (|list|) (|list| (|list|) (|list|) 4 (|list|)) (|block| (|globalref| (|thismodule|) |f|) (|globalref| (|thismodule|) |x|) (|call| (|core| |_apply_iterate|) (|top| |iterate|) (|ssavalue| 1) (|ssavalue| 2)) (|return| (|ssavalue| 3))) (|list| 1 1 1 0) (|list| (|lineinfo| |none| 0 0))))"}
+{"call":["compact-and-renumber","x"],"ssa":176,"out":"|x|"}
+{"call":["compact-and-renumber","(block x y)"],"ssa":177,"out":"(|block| |x| |y|)"}
+{"call":["compact-and-renumber","(lambda () (() () 0 ()) (block (return |#unused#|)))"],"ssa":178,"out":"ERROR: Attempted to use slot marked unused"}
+{"call":["compact-and-renumber","(lambda () (() () 0 ()) (block (return (ssavalue 5))))"],"ssa":179,"out":"ERROR: internal bug: ssavalue with no def"}

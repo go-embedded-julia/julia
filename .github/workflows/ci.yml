@@ -209,6 +209,8 @@ jobs:
           - { pkg: ./syntax, target: FuzzLex }
           - { pkg: ./syntax, target: FuzzGreen }
           - { pkg: ./syntax, target: FuzzParse }
+          - { pkg: ./lower,  target: FuzzLower }
+          - { pkg: ./core,   target: FuzzSubtype }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

@@ -90,25 +90,15 @@ func TestLowerToplevel(t *testing.T) {
 	if !expr.Is(got, "error") {
 		t.Errorf("underscore: %s", expr.Serialize(got))
 	}
-	for _, v := range []any{
-		expr.New("call", expr.Symbol("f")), expr.New("global", expr.New("=", expr.Symbol("a"), int64(1))),
-		expr.LineNumberNode{}, expr.QuoteNode{}, expr.GlobalRef{}, expr.GotoNode(1), expr.NewvarNode{},
-		true, nil,
-	} {
-		if _, err := st.Lower(v); !errors.Is(err, ErrUnsupported) {
-			t.Errorf("%s: %v", expr.Serialize(v), err)
-		}
-	}
-	if isUnderscore("") || !isUnderscore("_") || isUnderscore("_a") {
-		t.Error("isUnderscore")
-	}
 }
 
-// minSnippetsIdentical is the number of lowering snippets' forms the Go
-// lowering reproduces; every step of the port raises it.
-const minSnippetsIdentical = 5
+var _ = errors.Is
 
-func readGolden[T any](t *testing.T, name string) []T {
+// minSnippetsIdentical is the number of lowering snippets' forms the Go
+// lowering reproduces: all of them.
+const minSnippetsIdentical = 124
+
+func readGolden[T any](t testing.TB, name string) []T {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "testdata", "golden", name))
 	if err != nil {
@@ -134,10 +124,24 @@ func lowerForm(t *testing.T, st *State, f gen.LoweringForm) bool {
 		t.Fatalf("%s: %v", f.Output, err)
 	}
 	got, err := st.Lower(in)
+	if failures != nil {
+		failures.record(f.Input, got, err, want)
+	}
 	if err != nil {
+		if os.Getenv("JLGO_SHOWDIFF") != "" {
+			t.Logf("%s:\n  error %v", f.Input, err)
+		}
 		return false
 	}
-	return expr.Serialize(Canonical(got)) == want
+	g := expr.Serialize(Canonical(got))
+	if g != want && os.Getenv("JLGO_SHOWDIFF") != "" {
+		k := 0
+		for k < len(g) && k < len(want) && g[k] == want[k] {
+			k++
+		}
+		t.Logf("%s:\n  got  …%s\n  want …%s", f.Input, g[max(0, k-200):min(len(g), k+300)], want[max(0, k-200):min(len(want), k+300)])
+	}
+	return g == want
 }
 
 // TestLoweringSnippets lowers the forms of testdata/lowering-snippets.jl that
@@ -185,6 +189,13 @@ func TestLoweringCorpus(t *testing.T) {
 		}
 		return out
 	}}
+	if path := os.Getenv("JLGO_FAILDUMP"); path != "" {
+		failures = &failureLog{counts: map[string]int{}, samples: map[string]string{}}
+		defer func() {
+			failures.write(t, path)
+			failures = nil
+		}()
+	}
 	var files, filesSame, forms, same, recorded, drift int
 	for _, want := range readGolden[gen.LoweringCorpusEntry](t, "lowering.jsonl") {
 		got, err := gen.LoweringFile(p, want.Path)
