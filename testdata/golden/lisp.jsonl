@@ -1,0 +1,46 @@
+{"call":["vars-introduced","(try a #f b)"],"out":"|none|"}
+{"call":["vars-introduced","(try a #f b c)"],"out":"|none|"}
+{"call":["vars-introduced","(function (where f T) (block))"],"out":"(|varlist| |T|)"}
+{"call":["vars-introduced","(function (where (|::| (call f x) T) S) (block))"],"out":"(|varlist| |x| |S|)"}
+{"call":["vars-introduced","(generator)"],"out":"|none|"}
+{"call":["vars-introduced","(generator x)"],"out":"(|varlist|)"}
+{"call":["vars-introduced","(let (block (escape (|::| x Int)) (|::| y)) 1)"],"out":"(|varlist| () |x|)"}
+{"call":["vars-introduced","(let (block (= (hygienic-scope a m) 1)) 1)"],"out":"|none|"}
+{"call":["typevar-names","(T (<: S 1) 1 (comparison A <: T >: B) (var-bounds V #f #f))"],"out":"(|T| |S| |V|)"}
+{"call":["let-decl-var","(hygienic-scope (escape (|::| x Int)) m)"],"out":"|x|"}
+{"call":["let-decl-var","(|::| Int)"],"out":"()"}
+{"call":["let-decl-var","(call f)"],"out":"(|call| |f|)"}
+{"call":["decl-var*","(where (curly (call f x) T) S)"],"out":"|f|"}
+{"call":["try-arg-name","(escape x)","#t"],"out":"(|x|)"}
+{"call":["try-arg-name","(tuple (escape x) y (meta nospecialize (escape z)))","#t"],"out":"(|x| |z|)"}
+{"call":["try-arg-name","(tuple (escape x) y (meta nospecialize z) (meta foo w))","#f"],"out":"(|y| |z|)"}
+{"call":["try-arg-name","(|::| T)","#f"],"out":"()"}
+{"call":["try-arg-name","1","#f"],"out":"()"}
+{"call":["try-arg-name","(call f)","#f"],"out":"()"}
+{"call":["find-declared-vars-in-expansion","(block (local x) (hygienic-scope (block (local y) (escape (local z)) (hygienic-scope (escape (escape (local w))) m)) m) (quote (local q)) (lambda (local l)))","local"],"out":"(|x| |z| |w| |l|)"}
+{"call":["find-declared-vars-in-expansion","(block (hygienic-scope (block (lambda () (escape (local a))) (module (escape (local b))) (toplevel (escape (local c))) (quote (escape (local d))) 1) m))","local"],"out":"()"}
+{"call":["find-assigned-vars-in-expansion","(block (= x 1) (hygienic-scope (block (= y 1) (escape (= z 1))) m) (function (call f) (= a 1)) (tuple (= b 1) c))"],"out":"(|x| |z| |f|)"}
+{"call":["find-assigned-vars-in-expansion","(block (function f) (function (tuple a b) 1) (function (call g x) 1) (= (call h x) 1) (-> x 1) (= (tuple p (escape q)) 1))"],"out":"(|f| |g| |h| |p|)"}
+{"call":["resolve-expansion-vars","(block (= x 1) (escape (escape y)) (begin end ccall cglobal _ __) (ssavalue 1) (symboliclabel a) (symbolicgoto a) (macrocall m) (meta inline) (using (escape A)) (line 1))","m"],"out":"(|block| (|=| |#1#x| 1) (|escape| |y|) (|begin| |end| |ccall| |cglobal| |_| |__|) (|ssavalue| 1) (|symboliclabel| |a|) (|symbolicgoto| |a|) (|macrocall| |m|) (|meta| |inline|) (|using| |A|) (|line| 1))"}
+{"call":["resolve-expansion-vars","(block (global (escape x) (= (escape y) 1) (tuple (escape a) b) (|::| (escape c) Int) (kw (escape d) 1) (call f)) (toplevel (line 1 f) (= z 1) (line 2 (null))))","m"],"out":"(|block| (|global| |x| (|=| |y| 1) (|tuple| |a| |b|) (|::| |c| (|globalref| |m| |Int|)) (|kw| |d| 1) (|call| (|globalref| |m| |f|))) (|toplevel| (|line| 1 |f|) (|hygienic-scope| (|=| |z| 1) |m|) (|line| 2 (|null|))))"}
+{"call":["resolve-expansion-vars","(block (parameters x (escape y) (kw z 1)) (kw a) (kw (|::| Int) 1) (kw (|::| b Int) 1) (call f (kw (|::| c Int) 2) (kw d 3) (parameters e)))","m"],"out":"(|block| (|parameters| (|kw| |x| (|globalref| |m| |x|)) (|kw| |y| |y|) (|kw| |z| 1)) (|kw| |a|) (|kw| (|::| (|globalref| |m| |Int|)) 1) (|kw| (|::| |b| (|globalref| |m| |Int|)) 1) (|call| (|globalref| |m| |f|) (|kw| (|::| |c| (|globalref| |m| |Int|)) 2) (|kw| |d| 3) (|parameters| (|kw| |e| (|globalref| |m| |e|)))))"}
+{"call":["resolve-expansion-vars","(block (-> (where (tuple x) T) x))","m"],"out":"ERROR"}
+{"call":["resolve-expansion-vars","(block (-> (escape x) x) (-> x x) (-> (tuple x) x) (-> (call f x) x))","m"],"out":"(|block| (|->| (|tuple| |x|) (|globalref| |m| |x|)) (|->| (|tuple| |#3#x|) |#3#x|) (|->| (|tuple| |#4#x|) |#4#x|) (|->| (|tuple| (|call| (|globalref| |m| |f|) (|globalref| |m| |x|))) (|globalref| |m| |x|)))"}
+{"call":["resolve-expansion-vars","(block (struct #f S (block a (escape (|::| b Int)) (const (escape c)) (atomic d) (escape (escape (|::| e T))) (= f 1))))","m"],"out":"(|block| (|struct| #f |S| (|block| |a| (|::| |b| |Int|) (|const| |c|) (|atomic| |d|) (|::| |e| (|escape| |T|)) (|=| |#5#f| 1))))"}
+{"call":["resolve-expansion-vars","(block (let (block (= x 1) y (escape z) (= (escape w) 2)) x) (for (escape (block (= i 1) (= j 2))) i) (for (= k 1) k) (generator x (filter c (= x r))) (generator y (= y s)))","m"],"out":"(|block| (|let| (|block| (|=| |#8#x| 1) |#9#y| |z| (|=| |w| 2)) |#8#x|) (|for| (|block| (|=| |i| 1) (|=| |j| 2)) (|globalref| |m| |i|)) (|for| (|block| (|=| |#7#k| 1)) |#7#k|) (|generator| |#8#x| (|filter| (|globalref| |m| |c|) (|=| |#8#x| (|globalref| |m| |r|)))) (|generator| |#9#y| (|=| |#9#y| (|globalref| |m| |s|))))"}
+{"call":["resolve-expansion-vars","(block (hygienic-scope (block (= p 1) (escape (= q 1)) (toplevel (= r 1))) n (line 3 g)) (tuple (= s 1) t))","m"],"out":"(|block| (|block| (|=| |#23#p| 1) (|=| |#22#q| 1) (|toplevel| (|hygienic-scope| (|hygienic-scope| (|=| |r| 1) |n| (|line| 3 |g|)) |m|))) (|tuple| (|=| |s| 1) (|globalref| |m| |t|)))"}
+{"call":["julia-expand-macroscope","(block (hygienic-scope (block (symboliclabel a) (symbolicgoto a) (symbolicgoto 1) (escape (symbolicgoto b)) (hygienic-scope (block (symboliclabel a) (escape (symboliclabel a))) n)) m) (symbolicgoto c) (quote (symbolicgoto d)))"],"out":"(|block| (|block| (|symboliclabel| |#25#a|) (|symbolicgoto| |#25#a|) (|symbolicgoto| 1) (|symbolicgoto| |b|) (|block| (|symboliclabel| |#26#a|) (|symboliclabel| |#25#a|))) (|symbolicgoto| |c|) (|copyast| (|inert| (|symbolicgoto| |d|))))"}
+{"call":["julia-expand-macroscope","(block (escape (hygienic-scope (= x 1) m)) (inert (hygienic-scope 1 m)) (module (hygienic-scope 1 m)) (toplevel (hygienic-scope 1 m)))"],"out":"(|block| (|escape| (|=| |#27#x| 1)) (|inert| (|hygienic-scope| 1 |m|)) (|module| (|hygienic-scope| 1 |m|)) (|toplevel| (|hygienic-scope| 1 |m|)))"}
+{"call":["keywords-introduced-by","(function (where (call (curly f T) (parameters (kw k 1) (escape j) (... r)) x) S) (block))"],"out":"(|k| |j|)"}
+{"call":["keywords-introduced-by","(= (|::| (call f (parameters k)) T) 1)"],"out":"(|k|)"}
+{"call":["keywords-introduced-by","(= (where (call f (parameters k)) T) 1)"],"out":"(|k|)"}
+{"call":["keywords-introduced-by","(= (call (curly f T) (parameters k)) 1)"],"out":"(|k|)"}
+{"call":["keywords-introduced-by","(function (where (tuple x) T) 1)"],"out":"()"}
+{"call":["expand-toplevel-expr","(block (lambda))"],"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (= x (lambda (a) () (scope-block (block a)))))"],"out":"(|thunk| (|lambda| (|list|) (|list| (|list| (|list| |#s28| |Any| 10)) (|list|) 14 (|list|)) (|block| (|globaldecl| (|globalref| (|thismodule|) |x|)) (|latestworld|) (|lambda| (|list| |a|) (|list| (|list| (|list| |a| (|core| |Any|) 8)) (|list|) 2 (|list|)) (|block| (|slot| 1) (|return| (|ssavalue| 1))) (|list| 1 0) (|list| (|lineinfo| |none| 0 0))) (|call| (|core| |get_binding_type|) (|thismodule|) (|inert| |x|)) (|=| (|slot| 1) (|ssavalue| 3)) (|slot| 1) (|call| (|core| |isa|) (|ssavalue| 6) (|ssavalue| 4)) (|gotoifnot| (|ssavalue| 7) 10) (|goto| 12) (|slot| 1) (|=| (|slot| 1) (|call| (|top| |convert|) (|ssavalue| 4) (|ssavalue| 10))) (|slot| 1) (|call| (|top| |setglobal!|) (|thismodule|) (|inert| |x|) (|ssavalue| 12)) (|return| (|ssavalue| 3))) (|list| 1 1 1 1 1 1 1 1 0 1 1 1 1 0) (|list| (|lineinfo| |none| 0 0))))"}
+{"call":["expand-toplevel-expr","(block (const x y z))"],"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (with-static-parameters (= x 1) T))"],"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (call f (escape x)))"],"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (incomplete \"x\"))"],"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (error \"x\"))"],"out":"ERROR"}
+{"call":["expand-toplevel-expr","(block (line 1) (call f (error \"incomplete: x\")))"],"out":"ERROR"}

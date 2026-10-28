@@ -50,7 +50,7 @@ type hygieneScope struct {
 // expandMacroscope is julia-expand-macroscope.
 func (lw *lowerer) expandMacroscope(e any) any {
 	e = lw.expandQuotes(e)
-	if !hasHygienicScope(e, 0) {
+	if !hasHygienicScope(e) {
 		// rename-symbolic-labels and julia-expand-macroscopes- are the
 		// identity on a form without a hygienic scope
 		return e
@@ -60,19 +60,16 @@ func (lw *lowerer) expandMacroscope(e any) any {
 
 // hasHygienicScope is whether rename-symbolic-labels- would reach a
 // hygienic-scope (it does not enter quoted? forms).
-func hasHygienicScope(e any, depth int) bool {
+func hasHygienicScope(e any) bool {
 	l, ok := e.([]any)
 	if !ok || len(l) == 0 || quoted(e) {
 		return false
-	}
-	if depth > maxWalkDepth {
-		panic(unsupported("expression nested too deeply"))
 	}
 	if l[0] == sym("hygienic-scope") {
 		return true
 	}
 	for _, x := range l[1:] {
-		if hasHygienicScope(x, depth+1) {
+		if hasHygienicScope(x) {
 			return true
 		}
 	}
@@ -601,7 +598,7 @@ type patternResult struct {
 // is an atom to it.
 func (lw *lowerer) expandPatterns(set func(any) patternResult, x any) ([]any, bool) {
 	for i := 0; ; i++ {
-		if !isPair(x) || inList(car(x), sQuote, sInert) || i > maxWalkDepth {
+		if !isPair(x) || inList(car(x), sQuote, sInert) || i > maxRewrites {
 			return nil, false
 		}
 		r := set(x)

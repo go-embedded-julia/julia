@@ -29,7 +29,7 @@ func (g *gensyms) reset() { g.current = 0 }
 // starts its counter elsewhere must keep that property, or a fresh
 // `#12#y` shares its number with the input's `#12#x`.
 func (g *gensyms) passInput(v any) {
-	walkSymbols(v, 0, func(s string) {
+	walkSymbols(v, func(s string) {
 		id, _, ok := gensymID(s)
 		if !ok {
 			return
@@ -43,32 +43,31 @@ func (g *gensyms) passInput(v any) {
 	})
 }
 
-// walkSymbols calls f on every symbol of an expr value, to a bounded depth.
-func walkSymbols(v any, depth int, f func(string)) {
-	if depth > maxWalkDepth {
-		return
-	}
+// walkSymbols calls f on every symbol of an expr value (Lower has bounded
+// its depth).
+func walkSymbols(v any, f func(string)) {
 	switch x := v.(type) {
 	case expr.Symbol:
 		f(string(x))
 	case *expr.Expr:
 		f(string(x.Head))
 		for _, a := range x.Args {
-			walkSymbols(a, depth+1, f)
+			walkSymbols(a, f)
 		}
 	case expr.Vector:
 		for _, a := range x {
-			walkSymbols(a, depth+1, f)
+			walkSymbols(a, f)
 		}
 	case expr.QuoteNode:
-		walkSymbols(x.Value, depth+1, f)
+		walkSymbols(x.Value, f)
 	case expr.GlobalRef:
 		f(string(x.Name))
 	}
 }
 
-// maxWalkDepth bounds the recursion of walkSymbols on hostile input.
-const maxWalkDepth = 10000
+// maxRewrites bounds the rewrites of a pattern set (match.scm
+// pattern-expand1), which reach a varlist in a few steps.
+const maxRewrites = 100
 
 // gensy is (gensy).
 func (g *gensyms) gensy() sym {
@@ -200,12 +199,6 @@ func quoted(e any) bool {
 
 func quotify(e any) any { return list(sQuote, e) }
 
-func unquote(e any) any {
-	if isPair(e) && inList(car(e), sQuote, sInert) {
-		return cadr(e)
-	}
-	return e
-}
 
 func quotedSym(e any) bool {
 	return lengthEq(e, 2) && inList(car(e), sQuote, sInert) && isSymbol(cadr(e))
@@ -299,7 +292,6 @@ func eventuallyDecl(e any) bool {
 	return isSymbol(e) || (isPair(e) && inList(car(e), sDecl, sym("atomic"), sym("const")) && eventuallyDecl(cadr(e)))
 }
 
-func makeDecl(n, t any) []any { return list(sDecl, n, t) }
 
 func symbolLike(e any) bool { return isSymbol(e) || ssavalue(e) }
 
@@ -438,7 +430,6 @@ func vinfoFlag(v any, b int64) bool {
 func vinfoCapt(v any) bool       { return vinfoFlag(v, 1) }
 func vinfoAsgn(v any) bool       { return vinfoFlag(v, 2) }
 func vinfoNeverUndef(v any) bool { return vinfoFlag(v, 4) }
-func vinfoRead(v any) bool       { return vinfoFlag(v, 8) }
 func vinfoSa(v any) bool         { return vinfoFlag(v, 16) }
 
 func setBit(x, b int64, val bool) int64 {

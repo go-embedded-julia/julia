@@ -127,7 +127,6 @@ func cdddr(x any) []any {
 	return cdr(cddr(x))
 }
 func cadddr(x any) any { return car(cdddr(x)) }
-func caar(x any) any   { return car(car(x)) }
 func cdar(x any) []any { return cdr(car(x)) }
 func cadar(x any) any  { return car(cdar(x)) }
 func caadr(x any) any  { return car(cadr(x)) }

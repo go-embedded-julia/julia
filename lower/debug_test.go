@@ -98,6 +98,11 @@ func schemeText(v any) string {
 			parts[i] = schemeText(e)
 		}
 		return "(" + strings.Join(parts, " ") + ")"
+	case envEntry:
+		if l, ok := x.val.([]any); ok {
+			return schemeText(cons(x.key, l))
+		}
+		return "(" + schemeText(x.key) + " . " + schemeText(x.val) + ")"
 	case sym:
 		return "|" + string(x) + "|"
 	case int64:
