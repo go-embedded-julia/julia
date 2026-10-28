@@ -17,8 +17,8 @@ expectations written by hand.
 |---|---|---|
 | M0 oracle harness | `internal/oracle`, `cmd/jloracle`, golden files | **done** |
 | M1 parser | Go port of JuliaSyntax → `expr.Expr` | **done** — see parity below |
-| M2 lowering | port of `src/julia-syntax.scm` → `CodeInfo` | in progress — see lowering parity below |
-| M3 – M7 | Core runtime, Base, numeric stdlib, notebook bridge, wasm playground | planned |
+| M2 lowering | port of `src/julia-syntax.scm` → `CodeInfo` | **done** — see lowering parity below |
+| M3 – M7 | Core runtime, Base, numeric stdlib, notebook bridge, wasm playground | M3 in progress (`core`), the rest planned |
 
 ### Parser parity with julia 1.12.6
 
@@ -72,12 +72,30 @@ other part of the `CodeInfo` is compared, field by field.
 
 | measured on | forms julia lowered | identical in Go | files fully identical |
 |---|---|---|---|
-| corpus (`share/julia`: base, Compiler, stdlib, test) | 53 997 | 1 601 (atoms and top-level-only forms) | 28 / 1191 |
-| `testdata/lowering-snippets.jl` | 124 | 5 | — |
+| corpus (`share/julia`: base, Compiler, stdlib, test) | 53 997 | **53 997** | **1191 / 1191** |
+| `testdata/lowering-snippets.jl` | 124 | **124** | — |
+| `testdata/lowering-hygiene.jl`: macro-made `toplevel`s still in hygienic scopes | 48 | **48** | — |
+| `testdata/lowering-exprs.jl`: built expressions (error paths, rare heads, values the parser never makes) | 477 | **477** | — |
 
 A further 3 317 corpus forms are not counted. Their macro expansion throws
 in the oracle, mostly test files using macros from packages that are not
 loaded.
+
+The port covers the whole femtolisp front end Meta.lower runs:
+`julia-expand-macroscope` (hygiene: `resolve-expansion-vars`,
+`rename-symbolic-labels`), the six passes, `deparse` for error messages
+(119 forms checked against `julia --lisp`), and femtolisp's own behaviour
+where lowering depends on it (hash-table iteration order, `#n=` labels,
+`(error "malformed expression")` on malformed input). Internal functions
+are also checked one by one against `julia --lisp` on S-expressions julia
+values cannot spell (151 calls). Every statement of the package is
+covered by a test whose expectation comes from julia.
+
+Known gaps: a `Float64` inside a lowering error message makes `Lower`
+return `lower.ErrUnsupported` (julia prints it with `%#.17g`, not ported);
+macro expansion runs user code and stays with the caller, as it does in
+julia. `Lower` refuses trees nested deeper than `lower.MaxDepth` (1000)
+with `lower.ErrLimit`; `FuzzLower` runs on every pull request.
 
 ## Use
 
@@ -96,6 +114,9 @@ fmt.Println(expr.Serialize(ex))
   included; `syntax.ParseAllLimits` with explicit `Limits`.
 - `syntax.Tokenize`, `syntax.TokenDump`, `syntax.GreenDump` — the lexer and
   the lossless green tree, for tools.
+- `lower.NewState().Lower(ex)` — `Meta.lower` of a macro-expanded top-level
+  form: an `Expr(:thunk, CodeInfo)`, an atom, or `Expr(:error)`; one
+  `State` per module, in file order.
 - `expr` — the Go values of Julia's syntax tree (`*expr.Expr`, `expr.Symbol`,
   `expr.LineNumberNode`, `expr.QuoteNode`, `expr.GlobalRef`, `expr.Char` …)
   and `expr.Serialize`, the canonical type-tagged text form.
@@ -131,6 +152,9 @@ with the official release tarball).
 | `testdata/golden/corpus.jsonl` | digests of the three levels for every corpus file |
 | `testdata/golden/lowering-snippets.jsonl` | macro expansion and `Meta.lower` of each form of `testdata/lowering-snippets.jl` |
 | `testdata/golden/lowering.jsonl` | per corpus file: forms lowered, digests of julia's lowered forms, forms the Go lowering reproduces |
+| `testdata/golden/lowering-hygiene.jsonl`, `lowering-exprs.jsonl` | `Meta.lower` of the expressions `testdata/lowering-hygiene.jl` and `lowering-exprs.jl` build |
+| `testdata/golden/lowering-cover.jsonl` | the 366 smallest corpus forms that together reach every statement the corpus reaches, replayed offline |
+| `testdata/golden/deparse.jsonl`, `lisp.jsonl` | femtolisp's answers (`julia --lisp`) for `deparse` and front-end functions |
 | `testdata/golden/programs.jsonl` | parse, `Meta.lower` and evaluation of `testdata/programs/*.jl` (for M2+) |
 | `internal/unitab/tables_gen.go` | utf8proc's Unicode 16 properties the lexer uses |
 
@@ -140,7 +164,8 @@ with the official release tarball).
 |---|---|
 | `expr` | Julia syntax-tree values, canonical serialisation |
 | `syntax` | the parser (port of JuliaSyntax: `tokenize.go`, `parse_stream.go`, `parser*.go`, `build.go`, `errors.go`) |
-| `lower` | lowering to `CodeInfo` (port of `src/julia-syntax.scm`, in progress) |
+| `lower` | lowering to `CodeInfo` (port of `src/julia-syntax.scm`, `macroexpand.scm`, `ast.scm`, `match.scm`) |
+| `core` | core — Julia's type objects, apply_type, and subtyping (a port of jltypes.c and subtype.c of 1.12.6, without intersection): identical to julia on 20 000 random pairs and 4 902 cases from test/subtype.jl. |
 | `internal/unitab` | Unicode tables from the reference build, utf8proc's grapheme breaks |
 | `internal/oracle` | the reference julia as a differential oracle |
 | `internal/gen`, `cmd/jloracle` | the golden-file generators |
