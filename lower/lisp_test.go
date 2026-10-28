@@ -48,10 +48,47 @@ var lispFuncs = map[string]lispFunc{
 	"find-assigned-vars-in-expansion": {"(find-assigned-vars-in-expansion %s)", func(_ *lowerer, a []any) any {
 		return findAssignedVarsInExpansion(a[0], true)
 	}},
-	"try-arg-name": {"(try-arg-name %s %s)", func(_ *lowerer, a []any) any { return tryArgName(a[0], truthy(a[1])) }},
+	"try-arg-name":  {"(try-arg-name %s %s)", func(_ *lowerer, a []any) any { return tryArgName(a[0], truthy(a[1])) }},
 	"let-decl-var":  {"(let-decl-var %s)", func(_ *lowerer, a []any) any { return letDeclVar(a[0]) }},
 	"decl-var*":     {"(decl-var* %s)", func(_ *lowerer, a []any) any { return declVarStar(a[0]) }},
 	"typevar-names": {"(typevar-names %s)", func(_ *lowerer, a []any) any { return typevarNames(asList(a[0])) }},
+	"arg-type":      {"(arg-type %s)", func(_ *lowerer, a []any) any { return argType(a[0]) }},
+	"undotop":       {"(undotop %s)", func(_ *lowerer, a []any) any { return undotop(a[0]) }},
+	"flatten-ex":    {"(flatten-ex %s %s)", func(_ *lowerer, a []any) any { return flattenEx(a[0].(sym), a[1]) }},
+	// strings print as symbols: ser does not escape them
+	"deparse":    {"(symbol (deparse %s))", func(_ *lowerer, a []any) any { return sym(deparse(a[0])) }},
+	"string":     {"(symbol (string %s))", func(_ *lowerer, a []any) any { return sym(symString(a[0])) }},
+	"format-loc": {"(symbol (format-loc %s))", func(_ *lowerer, a []any) any { return sym(formatLoc(a[0])) }},
+	"format-file-line": {"(symbol (format-file-line %s %s %s))", func(_ *lowerer, a []any) any {
+		return sym(formatFileLine(a[0], a[1], truthy(a[2])))
+	}},
+	"strip-op-suffix": {"(strip-op-suffix %s)", func(_ *lowerer, a []any) any { return sym(stripOpSuffix(string(a[0].(sym)))) }},
+	"something":       {"(something %s)", func(_ *lowerer, a []any) any { return something(asList(a[0])) }},
+	"dots->vararg":    {"(dots->vararg %s)", func(_ *lowerer, a []any) any { return dotsToVararg(asList(a[0])) }},
+	"replace-vars":    {"(replace-vars %s %s)", func(_ *lowerer, a []any) any { return replaceVars(a[0], asList(a[1])) }},
+	// the renames as (old new) lists, consed into pairs on the Scheme side
+	"replace-vars-pairs": {"(replace-vars %s (map (lambda (p) (cons (car p) (cadr p))) %s))", func(_ *lowerer, a []any) any {
+		return replaceVarsPairs(a[0], mapL(car, asList(a[1])), mapL(cadr, asList(a[1])))
+	}},
+	"macroify-name": {"(macroify-name %s)", func(_ *lowerer, a []any) any { return macroifyName(a[0]) }},
+	"ctor-sig":      {"(ctor-sig %s)", func(_ *lowerer, a []any) any { return ctorSig(a[0]) }},
+	"expand-unionall-def": {"(expand-unionall-def %s %s %s)", func(lw *lowerer, a []any) any {
+		return lw.expandUnionallDef(a[0], a[1], truthy(a[2]))
+	}},
+	// a table's iteration order: the hash, probing and growth of htable.inc
+	"table-keys": {"(let ((t (table))) (for-each (lambda (k) (put! t k #t)) %s) (table.keys t))", func(_ *lowerer, a []any) any {
+		t := newTable()
+		for _, k := range asList(a[0]) {
+			t.put(k, true)
+		}
+		return t.keysList()
+	}},
+	"error-wrap": {"(error-wrap (lambda () (expand-toplevel-expr %s 'none 0)))", func(lw *lowerer, a []any) any {
+		return lw.errorWrap(func() any { return lw.expandToplevelExpr(a[0], sym("none"), 0) })
+	}},
+	"closure-convert":      {"(closure-convert %s)", func(lw *lowerer, a []any) any { return lw.closureConvert(a[0]) }},
+	"linearize":            {"(linearize %s)", func(lw *lowerer, a []any) any { return lw.linearize(a[0]) }},
+	"compact-and-renumber": {"(compact-and-renumber %s 'none 0)", func(lw *lowerer, a []any) any { return lw.compactAndRenumber(a[0], sym("none"), int64(0)) }},
 }
 
 // lispCases are calls: a function of lispFuncs and its arguments, in
@@ -103,17 +140,133 @@ var lispCases = [][]string{
 	{"expand-toplevel-expr", "(block (incomplete \"x\"))"},
 	{"expand-toplevel-expr", "(block (error \"x\"))"},
 	{"expand-toplevel-expr", "(block (line 1) (call f (error \"incomplete: x\")))"},
+	{"expand-toplevel-expr", "(block (= f (lambda (x) (block x))))"},
+	{"expand-toplevel-expr", "(block (string (string \"a\") b))"},
+	{"expand-toplevel-expr", "(block (break-block foo (block (break foo))))"},
+	{"expand-toplevel-expr", "(block (scope-block (block (local x) (assign-const-if-global x))))"},
+	{"resolve-expansion-vars", "(block x (= y 1))", "#f"},
+	{"arg-type", "1"},
+	{"arg-type", "(... x 2)"},
+	{"arg-type", "(|::| (call f) T)"},
+	{"arg-type", "(meta foo x)"},
+	{"arg-type", "(meta nospecialize (|::| x T))"},
+	{"arg-type", "(kw (|::| x T) 1)"},
+	{"arg-type", "(call f)"},
+	{"undotop", "|.+|"},
+	{"undotop", "x"},
+	{"undotop", "(globalref m |.*|)"},
+	{"flatten-ex", "block", "x"},
+	{"flatten-ex", "block", "(block a (block b (block c)) d)"},
+	{"deparse", "\"s\""},
+	{"deparse", "#t"},
+	{"deparse", "#f"},
+	{"deparse", "()"},
+	{"deparse", "(false)"},
+	{"deparse", "(string \"a\" x (call f))"},
+	{"string", "#t"},
+	{"string", "#f"},
+	{"string", "()"},
+	{"string", "x"},
+	{"string", "\"s\""},
+	{"string", "12"},
+	{"string", "(a (b c))"},
+	{"format-loc", "(foo 1)"},
+	{"format-loc", "(line 3)"},
+	{"format-loc", "(line 3 f)"},
+	{"format-loc", "(line 0 f)"},
+	{"format-loc", "#f"},
+	{"format-loc", "()"},
+	{"format-file-line", "f", "3", "#t"},
+	{"format-file-line", "f", "3", "#f"},
+	{"format-file-line", "none", "3", "#t"},
+	{"strip-op-suffix", "|+′|"},
+	{"strip-op-suffix", "|′|"},
+	{"strip-op-suffix", "|+|"},
+	{"strip-op-suffix", "|+₁′|"},
+	{"something", "((null) (null))"},
+	{"something", "((null) 1 2)"},
+	{"dots->vararg", "()"},
+	{"dots->vararg", "(a (... b))"},
+	{"dots->vararg", "(a b)"},
+	{"replace-vars", "(call f a (quote a) (-> a a) (function a) (scope-block a) b)", "((a 1) (b c d))"},
+	{"replace-vars-pairs", "(call f a (quote a) (-> a a) (function a) (scope-block a) b)", "((a x) (b y))"},
+	{"macroify-name", "(call f)"},
+	{"macroify-name", "(quote m)"},
+	{"macroify-name", "(inert m)"},
+	{"macroify-name", "(|.| A (quote m))"},
+	{"macroify-name", "(globalref M m)"},
+	{"ctor-sig", "(call (|::| x T) a)"},
+	{"ctor-sig", "(call (|::| |#ctor-self#| T) a)"},
+	{"ctor-sig", "(|::| (block) T)"},
+	{"ctor-sig", "(where (call S x) T)"},
+	{"ctor-sig", "(foo)"},
+	{"expand-unionall-def", "A", "(curly B T)", "#t"},
+	{"expand-unionall-def", "(curly A)", "T", "#f"},
+	{"expand-unionall-def", "(curly A T)", "(curly B T)", "#f"},
+	{"table-keys", "(#t #f \"a\" \"bc\" x 1 (a b) \"a\" #t)"},
+	{"table-keys", "(a1 a2 a3 a4 a5 a6 a7 a8 a9 b1 b2 b3 b4 b5 b6 b7 b8 b9 c1 c2 c3 c4 c5 c6 c7 c8 c9 d1 d2 d3 d4 d5 d6 d7 d8 d9 \"s1\" \"s2\" #t 1 2 3)"},
+	// closure conversion of crafted lambdas: (lambda args (vars captured nssa sparams) body)
+	{"closure-convert", "x"},
+	{"closure-convert", "(block x (call f y))"},
+	{"closure-convert", "(lambda () (() ((x (core Any) 0)) 0 ()) (block (= x 1)))"},
+	{"closure-convert", "(lambda () (() () 0 ()) (block (= y 1)))"},
+	{"closure-convert", "(lambda () (() () 0 ()) (block (= (call f) 1)))"},
+	{"closure-convert", "(lambda () (() () 0 ()) (block (scope-block (block 1))))"},
+	{"closure-convert", "(lambda () (((x (core Any) 4)) () 0 ()) (block (local x) x))"},
+	{"closure-convert", "(lambda () (() () 0 ()) (block (const x)))"},
+	{"closure-convert", "(lambda () (() () 0 ()) (block (atomic x) (isdefined anon) (isdefined (ssavalue 1)) (isdefined y)))"},
+	{"closure-convert", "(lambda () (() () 0 ()) (block (with-static-parameters x T)))"},
+	// linearization of crafted lambdas
+	{"linearize", "x"},
+	{"linearize", "(block (lambda () (() () 0 ()) (block 1)))"},
+	{"linearize", "(lambda () (() () 0 ()) (block #f))"},
+	{"linearize", "(lambda (x) (((x (core Any) 0)) () 0 ()) (block (toplevel-only struct_type) (null)))"},
+	{"linearize", "(lambda (x) (((x (core Any) 0)) () 0 ()) (block (toplevel-only method) (null)))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (if (return 1) 2)))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (_while (true) (null))))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (_do_while (null) (true))))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (globaldecl x)))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (local-def x) 1))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (atomic x) 1))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (method f (call (core svec)) (lambda (x) (((x (core Any) 0)) () 0 ()) (block x)))))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (method f)))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (call g (method f))))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (lambda () (() () 0 ()) (block 1))))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (lambda () (() () 0 ()) (block 1)) 2))"},
+	{"linearize", "(lambda (x) (((x (core Any) 0)) () 0 ()) (block (line 3) (method f)))"},
+	{"linearize", "(lambda (x) (((x (core Any) 0)) () 0 ()) (block (method f)))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (line 3) _))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (line 1 a) (block (line 2 b) (core x))))"},
+	{"linearize", "(lambda () (() () 0 ()) (block (line 1 a) (symboliclabel L) (block (line 2 b) (symbolicgoto L))))"},
+	{"closure-convert", "(lambda () (() ((x (block (= (ssavalue 1) (call f)) (call g (ssavalue 1) (ssavalue 2))) 3)) 0 ()) (block x))"},
+	{"error-wrap", "(block (error \"incomplete: x\"))"},
+	{"error-wrap", "(block (call f (error \"y\")))"},
+	{"error-wrap", "(block (lambda))"},
+	{"error-wrap", "(block (call f (... x)))"},
+	{"compact-and-renumber", "x"},
+	{"compact-and-renumber", "(block x y)"},
+	{"compact-and-renumber", "(lambda () (() () 0 ()) (block (return |#unused#|)))"},
+	{"compact-and-renumber", "(lambda () (() () 0 ()) (block (return (ssavalue 5))))"},
 }
 
 const lispGolden = "lisp.jsonl"
 
+// lispCase is a recorded call. SSA is femtolisp's ssavalue counter before
+// the call (make-ssavalue never resets it), so that the port numbers the
+// SSA values of the passes that do not renumber them as femtolisp did.
 type lispCase struct {
 	Call []string `json:"call"`
+	SSA  int      `json:"ssa"`
 	Out  string   `json:"out"`
 }
 
-// lispSer prints femtolisp values as schemeText prints Go's.
-const lispSer = `(define (ser x)
+// lispSer prints femtolisp values as schemeText prints Go's, and an error
+// (error "msg") raised by the front end as lispErrorText prints Go's.
+const lispSer = `(define (errtext e)
+  (if (and (pair? e) (eq? (car e) 'error) (pair? (cdr e)) (string? (cadr e)) (null? (cddr e)))
+      (string "ERROR: " (cadr e))
+      "ERROR"))
+(define (ser x)
   (cond ((and (pair? x) (list? x)) (string "(" (string.join (map ser x) " ") ")"))
         ((pair? x) (string "(" (ser (car x)) " . " (ser (cdr x)) ")"))
         ((null? x) "()")
@@ -143,11 +296,12 @@ func TestLispGolden(t *testing.T) {
 	if os.Getenv("JLGO_ORACLE") == "" || os.Getenv("JLGO_REGEN") == "" {
 		t.Skip("needs JLGO_ORACLE=1 and JLGO_REGEN=1")
 	}
-	const start, end = "\x01BEGIN\x01", "\x01END\x01"
+	const start, sep, end = "\x01BEGIN\x01", "\x01SEP\x01", "\x01END\x01"
 	var prog strings.Builder
 	prog.WriteString(lispSer)
 	for _, c := range lispCases {
-		prog.WriteString("(begin (display \"" + start + "\")(display (trycatch (ser " + lispCall(c) + ") (lambda (e) \"ERROR\")))(display \"" + end + "\"))\n")
+		prog.WriteString("(begin (display \"" + start + "\")(display (cadr (make-ssavalue)))(display \"" + sep +
+			"\")(display (trycatch (ser " + lispCall(c) + ") (lambda (e) (errtext e))))(display \"" + end + "\"))\n")
 	}
 	cmd := exec.Command("pkgx", "julia@1.12.6", "--lisp")
 	cmd.Stdin = strings.NewReader(prog.String())
@@ -157,7 +311,7 @@ func TestLispGolden(t *testing.T) {
 	}
 	chunks := strings.Split(string(out), start)[1:]
 	if len(chunks) != len(lispCases) {
-		t.Fatalf("%d answers for %d cases", len(chunks), len(lispCases))
+		t.Fatalf("%d answers for %d cases: %s", len(chunks), len(lispCases), out[max(0, len(out)-2000):])
 	}
 	cases := make([]lispCase, len(lispCases))
 	for i, c := range lispCases {
@@ -165,7 +319,12 @@ func TestLispGolden(t *testing.T) {
 		if !ok {
 			t.Fatalf("%v: no end marker", c)
 		}
-		cases[i] = lispCase{c, text}
+		n, text, ok := strings.Cut(text, sep)
+		ssa, err := strconv.Atoi(n)
+		if !ok || err != nil {
+			t.Fatalf("%v: no ssavalue counter in %q", c, chunks[i])
+		}
+		cases[i] = lispCase{c, ssa, text}
 	}
 	writeJSONLines(t, filepath.Join("..", "testdata", "golden", lispGolden), cases)
 }
@@ -173,14 +332,14 @@ func TestLispGolden(t *testing.T) {
 // TestLisp calls the Go port on every recorded case.
 func TestLisp(t *testing.T) {
 	for _, c := range readGolden[lispCase](t, lispGolden) {
-		got := lispPort(t, c.Call)
+		got := lispPort(t, c.Call, c.SSA)
 		if renumberText(got) != renumberText(c.Out) {
 			t.Errorf("%v:\n  got  %s\n  want %s", c.Call, got, c.Out)
 		}
 	}
 }
 
-func lispPort(t *testing.T, c []string) (out string) {
+func lispPort(t *testing.T, c []string, ssa int) (out string) {
 	f := lispFuncs[c[0]]
 	args := make([]any, len(c)-1)
 	for i, a := range c[1:] {
@@ -192,11 +351,27 @@ func lispPort(t *testing.T, c []string) (out string) {
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			out = "ERROR"
+			out = lispErrorText(r)
 		}
 	}()
 	lw := &lowerer{st: NewState()}
+	lw.st.ssaCounter = ssa + 1
 	return schemeText(f.port(lw, args))
+}
+
+// lispErrorText is errtext of lispSer for a panic of the port: the message
+// of a lowering error, and ERROR for the others (femtolisp's own errors).
+func lispErrorText(r any) string {
+	switch x := r.(type) {
+	case loweringError:
+		return "ERROR: " + string(x)
+	case loweringErrorValue:
+		// (error msg) with a femtolisp string the input spelled
+		if msg, ok := x.msg.(sstr); ok {
+			return "ERROR: " + string(msg)
+		}
+	}
+	return "ERROR"
 }
 
 var gensymText = regexp.MustCompile(`#s?[0-9]+`)

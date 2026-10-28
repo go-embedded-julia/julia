@@ -80,6 +80,21 @@ func isSString(x any) bool {
 	return ok
 }
 
+// jlValue is a julia value as julia_to_scm (src/ast.c) wraps it: a new
+// opaque cvalue for each occurrence in the input. femtolisp compares such
+// cvalues by identity (equal.c: a cvalue that is not plain data is equal?
+// only to itself) and print.c labels the ones it prints more than once,
+// so the port keeps the wrapper's identity with a pointer.
+type jlValue struct{ v any }
+
+// unbox is the julia value of a wrapper, and anything else unchanged.
+func unbox(x any) any {
+	if b, ok := x.(*jlValue); ok {
+		return b.v
+	}
+	return x
+}
+
 // isJuliaValue is (eq? (typeof x) 'julia_value).
 func isJuliaValue(x any) bool {
 	switch x.(type) {
@@ -200,7 +215,7 @@ func butlast(x any) []any {
 	if len(l) == 0 {
 		return nil
 	}
-	return l[:len(l)-1:len(l)-1]
+	return l[: len(l)-1 : len(l)-1]
 }
 
 // mapL applies f to each element.
@@ -241,30 +256,26 @@ func everyL(f func(any) bool, l []any) bool {
 }
 
 // eq is eq?: symbols, fixnums, booleans and strings by value; lists by
-// identity (the same first cell).
+// identity (the same first cell); julia values by the identity of their
+// wrapper.
 func eq(a, b any) bool {
-	switch x := a.(type) {
-	case []any:
+	if x, ok := a.([]any); ok {
 		y, ok := b.([]any)
 		if !ok || len(x) != len(y) {
 			return false
 		}
 		return len(x) == 0 || &x[0] == &y[0]
-	case sym, int64, bool, sstr:
-		return a == b
 	}
 	if _, ok := b.([]any); ok {
 		return false
 	}
-	if comparable(a) && comparable(b) {
-		return a == b
-	}
-	// a julia value Go cannot compare (a Module, a Vector): the same
-	// wrapper is eq? to itself, which equal contents stand in for
-	return expr.Serialize(a) == expr.Serialize(b)
+	// the atoms of an S-expression are comparable: julia values are
+	// behind a *jlValue
+	return a == b
 }
 
-// equal is equal?: structural equality.
+// equal is equal?: structural equality of lists, eq? of atoms (a julia
+// value is equal? only to its own wrapper).
 func equal(a, b any) bool {
 	x, okx := a.([]any)
 	y, oky := b.([]any)
@@ -279,18 +290,7 @@ func equal(a, b any) bool {
 		}
 		return true
 	}
-	if comparable(a) && comparable(b) {
-		return a == b
-	}
-	return expr.Serialize(a) == expr.Serialize(b)
-}
-
-func comparable(v any) bool {
-	switch v.(type) {
-	case *expr.Expr, expr.Vector, expr.Module, *expr.CodeInfo, *expr.DebugInfo:
-		return false
-	}
-	return true
+	return a == b
 }
 
 // memq returns the tail of l starting at the first element eq? to x.

@@ -117,8 +117,8 @@ func suffSet(set map[string]bool, x any) bool {
 	return set[maybeStripOpSuffix(string(s))]
 }
 
-func isDotop(x any) bool            { return suffSet(dotOperators, x) }
-func isPrecAssignment(x any) bool   { return suffSet(precAssignment, x) }
+func isDotop(x any) bool          { return suffSet(dotOperators, x) }
+func isPrecAssignment(x any) bool { return suffSet(precAssignment, x) }
 func eventuallyCall(ex any) bool {
 	return isPair(ex) && (car(ex) == sCall ||
 		((car(ex) == sym("where") || car(ex) == sDecl) && eventuallyCall(cadr(ex))))

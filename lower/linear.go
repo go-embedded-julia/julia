@@ -69,22 +69,22 @@ type finallyHandler struct {
 }
 
 type compiler struct {
-	lw              *lowerer
-	lam             []any
-	code            []any // in order (the Scheme code keeps them reversed)
-	filename        any
-	firstLine       bool
-	currentLoc      any
-	rett            any
-	vinfoTable      *ftable
-	argMap          *ftable
-	labelCounter    int64
-	labelMap        *ftable
-	labelNesting    *ftable
-	finally         *finallyHandler
-	gotoFixups      []gotoFixup
-	handlerTokens   *tokens // innermost first
-	catchTokens     *tokens
+	lw            *lowerer
+	lam           []any
+	code          []any // in order (the Scheme code keeps them reversed)
+	filename      any
+	firstLine     bool
+	currentLoc    any
+	rett          any
+	vinfoTable    *ftable
+	argMap        *ftable
+	labelCounter  int64
+	labelMap      *ftable
+	labelNesting  *ftable
+	finally       *finallyHandler
+	gotoFixups    []gotoFixup
+	handlerTokens *tokens // innermost first
+	catchTokens   *tokens
 }
 
 type gotoFixup struct {
@@ -164,7 +164,7 @@ func (c *compiler) enterFinallyBlock(action any, needGoto bool) int64 {
 		if pexc := c.popExcExpr(c.catchTokens, c.finally.catchTokens); pexc != nil {
 			c.emit(pexc)
 		}
-		plist := c.popHandlerList(c.handlerTokens, c.finally.handlerTokens.next, nil)
+		plist := handlersUntil(c.handlerTokens, c.finally.handlerTokens.next)
 		c.emit(L(S("leave"), sp(plist)))
 		c.emit(list(sym("goto"), c.finally.label))
 	}
@@ -185,8 +185,9 @@ func (c *compiler) popExcExpr(src, dest *tokens) []any {
 	}
 }
 
-// popHandlerList returns the tokens to leave, innermost first, or nil when
-// none (the Scheme code's #f).
+// popHandlerList is pop-handler-list for a goto to the label lab: the
+// tokens to leave, innermost first, or nil when none (the Scheme code's
+// #f).
 func (c *compiler) popHandlerList(src, dest *tokens, lab any) []any {
 	if src == dest {
 		return nil
@@ -194,9 +195,6 @@ func (c *compiler) popHandlerList(src, dest *tokens, lab any) []any {
 	var l []any
 	for s := src; ; s = s.next {
 		if s == nil {
-			if lab == nil {
-				errorf("Attempt to jump into catch block")
-			}
 			errorf("cannot goto label \"%s\" inside try/catch block", symString(lab))
 		}
 		l = append(l, s.tok)
@@ -204,6 +202,17 @@ func (c *compiler) popHandlerList(src, dest *tokens, lab any) []any {
 			return l
 		}
 	}
+}
+
+// handlersUntil is pop-handler-list for a break or the entry of a finally
+// block, whose destination encloses the jump: dest is a tail of src, so
+// the Scheme's "Attempt to jump into catch block" cannot be raised.
+func handlersUntil(src, dest *tokens) []any {
+	var l []any
+	for s := src; s != dest; s = s.next {
+		l = append(l, s.tok)
+	}
+	return l
 }
 
 func (c *compiler) emitReturn(tail any, x any) any {
@@ -273,7 +282,7 @@ func (c *compiler) emitBreak(labl *breakLabel) any {
 	if pexc := c.popExcExpr(c.catchTokens, labl.catchTokens); pexc != nil {
 		c.emit(pexc)
 	}
-	if plist := c.popHandlerList(c.handlerTokens, labl.handlerTokens, nil); plist != nil {
+	if plist := handlersUntil(c.handlerTokens, labl.handlerTokens); plist != nil {
 		c.emit(L(S("leave"), sp(plist)))
 	}
 	return c.emit(list(sym("goto"), labl.label))
@@ -875,7 +884,7 @@ func (c *compiler) compileBlock(e any, breakLabels []*breakLabel, value bool, ta
 	}
 	fileDiff := !eqOrNil(fname, lastFname)
 	needMeta := fileDiff && lastFname != nil && !eq(e, lamBody(c.lam))
-	emitFinalMeta := func() {}
+	var emitFinalMeta func() // set by the loop below, which always ends on a statement
 	if fileDiff {
 		c.filename = fname
 	}
@@ -1038,13 +1047,12 @@ func (c *compiler) compileTry(e any, breakLabels []*breakLabel, value bool, tail
 				c.emit(list(sAssign, tmp, list(sCall, coreRef("==="), finally, a[0])))
 				c.emit(list(sym("gotoifnot"), tmp, skip))
 			}
-			switch car(ac) {
-			case sReturn:
+			// enter-finally-block records only returns and breaks: the
+			// Scheme's "assumed to be a rethrow" case is never taken
+			if car(ac) == sReturn {
 				c.emitReturn(tail, cadr(ac))
-			case sym("break"):
+			} else {
 				c.emitBreak(cadr(ac).(*breakLabel))
-			default: // a rethrow
-				c.emit(ac)
 			}
 			if skip != nil {
 				c.markLabel(skip.(int64))

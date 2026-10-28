@@ -119,5 +119,5 @@ func schemeText(v any) string {
 	case nil:
 		return "#f"
 	}
-	return "|" + expr.Serialize(v) + "|"
+	return "|" + expr.Serialize(unbox(v)) + "|"
 }

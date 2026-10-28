@@ -389,7 +389,7 @@ func tupleWrapArrowSig(e any) any {
 		// julia 1.12.6 calls tuple-wrap-arrow-arglist here, which no file
 		// of the front end defines: femtolisp's unbound-variable error,
 		// which error-wrap reports as a malformed expression
-		panic(loweringError("malformed expression"))
+		panic(internalError("unbound variable tuple-wrap-arrow-arglist"))
 	case car(e) == sym("tuple"):
 		return e
 	case car(e) == sym("escape"):
@@ -586,11 +586,11 @@ func (lw *lowerer) keywordsIntroducedBy(x any) []any {
 // patternResult is what a pattern set's lambda returns: a rewritten form
 // to expand again, or a final varlist (or the empty list, not a varlist).
 type patternResult struct {
-	varlist  []any
-	final    bool // varlist (or ()) is the answer
-	isVar    bool // the answer is a varlist
-	rewrite  any  // otherwise, the form to expand again
-	nomatch  bool
+	varlist []any
+	final   bool // varlist (or ()) is the answer
+	isVar   bool // the answer is a varlist
+	rewrite any  // otherwise, the form to expand again
+	nomatch bool
 }
 
 // expandPatterns is pattern-expand1 for the two sets, whose rewrites all
@@ -612,10 +612,10 @@ func (lw *lowerer) expandPatterns(set func(any) patternResult, x any) ([]any, bo
 	}
 }
 
-func varlistOf(v []any) patternResult  { return patternResult{varlist: v, final: true, isVar: true} }
-func rewriteTo(x any) patternResult     { return patternResult{rewrite: x} }
-func notVarlist() patternResult         { return patternResult{final: true} }
-func noPattern() patternResult          { return patternResult{nomatch: true} }
+func varlistOf(v []any) patternResult { return patternResult{varlist: v, final: true, isVar: true} }
+func rewriteTo(x any) patternResult   { return patternResult{rewrite: x} }
+func notVarlist() patternResult       { return patternResult{final: true} }
+func noPattern() patternResult        { return patternResult{nomatch: true} }
 
 // callSig matches (call name . argl), at least a name.
 func callSig(e any) bool { return is(e, sCall) && lengthGt(e, 1) }

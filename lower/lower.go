@@ -115,11 +115,10 @@ func (st *State) Lower(ex any) (out any, err error) {
 				out, err = nil, fmt.Errorf("%w: %s", ErrUnsupported, string(x))
 			case internalError:
 				out, err = nil, fmt.Errorf("%w: %s", ErrInternal, string(x))
-			case runtime.Error:
-				// a broken invariant the port did not check by name
-				out, err = nil, fmt.Errorf("%w: %v", ErrInternal, x)
 			default:
-				panic(r)
+				// a broken invariant the port did not check by name: a
+				// runtime.Error, the only other panic of the port
+				out, err = nil, fmt.Errorf("%w: %v", ErrInternal, x)
 			}
 		}
 	}()
@@ -148,8 +147,14 @@ func (lw *lowerer) errorWrap(f func() any) (out any) {
 			case loweringError:
 				msg = x
 			case loweringErrorValue:
-				out = list(sym("error"), x.msg)
-				return
+				s, ok := x.msg.(sstr)
+				if !ok {
+					// a julia String is not a femtolisp string?: no
+					// incomplete: prefix test
+					out = list(sym("error"), x.msg)
+					return
+				}
+				msg = loweringError(s)
 			case internalError, runtime.Error:
 				// femtolisp's own errors (a car of an atom, a missing
 				// argument) on a malformed form
@@ -325,14 +330,16 @@ func reprJuliaString(s string) string { return syntax.ReprString(s) }
 // juliaRepr is the text julia prints for an opaque value in an error
 // message: jl_static_show, which femtolisp prints a julia value with.
 func juliaRepr(v any) string {
-	switch x := v.(type) {
+	switch x := unbox(v).(type) {
 	case expr.Opaque:
 		return x.Repr
 	case expr.Module:
 		s := moduleString(x)
 		return strings.TrimSuffix(strings.TrimPrefix(s, "#<julia: "), ">")
 	case expr.Char:
-		return syntax.ReprChar(x)
+		// rtutils.c has no case for Char: the generic one of a primitive
+		// type prints its name and its bytes, most significant first
+		return fmt.Sprintf("Char(0x%08x)", uint32(x))
 	case string:
 		return reprJuliaString(x)
 	}

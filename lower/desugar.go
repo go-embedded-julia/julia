@@ -303,7 +303,7 @@ func symRef(e any) bool {
 			isPair(caddr(e)) && inList(car(caddr(e)), sQuote, sInert) && isSymbol(cadr(caddr(e))))
 }
 
-func overlay(e any) bool       { return is(e, "overlay") }
+func overlay(e any) bool         { return is(e, "overlay") }
 func symRefOrOverlay(e any) bool { return overlay(e) || symRef(e) }
 
 func dotsToVararg(a []any) []any {
@@ -2449,7 +2449,9 @@ func (lw *lowerer) expandTry(e []any) any {
 			inner = L(S("try"), tryb, v, catchb, fFalse(), sp(listTail(e, 5)))
 		}
 		return lw.expandForms(list(sym("tryfinally"), inner, list(sym("scope-block"), finalb)))
-	case lengthGt(e, 3):
+	default:
+		// the Scheme's (else (error "invalid \"try\" form")) is never
+		// reached: (cadddr e) above has already failed on a shorter form
 		if lengthGt(e, 6) {
 			errorf("invalid \"try\" form")
 		}
@@ -2469,8 +2471,6 @@ func (lw *lowerer) expandTry(e []any) any {
 		}
 		return lw.expandForms(L(head, list(sym("scope-block"), tryb), list(sym("scope-block"), catchPart), sp(elseb)))
 	}
-	errorf("invalid \"try\" form")
-	return nil
 }
 
 func (lw *lowerer) expandStructDef(e []any) any {

@@ -98,7 +98,7 @@ func TestParseErrors(t *testing.T) {
 		"{G :a}", "{G :a 1}", "{ParseError 1}", `{? 1 "x"}`, `{? "a"}`, `{? "a" 1}`,
 		"{GotoIfNot ( 1}", "{GotoIfNot :x}", "{GotoIfNot :x y}", "{Return (}", "{Newvar (}",
 		"{LI 1 2 3}", "{LI :f}", "{LI :f x 0}", "{LI :f 0 x}", "{LI :f 3000000000 0}", "{LI :f 1}",
-		"{Enter x}","{Enter 1 (}", "{Int8 300}", "{Int16 -40000}", "{Int32 x}", "{Int8 x}",
+		"{Enter x}", "{Enter 1 (}", "{Int8 300}", "{Int16 -40000}", "{Int32 x}", "{Int8 x}",
 		"{UInt8 -1}", "{UInt16 x}", "{UInt32 x}", "{UInt64 x}", "{Float64 0x1}",
 		"{Float64 0xZZZZZZZZZZZZZZZZ}", "{Float64 0x00000000000000AA}", "{Float32 1}", "{Char 1}",
 		"{SSA x}", "{Slot x}", "{Arg x}", "{Goto x}", "{9x 1}", "{Foo}", "{Foo }", "{SSA 1 2}",

@@ -36,9 +36,11 @@ func (g *gensyms) passInput(v any) {
 		}
 		// #12, #s12, and #g12, the canonical form
 		digits := strings.TrimLeft(strings.TrimPrefix(id, "#"), "sg")
-		n, err := strconv.Atoi(digits)
-		if err == nil && n >= g.counter && n < 1<<40 {
-			g.counter = n + 1
+		// a hostile number beyond 2^30 is not followed: the counter must
+		// not overflow an int on 32-bit targets
+		n, err := strconv.ParseInt(digits, 10, 31)
+		if err == nil && int(n) >= g.counter {
+			g.counter = int(n) + 1
 		}
 	})
 }
@@ -108,7 +110,7 @@ func symString(x any) string {
 	case []any:
 		// a list, as femtolisp's display prints it: a closure named after
 		// a hygienic (globalref m f) becomes "#(globalref #<julia: M> f)#1"
-		p := &flPrinter{labels: map[string]int{}, seen: map[string]int{}}
+		p := &flPrinter{labels: map[*jlValue]int{}, seen: map[*jlValue]int{}}
 		p.traverse(v)
 		return p.print(v)
 	case bool:
@@ -116,8 +118,6 @@ func symString(x any) string {
 			return "#t"
 		}
 		return "#f"
-	case expr.Module:
-		return moduleString(v)
 	}
 	// print.c: a julia value is "#<julia: " jl_static_print ">"
 	return "#<julia: " + juliaRepr(x) + ">"
@@ -141,13 +141,13 @@ func moduleString(v expr.Module) string {
 // flPrinter prints a list as femtolisp's display does (print.c), with the
 // labels it gives an object printed more than once: `#0=` before its
 // first occurrence, `#0#` for the others. The port keeps no identity for
-// the conses and strings, so only a julia Module, which hygiene shares
-// between its (globalref m x) forms, is labelled.
+// the conses and strings, so only a julia value, such as the Module that
+// hygiene shares between its (globalref m x) forms, is labelled.
 type flPrinter struct {
-	seen   map[string]int // occurrences found by traverse
-	labels map[string]int // print_traverse's label of a shared object
+	seen   map[*jlValue]int // occurrences found by traverse
+	labels map[*jlValue]int // print_traverse's label of a shared object
 	next   int
-	done   map[string]bool
+	done   map[*jlValue]bool
 }
 
 func (p *flPrinter) traverse(v any) {
@@ -156,11 +156,10 @@ func (p *flPrinter) traverse(v any) {
 		for _, e := range x {
 			p.traverse(e)
 		}
-	case expr.Module:
-		k := moduleString(x)
-		p.seen[k]++
-		if p.seen[k] == 2 {
-			p.labels[k] = p.next
+	case *jlValue:
+		p.seen[x]++
+		if p.seen[x] == 2 {
+			p.labels[x] = p.next
 			p.next++
 		}
 	}
@@ -174,19 +173,19 @@ func (p *flPrinter) print(v any) string {
 			parts[i] = p.print(e)
 		}
 		return "(" + strings.Join(parts, " ") + ")"
-	case expr.Module:
-		k := moduleString(x)
-		n, shared := p.labels[k]
+	case *jlValue:
+		k := symString(x)
+		n, shared := p.labels[x]
 		if !shared {
 			return k
 		}
 		if p.done == nil {
-			p.done = map[string]bool{}
+			p.done = map[*jlValue]bool{}
 		}
-		if p.done[k] {
+		if p.done[x] {
 			return "#" + strconv.Itoa(n) + "#"
 		}
-		p.done[k] = true
+		p.done[x] = true
 		return "#" + strconv.Itoa(n) + "=" + k
 	}
 	return symString(v)
@@ -198,7 +197,6 @@ func quoted(e any) bool {
 }
 
 func quotify(e any) any { return list(sQuote, e) }
-
 
 func quotedSym(e any) bool {
 	return lengthEq(e, 2) && inList(car(e), sQuote, sInert) && isSymbol(cadr(e))
@@ -291,7 +289,6 @@ func nothingP(e any) bool  { return is(e, sNull) }
 func eventuallyDecl(e any) bool {
 	return isSymbol(e) || (isPair(e) && inList(car(e), sDecl, sym("atomic"), sym("const")) && eventuallyDecl(cadr(e)))
 }
-
 
 func symbolLike(e any) bool { return isSymbol(e) || ssavalue(e) }
 

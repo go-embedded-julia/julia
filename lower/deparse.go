@@ -266,7 +266,7 @@ func deparseIndent(e any, ilvl int) string {
 		return "{" + deparseArglist(cdr(e), "; ") + "}"
 	case sym("string"):
 		parts := mapStr(func(s any) string {
-			switch v := s.(type) {
+			switch v := unbox(s).(type) {
 			case string:
 				return v
 			case sstr:

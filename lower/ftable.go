@@ -81,11 +81,12 @@ func (t *ftable) lookup(key any) int {
 		}
 		// table full: grow, rehash in slot order, retry
 		oldKeys, oldVals, oldLive := t.keys, t.vals, t.live
+		// htable.inc's `if (sz < HT_N_INLINE) newsz = HT_N_INLINE` is
+		// left out: a table starts with HT_N_INLINE/2 buckets, so size is
+		// at least HT_N_INLINE
 		size := 2 * sz
 		var newsz int
 		switch {
-		case size < htNInline:
-			newsz = htNInline
 		case size >= 1<<19 || size <= 1<<8:
 			newsz = size << 1
 		default:
@@ -199,6 +200,9 @@ func boundedHash(v any, bound int) uint64 {
 	case int64:
 		return int64hash(math.Float64bits(float64(x)))
 	case []any:
+		if len(x) == 0 {
+			return int64hash(flNil)
+		}
 		var h uint64
 		for _, e := range x {
 			if bound <= 0 {
@@ -208,25 +212,29 @@ func boundedHash(v any, bound int) uint64 {
 			bound--
 		}
 		// the terminating () of the list
-		return mix(h, boundedHash(nilList{}, bound-1)^2)
-	case nilList:
-		return uint64(symbolHash("nil"))
+		return mix(h, int64hash(flNil)^2)
 	case bool:
 		if x {
-			return uint64(symbolHash("#t"))
+			return int64hash(flTrue)
 		}
-		return uint64(symbolHash("#f"))
+		return int64hash(flFalse)
 	case sstr:
 		return memhash([]byte(x))
 	}
 	// A julia value: femtolisp hashes the object's address, so no table
 	// keyed by julia values is iterated; any hash consistent with
 	// equality does.
-	return memhash([]byte(expr.Serialize(v)))
+	return memhash([]byte(expr.Serialize(unbox(v))))
 }
 
-// nilList stands for femtolisp's () when hashed as a list terminator.
-type nilList struct{}
+// femtolisp's #t, #f and () are builtins (flisp.c: builtin(OP_BOOL_CONST_T)
+// and the next two opcodes of opcodes.h, tagged TAG_FUNCTION), which
+// bounded_hash hashes by their value with inthash.
+const (
+	flTrue  = 95<<3 | 2
+	flFalse = 96<<3 | 2
+	flNil   = 97<<3 | 2
+)
 
 func mix(a, b uint64) uint64 { return int64hash(a ^ b) }
 

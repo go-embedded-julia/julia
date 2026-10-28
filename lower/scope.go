@@ -267,10 +267,8 @@ func (lw *lowerer) resolveScopes(e any) any { return lw.resolveScopes_(e, nil, n
 func (lw *lowerer) resolveScopes_(e any, s *scope, sp []any, loc any) any {
 	if isSymbol(e) {
 		if s != nil {
+			// a binding stack is never empty: popVar leaves #f instead
 			if val := s.table.get(e, false); truthy(val) {
-				if isNull(val) {
-					panic(internalError("empty binding stack for " + symString(e)))
-				}
 				return car(val)
 			}
 		}
@@ -297,7 +295,9 @@ func (lw *lowerer) resolveScopes_(e any, s *scope, sp []any, loc any) any {
 	case sym("assign-const-if-global"):
 		if varKind(cadr(e), s, false) == "local" {
 			if lengthEq(e, 2) {
-				return null()
+				// julia 1.12.6 writes (null), a call of an unbound
+				// function, where it means '(null): femtolisp's error
+				panic(internalError("unbound variable null"))
 			}
 			return lw.resolveScopes_(cons(sAssign, cdr(e)), s, sp, loc)
 		}

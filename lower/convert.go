@@ -43,14 +43,16 @@ func toSx(v any) any {
 		if x.Mod == "Core" {
 			return list(sCore, x.Name)
 		}
-		return list(sym("globalref"), expr.Module{Path: []expr.Symbol{x.Mod}}, x.Name)
+		return list(sym("globalref"), &jlValue{expr.Module{Path: []expr.Symbol{x.Mod}}}, x.Name)
 	case expr.SSAValue:
 		errorf("SSAValue objects should not occur in an AST")
 	case expr.SlotNumber:
 		errorf("SlotNumber objects should not occur in an AST")
+	case int64:
+		return x // a fixnum
 	}
-	// int64 is a fixnum; everything else an opaque julia value.
-	return v
+	// an opaque julia value, wrapped anew for each occurrence
+	return &jlValue{v}
 }
 
 // converter is scm_to_julia for one lowering: mod is the module lowering
@@ -76,7 +78,7 @@ func (c *converter) fromSx(e any) any {
 	case bool:
 		panic(internalError("boolean in lowered output"))
 	}
-	return e
+	return unbox(e)
 }
 
 func (c *converter) fromList(e []any) any {

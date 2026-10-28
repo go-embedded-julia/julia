@@ -518,12 +518,9 @@ func (lw *lowerer) destructure_(i int, lhss []any, xx any, n int, st any, end *[
 			}
 			return list(lw.expandForms(wrapSubassign(list(sAssign, cadr(lhs_), L(sCall, topRef("rest"), xx, sp(stArg))))))
 		}
-		var tail any
-		if eventuallyCall(lhs) {
-			tail = lw.st.gensyms.gensy()
-		} else {
-			tail = lw.makeSSAValue()
-		}
+		// the Scheme's (if (eventually-call? lhs) (gensy) (make-ssavalue)):
+		// lhs is a (... x) here, never a call
+		tail := lw.makeSSAValue()
 		first := lw.expandForms(lw.lowerTupleAssignment(list(cadr(lhs_), tail),
 			L(sCall, topRef("split_rest"), xx, int64(n-i), sp(stArg)), wrapfirst))
 		return cons(first, lw.destructure_(1, cdr(lhss), tail, n-i, st, end, wrap))

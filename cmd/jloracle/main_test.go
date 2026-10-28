@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-embedded-julia/julia/internal/gen"
 	"github.com/go-embedded-julia/julia/internal/oracle"
+	"github.com/go-embedded-julia/julia/lower"
 )
 
 // When started with JLGO_FAKE_JULIA set, the test binary is a minimal
@@ -180,8 +181,10 @@ func TestLowerForms(t *testing.T) {
 		{Tag: "F", Input: "(bad", Output: ":x"},
 		{Tag: "F", Input: ":x", Output: "(bad"},
 		{Tag: "F", Input: ":x", Output: ":y"},
+		// beyond lower.MaxDepth: Lower refuses it
+		{Tag: "F", Input: strings.Repeat("(:call :f ", lower.MaxDepth+2) + ":x" + strings.Repeat(")", lower.MaxDepth+2), Output: ":x"},
 	})
-	if fmt.Sprint(got) != "[true false false false]" {
+	if fmt.Sprint(got) != "[true false false false false]" {
 		t.Fatalf("lowerForms: %v", got)
 	}
 }
