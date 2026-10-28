@@ -28,6 +28,10 @@ func names() map[expr.Symbol]any {
 		T := tv("T")
 		return &UnionAll{Var: T, Body: mustApply(ArrayType, T, int64(1))}
 	}()
+	matrix := func() any {
+		T := tv("T")
+		return &UnionAll{Var: T, Body: mustApply(ArrayType, T, int64(2))}
+	}()
 	absvector := func() any {
 		T := tv("T")
 		return &UnionAll{Var: T, Body: mustApply(AbstractArrayType, T, int64(1))}
@@ -46,7 +50,7 @@ func names() map[expr.Symbol]any {
 		"Type": TypeType, "Tuple": AnyTupleType, "Array": ArrayType, "AbstractArray": AbstractArrayType,
 		"DenseArray": DenseArrayType, "Ref": RefType, "Ptr": PtrType, "Pair": PairType, "Val": ValType,
 		"Vector": vector, "NTuple": ntuple, "TypeofBottom": TypeofBottomType, "Symbol": SymbolType,
-		"Vararg": VarargType, "AbstractVector": absvector, "Int16": Int16Type, "Int32": Int32Type, "UInt8": UInt8Type,
+		"Vararg": VarargType, "AbstractVector": absvector, "Matrix": matrix, "Int16": Int16Type, "Int32": Int32Type, "UInt8": UInt8Type,
 		"Some": SomeType, "Dict": DictType, "AbstractDict": AbstractDictType, "Function": FunctionType,
 	}
 }
@@ -212,7 +216,32 @@ func productLines() []string {
 				fmt.Sprintf("Type{%s} <: (Type{T} where T<:%s)", a, b),
 				fmt.Sprintf("Tuple{Type{%s},%s} <: (Tuple{Type{T},T} where T)", a, b),
 				fmt.Sprintf("%s <: %s", a, b),
-				fmt.Sprintf("env(Tuple{%s,%s}, Tuple{T,S} where S<:T where T)", a, b))
+				fmt.Sprintf("env(Tuple{%s,%s}, Tuple{T,S} where S<:T where T)", a, b),
+				fmt.Sprintf("ms(%s, %s)", a, b),
+				fmt.Sprintf("ms(Tuple{%s}, Tuple{%s})", a, b),
+				fmt.Sprintf("ms(Tuple{%s,Vararg{%s}}, Tuple{%s,%s})", a, b, b, a),
+				fmt.Sprintf("ms(Tuple{T,T} where T<:%s, Tuple{%s,%s})", a, b, b),
+				fmt.Sprintf("ms(Tuple{Type{%s},%s}, Tuple{Type{T},T} where T)", a, b),
+				fmt.Sprintf("ms(Tuple{Vector{%s}}, Tuple{Vector{T}} where T<:%s)", a, b),
+				// pairs neither side of which is a subtype of the other, so
+				// that type_morespecific_ itself decides (subtype.c:5522-5526)
+				fmt.Sprintf("ms(Tuple{%s,%s}, Tuple{%s,%s})", a, b, b, a),
+				fmt.Sprintf("ms(Tuple{T,T,%s} where T, Tuple{%s,Any,Any})", a, b),
+				fmt.Sprintf("ms(Tuple{Ref{T},T} where T<:%s, Tuple{Ref{%s},Any})", a, b),
+				fmt.Sprintf("ms(Tuple{Vector{T},%s} where T, Tuple{Vector{%s},T} where T)", a, b),
+				fmt.Sprintf("ms(Tuple{T,Vararg{%s}} where T, Tuple{%s,Vararg{T}} where T)", a, b),
+				fmt.Sprintf("ms(Tuple{Type{T},%s} where T, Tuple{%s,Type{T}} where T)", a, b),
+				fmt.Sprintf("ms(Tuple{Pair{T,T},%s} where T, Tuple{Pair{%s,S},Any} where S)", a, b),
+				fmt.Sprintf("ms(Union{Tuple{%s,Any},Tuple{Any,%s}}, Tuple{T,T} where T)", a, b),
+				// a Union on the left skips jl_type_morespecific's subtype
+				// shortcuts; a bounded T leaves the diagonal tie-break of
+				// tuple_morespecific (subtype.c:5189) as the only rule
+				fmt.Sprintf("ms(Union{Tuple{T,T} where T<:%s, Nothing}, Tuple{%s,%s})", a, b, b),
+				fmt.Sprintf("ms(Union{Tuple{T,T,Vararg{T}} where T<:%s, Nothing}, Tuple{%s,Vararg{%s}})", a, b, b),
+				// an invariant variable against a type with a free variable
+				// equal to its bound (subtype.c:5466-5473)
+				fmt.Sprintf("ms(Union{Tuple{Ref{T},T} where T<:Vector{%s}, Nothing}, Tuple{Ref{Vector{S}},Any} where S)", a),
+				fmt.Sprintf("ms(Union{Tuple{Ref{T},T,T} where T<:Ref{%s}, Nothing}, Tuple{Ref{Ref{S}},%s,Any} where S)", a, b))
 		}
 	}
 	return out
@@ -245,6 +274,7 @@ function env(x, y)
     r = ccall(:jl_subtype_env, Int32, (Any, Any, Ptr{Any}, Int32), x, y, e, n)
     string(r, join((isassigned(e, i) ? " " * gs(e[i]) : " #null" for i in 1:n)))
 end
+ms(a, b) = Base.morespecific(a, b)
 answer(v::Bool) = string(Int(v))
 answer(v::String) = v
 `
@@ -342,6 +372,12 @@ func goCase(line string) string {
 		return bit(sub)
 	case "==":
 		return bit(TypesEqual(a, b))
+	case "ms":
+		more, err := MoreSpecific(a, b)
+		if err != nil {
+			return "E"
+		}
+		return bit(more)
 	case "isa":
 		sub, err := BuiltinIsa(a, b)
 		if err != nil {

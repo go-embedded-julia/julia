@@ -93,7 +93,7 @@ func askJulia(t *testing.T, xs, ys []any) []goldenCase {
 	var prog strings.Builder
 	prog.WriteString(gshow)
 	for i := range xs {
-		fmt.Fprintf(&prog, "let x = %s, y = %s; print(gs(x), '\\t', gs(y), '\\t', try Int(x <: y) catch; \"E\" end, '\\n') end\n",
+		fmt.Fprintf(&prog, "let x = %s, y = %s; print(gs(x), '\\t', gs(y), '\\t', try Int(x <: y) catch; \"E\" end, ' ', try Int(Base.morespecific(x, y)) catch; \"E\" end, '\\n') end\n",
 			Show(xs[i]), Show(ys[i]))
 	}
 	prog.WriteString("nothing\n")
@@ -168,6 +168,18 @@ func readGolden(t *testing.T) []goldenCase {
 	return cs
 }
 
+// goMoreSpecific answers Base.morespecific(x, y) as the golden records it.
+func goMoreSpecific(x, y any) string {
+	more, err := MoreSpecific(x, y)
+	switch {
+	case err != nil:
+		return "E"
+	case more:
+		return "1"
+	}
+	return "0"
+}
+
 func goAnswer(x, y any) string {
 	sub, err := SubtypeChecked(x, y)
 	switch {
@@ -208,8 +220,8 @@ func TestSubtypeAgainstJulia(t *testing.T) {
 			bad = append(bad, fmt.Sprintf("%d: built %s <: %s, julia's golden has %s <: %s", i, sx, sy, c.x, c.y))
 			continue
 		}
-		counts[c.want]++
-		if got := goAnswer(xs[i], ys[i]); got != c.want && !knownDivergence[c.x+"\t"+c.y] {
+		counts[c.want[:1]]++
+		if got := goAnswer(xs[i], ys[i]) + " " + goMoreSpecific(xs[i], ys[i]); got != c.want && !knownDivergence[c.x+"\t"+c.y] {
 			bad = append(bad, fmt.Sprintf("%d: %s <: %s: go %s, julia %s", i, c.x, c.y, got, c.want))
 		}
 	}
