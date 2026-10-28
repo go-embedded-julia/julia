@@ -47,7 +47,8 @@ func (lw *lowerer) compareOne(e []any) (any, []any) {
 			init = list(list(sAssign, arg2, arg))
 		}
 		first := L(sBlock, sp(init), list(sAssign, s, cadddr(cdr(e))), list(sCall, cadr(e), car(e), arg2))
-		return first, listStar(arg2, cadddr(e), s, listTail(e, 6))
+		// (cddddr (cdr e)): the comparison after the next one
+		return first, listStar(arg2, cadddr(e), s, listTail(e, 5))
 	}
 	return addInit(arg, arg2, list(sCall, cadr(e), car(e), arg2)), cons(arg2, cdddr(e))
 }
@@ -961,8 +962,9 @@ func (lw *lowerer) expandTable(h sym) func(e []any) any {
 		}
 	case "primitive":
 		return func(e []any) any {
-			name, params, super := analyzeTypeSig(cadr(e))
-			return lw.expandForms(lw.primitiveTypeDefExpr(caddr(e), name, params, super))
+			sig, n := cadr(e), caddr(e) // the let binds both first
+			name, params, super := analyzeTypeSig(sig)
+			return lw.expandForms(lw.primitiveTypeDefExpr(n, name, params, super))
 		}
 	case "comparison":
 		return func(e []any) any { return lw.expandForms(lw.expandCompareChain(cdr(e))) }
