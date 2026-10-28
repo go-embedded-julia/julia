@@ -101,7 +101,10 @@ func TestCoverCandidates(t *testing.T) {
 			}
 			c := snapshot(st, e.Path)
 			if lowerForm(t, st, f) {
-				c.Input, c.Output = canonicalOrFatal(t, f.Input), canonicalOrFatal(t, f.Output)
+				// the input as julia lowered it: renumbering it would
+				// change the names lowering derives from it (a slot
+				// named `sync#41` after the runtime gensym `##sync#41`)
+				c.Input, c.Output = f.Input, canonicalOrFatal(t, f.Output)
 				cands = append(cands, c)
 			}
 		}

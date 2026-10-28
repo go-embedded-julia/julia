@@ -425,6 +425,64 @@ function lower_forms(text, rel)
     String(take!(io))
 end
 
+# Nanoseconds julia takes to Meta.lower every macro-expanded top-level form
+# of the corpus once (each file's forms in a fresh module), best of `rounds`
+# after a warm-up round, and the number of forms. The forms are expanded
+# as lower_forms expands them, outside the timing.
+function bench_lower(rounds)
+    files = Vector{Vector{Any}}()
+    for rel in split(corpus_files(), '\n')
+        cd("/")
+        ctx = context_module(rel)
+        exs = Any[]
+        function visit(ex, expanded::Bool)
+            if ex isa LineNumberNode
+                return
+            elseif ex isa Expr && ex.head === :toplevel
+                foreach(a -> visit(a, false), ex.args)
+                return
+            elseif ex isa Expr && ex.head === :module && length(ex.args) >= 3 && ex.args[3] isa Expr
+                foreach(a -> visit(a, false), ex.args[3].args)
+                return
+            end
+            if !expanded
+                x = try
+                    Base.CoreLogging.with_logger(NULL_LOGGER) do
+                        macroexpand(ctx, ex)
+                    end
+                catch
+                    return
+                end
+                if x isa Expr && x.head in (:toplevel, :module)
+                    visit(x, true)
+                    return
+                end
+                ex = x
+            end
+            push!(exs, ex)
+        end
+        text = read(joinpath(SHARE, rel), String)
+        foreach(a -> visit(a, false), Meta.parseall(text; filename=String(rel)).args)
+        push!(files, exs)
+    end
+    best = typemax(UInt64)
+    for r in 0:rounds
+        mods = [Module(:L, false, false) for _ in files]
+        t0 = time_ns()
+        Base.CoreLogging.with_logger(NULL_LOGGER) do
+            for (m, exs) in zip(mods, files), ex in exs
+                try
+                    Meta.lower(m, ex)
+                catch
+                end
+            end
+        end
+        dt = time_ns() - t0
+        r > 0 && (best = min(best, dt))
+    end
+    return string(best, ' ', sum(length, files))
+end
+
 function evaluate(text)
     m = Module(:OracleEval)
     Core.eval(m, :(using Base))
@@ -536,6 +594,8 @@ function answer(op, args)
     elseif op == "lowerfile"
         rel = String(base64decode(args[1]))
         return lower_forms(read(joinpath(SHARE, rel), String), rel)
+    elseif op == "benchlower"
+        return bench_lower(parse(Int, String(base64decode(args[1]))))
     elseif op == "eval"
         return evaluate(String(base64decode(args[1])))
     elseif op == "unicode"

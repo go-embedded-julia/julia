@@ -95,8 +95,8 @@ func TestLowerToplevel(t *testing.T) {
 var _ = errors.Is
 
 // minSnippetsIdentical is the number of lowering snippets' forms the Go
-// lowering reproduces; every step of the port raises it.
-const minSnippetsIdentical = 5
+// lowering reproduces: all of them.
+const minSnippetsIdentical = 124
 
 func readGolden[T any](t testing.TB, name string) []T {
 	t.Helper()

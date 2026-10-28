@@ -34,7 +34,8 @@ func (g *gensyms) passInput(v any) {
 		if !ok {
 			return
 		}
-		digits := strings.TrimPrefix(strings.TrimPrefix(id, "#"), "s")
+		// #12, #s12, and #g12, the canonical form
+		digits := strings.TrimLeft(strings.TrimPrefix(id, "#"), "sg")
 		n, err := strconv.Atoi(digits)
 		if err == nil && n >= g.counter && n < 1<<40 {
 			g.counter = n + 1
