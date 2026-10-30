@@ -18,7 +18,8 @@ expectations written by hand.
 | M0 oracle harness | `internal/oracle`, `cmd/jloracle`, golden files | **done** |
 | M1 parser | Go port of JuliaSyntax → `expr.Expr` | **done** — see parity below |
 | M2 lowering | port of `src/julia-syntax.scm` → `CodeInfo` | **done** — see lowering parity below |
-| M3 – M7 | Core runtime, Base, numeric stdlib, notebook bridge, wasm playground | M3 in progress (`core`), the rest planned |
+| M3 Core runtime | types, subtyping, method specificity, dispatch, builtins, intrinsics | **in progress** — types, subtyping and specificity done (`core`); dispatch next |
+| M4 – M7 | Base, numeric stdlib, notebook bridge, wasm playground | planned |
 
 ### Parser parity with julia 1.12.6
 
@@ -97,6 +98,12 @@ macro expansion runs user code and stays with the caller, as it does in
 julia. `Lower` refuses trees nested deeper than `lower.MaxDepth` (1000)
 with `lower.ErrLimit`; `FuzzLower` runs on every pull request.
 
+### Types and subtyping (core)
+
+core — Julia's type objects, apply_type, and subtyping (a port of jltypes.c and subtype.c of 1.12.6, without intersection): identical to julia on 20 000 random pairs and 4 902 cases from test/subtype.jl; and method specificity (jl_type_morespecific), identical to Base.morespecific on the same corpus.
+
+Not measured yet: speed against julia's `jl_subtype` (the machine load was too high for an honest measurement).
+
 ## Use
 
 ```go
@@ -165,7 +172,7 @@ with the official release tarball).
 | `expr` | Julia syntax-tree values, canonical serialisation |
 | `syntax` | the parser (port of JuliaSyntax: `tokenize.go`, `parse_stream.go`, `parser*.go`, `build.go`, `errors.go`) |
 | `lower` | lowering to `CodeInfo` (port of `src/julia-syntax.scm`, `macroexpand.scm`, `ast.scm`, `match.scm`) |
-| `core` | core — Julia's type objects, apply_type, and subtyping (a port of jltypes.c and subtype.c of 1.12.6, without intersection): identical to julia on 20 000 random pairs and 4 902 cases from test/subtype.jl. |
+| `core` | Julia's type objects, apply_type, subtyping and specificity (port of jltypes.c, subtype.c) |
 | `internal/unitab` | Unicode tables from the reference build, utf8proc's grapheme breaks |
 | `internal/oracle` | the reference julia as a differential oracle |
 | `internal/gen`, `cmd/jloracle` | the golden-file generators |
