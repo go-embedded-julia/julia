@@ -1948,12 +1948,13 @@ func subtypeEnv(x, y any, env []any) bool {
 	}
 	e := &stenv{envout: env}
 	sub := e.forallExistsSubtype(x, y, 0)
-	if env != nil {
-		ub := y.(*UnionAll)
-		for i := range env {
-			env[i] = fixInferredVarBound(ub.Var, env[i])
-			ub, _ = ub.Body.(*UnionAll)
-		}
+	// julia's `if (env)` loop runs envsz times; an empty env must not look
+	// at y, which need not be a UnionAll then
+	t := y
+	for i := range env {
+		ub := t.(*UnionAll)
+		env[i] = fixInferredVarBound(ub.Var, env[i])
+		t = ub.Body
 	}
 	return sub
 }
@@ -1972,6 +1973,18 @@ func SubtypeChecked(x, y any) (sub bool, err error) {
 // SubtypeEnv is jl_subtype_env: x <: y, filling env with the values of the
 // variables of y's outer UnionAlls (len(env) at most their number).
 func SubtypeEnv(x, y any, env []any) (sub bool, err error) {
+	n := 0
+	for t := y; ; n++ {
+		u, ok := t.(*UnionAll)
+		if !ok {
+			break
+		}
+		t = u.Body
+	}
+	if len(env) > n {
+		// jl_subtype_env asserts envsz <= jl_subtype_env_size(y)
+		return false, &Error{"subtype environment longer than the type's variables"}
+	}
 	defer catchError(&err)
 	return subtypeEnv(x, y, env), nil
 }
