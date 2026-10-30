@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -45,6 +46,48 @@ func TestStaticParameters(t *testing.T) {
 	_, env, err := tab.Lookup(call, tab.World())
 	if err != nil || len(env) != 1 || env[0] != any(core.Int64Type) {
 		t.Fatalf("sparams %v, %v; want [Int64]", env, err)
+	}
+}
+
+// The work bound of a subtyping query reaches Lookup as an error, never a
+// panic, wherever it strikes: raising it step by step from 1 makes each
+// call of core inside Lookup the one that fails, until the lookup succeeds.
+func TestWorkBoundIsAnError(t *testing.T) {
+	tab := &Table{Name: "f"}
+	T := &core.TypeVar{Name: "T", LB: core.Bottom, UB: core.AnyType}
+	// signatures with unions on both sides of their mutual comparison, so
+	// that specificity needs more steps than matching the call: some bound
+	// fails in matching, some later bound in specificity
+	S := &core.TypeVar{Name: "S", LB: core.Bottom, UB: core.AnyType}
+	vecInt := mustApply(t, core.ArrayType, core.Int64Type, int64(1))
+	u := func(v *core.TypeVar, arr any) any {
+		return core.TypeUnion(arr, mustApply(t, core.RefType, v), mustApply(t, core.PairType, v, v))
+	}
+	tab.Add(core.TypeUnionAll(T, mustApply(t, core.AnyTupleType,
+		u(T, mustApply(t, core.ArrayType, T, int64(1))), core.TypeUnion(T, core.NothingType))))
+	tab.Add(core.TypeUnionAll(S, mustApply(t, core.AnyTupleType,
+		u(S, mustApply(t, core.AbstractArrayType, S, int64(1))), core.TypeUnion(S, core.NothingType))))
+	call := mustApply(t, core.AnyTupleType, vecInt, core.Int64Type)
+	saved := core.SetMaxSubtypeSteps(1)
+	defer core.SetMaxSubtypeSteps(saved)
+	failures := 0
+	for n := 1; n < 1000; n++ {
+		core.SetMaxSubtypeSteps(n)
+		_, _, err := tab.Lookup(call, tab.World())
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "exceeded") {
+			t.Fatalf("bound %d: %v; want the work-bound error", n, err)
+		}
+		failures++
+	}
+	core.SetMaxSubtypeSteps(saved)
+	if failures == 0 {
+		t.Fatal("no bound made the lookup fail: the test did not exercise the error paths")
+	}
+	if _, _, err := tab.Lookup(call, tab.World()); err != nil {
+		t.Fatalf("under the real bound: %v", err)
 	}
 }
 

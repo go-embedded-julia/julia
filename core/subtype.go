@@ -52,6 +52,16 @@ type stenv struct {
 // one. Exceeding it raises an error instead of running for hours.
 var maxSubtypeCalls = 1 << 22
 
+// SetMaxSubtypeSteps sets the work bound of one subtyping query (see
+// maxSubtypeCalls) and returns the previous one; an embedder running
+// untrusted code may want it lower. It is not safe to change while queries
+// run on other goroutines.
+func SetMaxSubtypeSteps(n int) int {
+	old := maxSubtypeCalls
+	maxSubtypeCalls = n
+	return old
+}
+
 func (e *stenv) lookup(v *TypeVar) *varBinding {
 	for b := e.vars; b != nil; b = b.prev {
 		if b.v == v {

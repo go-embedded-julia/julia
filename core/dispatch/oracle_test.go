@@ -186,10 +186,18 @@ func goAnswers(t testing.TB, c dispatchCase) string {
 	}
 	var out []string
 	for _, call := range c.calls {
-		m, _, err := tab.Lookup(call, tab.World())
+		m, env, err := tab.Lookup(call, tab.World())
 		switch {
 		case err == nil:
-			out = append(out, fmt.Sprint(m.Index+1))
+			s := fmt.Sprint(m.Index + 1)
+			if len(env) > 0 {
+				vals := make([]string, len(env))
+				for i, v := range env {
+					vals[i] = core.Show(v)
+				}
+				s += "[" + strings.Join(vals, ";") + "]"
+			}
+			out = append(out, s)
 		case strings.Contains(err.Error(), ErrAmbiguous.Error()):
 			out = append(out, "A")
 		case strings.Contains(err.Error(), ErrNoMethod.Error()):
@@ -198,26 +206,82 @@ func goAnswers(t testing.TB, c dispatchCase) string {
 			out = append(out, "E")
 		}
 	}
-	return strings.Join(out, " ")
+	return strings.Join(out, answerSep)
 }
+
+// answerSep separates the answers of one table; rendered types contain
+// spaces, never this.
+const answerSep = " | "
+
+// gshow is core.Show written in Julia (the same printer as core's
+// differential test), to render static parameter values.
+const gshow = `
+const QUALIFIED = (:TypeofBottom, :TypeofVararg, :TypeName, :SimpleVector, :BFloat16)
+gs(t) = sprint(gs, t)
+function gs(io::IO, t)
+    if t === Union{}
+        print(io, "Union{}")
+    elseif t isa DataType
+        n = t.name
+        n.module === Core && n.name in QUALIFIED && print(io, "Core.")
+        print(io, n.name)
+        ps = t.parameters
+        if n === Tuple.name && isempty(ps)
+            print(io, "{}")
+        elseif !isempty(ps) && t !== Tuple
+            print(io, '{'); join(io, map(gs, ps), ", "); print(io, '}')
+        end
+    elseif t isa Union
+        print(io, "Union{"); join(io, map(gs, Base.uniontypes(t)), ", "); print(io, '}')
+    elseif t isa UnionAll
+        v = t.var
+        print(io, '('); gs(io, t.body); print(io, " where {")
+        hl, hu = v.lb !== Union{}, v.ub !== Any
+        hl && hu && (gs(io, v.lb); print(io, "<:"))
+        print(io, v.name)
+        if hu
+            print(io, "<:"); gs(io, v.ub)
+        elseif hl
+            print(io, ">:"); gs(io, v.lb)
+        end
+        print(io, "})")
+    elseif t isa TypeVar
+        print(io, t.name)
+    elseif t isa Core.TypeofVararg
+        print(io, "Vararg")
+        if isdefined(t, :T)
+            print(io, '{'); gs(io, t.T)
+            isdefined(t, :N) && (print(io, ", "); gs(io, t.N))
+            print(io, '}')
+        end
+    else
+        print(io, t)
+    end
+end
+`
 
 // juliaProgram defines each case's methods in a fresh module, one method
 // per line, so that which(f, T).line names the method julia chose.
 func juliaProgram(cs []dispatchCase) string {
 	var b strings.Builder
+	b.WriteString(gshow)
 	b.WriteString(`
 function answer(mod, calls)
     out = String[]
     for T in calls
         try
-            push!(out, string(Base.invokelatest(which, getglobal(mod, :f), T).line))
+            f = getglobal(mod, :f)
+            m = Base.invokelatest(which, f, T)
+            # the static parameters dispatch gives the method
+            env = ccall(:jl_type_intersection_with_env, Any, (Any, Any), Tuple{typeof(f), T.parameters...}, m.sig)[2]
+            push!(out, string(m.line, isempty(env) ? "" : "[" * join(map(gs, collect(env)), ";") * "]"))
         catch e
             # julia 1.12's which wraps the MethodError in an ErrorException
             msg = sprint(showerror, e)
             push!(out, occursin("ambiguous", msg) ? "A" : occursin("no method matching", msg) ? "N" : "E")
         end
     end
-    println(join(out, ' '))
+    println(join(out, " | "))
 end
 `)
 	for i, c := range cs {
@@ -281,12 +345,15 @@ func TestDispatchAgainstJulia(t *testing.T) {
 	tally := map[string]int{}
 	for i, c := range cs {
 		_, want, _ := strings.Cut(golden[i], "=>\t")
-		for _, a := range strings.Fields(want) {
+		for _, a := range strings.Split(want, answerSep) {
 			switch a {
 			case "A", "N", "E":
 				tally[a]++
 			default:
 				tally["method"]++
+				if strings.Contains(a, "[") {
+					tally["sparams"]++
+				}
 			}
 		}
 		got := goAnswers(t, c)
@@ -306,8 +373,8 @@ func TestDispatchAgainstJulia(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("%d tables, %d calls: julia chose a method %d times, ambiguous %d, no method %d, error %d",
-		len(cs), calls, tally["method"], tally["A"], tally["N"], tally["E"])
+	t.Logf("%d tables, %d calls: julia chose a method %d times (%d with static parameters), ambiguous %d, no method %d, error %d",
+		len(cs), calls, tally["method"], tally["sparams"], tally["A"], tally["N"], tally["E"])
 	if bad > 0 {
 		t.Errorf("%d / %d tables differ from julia", bad, len(cs))
 	}

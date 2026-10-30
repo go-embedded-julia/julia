@@ -94,15 +94,11 @@ func (t *Table) Methods(w uint64) []*Method {
 // visible reports that m is defined in world w.
 func (m *Method) visible(w uint64) bool { return m.PrimaryWorld <= w && w <= m.MaxWorld }
 
-// moreSpecific is jl_method_morespecific (subtype.c:5536-5552): a's
-// signature is more specific than b's, the newer method winning when they
-// are type-equal.
-func moreSpecific(a, b *Method) (bool, error) {
-	if core.Subtype(b.Sig, a.Sig) && core.TypesEqual(a.Sig, b.Sig) {
-		return a.PrimaryWorld > b.PrimaryWorld, nil
-	}
-	return core.MoreSpecific(a.Sig, b.Sig)
-}
+// moreSpecific is jl_method_morespecific (subtype.c:5536-5552) for two
+// visible methods. Its rule for type-equal signatures (the newer wins)
+// cannot apply: Add retires a method when a type-equal one replaces it, so
+// two visible methods never have type-equal signatures.
+func moreSpecific(a, b *Method) (bool, error) { return core.MoreSpecific(a.Sig, b.Sig) }
 
 // Lookup returns the method a call with argument tuple tt runs in world w,
 // and the values of its static parameters. tt is the concrete Tuple type of
@@ -111,20 +107,25 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 	if !core.IsConcrete(tt) || !core.IsTupleType(tt) {
 		return nil, nil, fmt.Errorf("dispatch on %s: the argument tuple is not a concrete Tuple type", core.Show(tt))
 	}
+	// one jl_subtype_env query per method gives both the answer and the
+	// static parameters the chosen method will need
 	var cands []*Method
+	var envs [][]any
 	for _, m := range t.Methods(w) {
-		sub, err := core.SubtypeChecked(tt, m.Sig)
+		env := make([]any, envSize(m.Sig))
+		sub, err := core.SubtypeEnv(tt, m.Sig, env)
 		if err != nil {
 			return nil, nil, err
 		}
 		if sub {
 			cands = append(cands, m)
+			envs = append(envs, env)
 		}
 	}
 	if len(cands) == 0 {
 		return nil, nil, fmt.Errorf("%w %s%s", ErrNoMethod, t.Name, core.Show(tt))
 	}
-	for _, c := range cands {
+	for ci, c := range cands {
 		best := true
 		for _, o := range cands {
 			if o == c {
@@ -140,11 +141,7 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 			}
 		}
 		if best {
-			env := make([]any, envSize(c.Sig))
-			if _, err := core.SubtypeEnv(tt, c.Sig, env); err != nil {
-				return nil, nil, err
-			}
-			return c, env, nil
+			return c, envs[ci], nil
 		}
 	}
 	return nil, nil, fmt.Errorf("%s%s is %w", t.Name, core.Show(tt), ErrAmbiguous)

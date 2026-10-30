@@ -61,9 +61,8 @@ func TestSubtypeWorkIsBounded(t *testing.T) {
 	if _, err := SubtypeChecked(x, y); err != nil {
 		t.Fatalf("under the real bound: %v", err)
 	}
-	saved := maxSubtypeCalls
-	defer func() { maxSubtypeCalls = saved }()
-	maxSubtypeCalls = 3
+	saved := SetMaxSubtypeSteps(3)
+	defer SetMaxSubtypeSteps(saved)
 	if _, err := SubtypeChecked(x, y); err == nil {
 		t.Fatal("a 3-step bound did not stop the query")
 	}
