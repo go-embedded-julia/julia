@@ -11,6 +11,18 @@ import (
 	"github.com/go-embedded-julia/julia/internal/oracle"
 )
 
+// BenchmarkSubtypePairs times x <: y over the golden pairs, for profiling
+// without julia.
+func BenchmarkSubtypePairs(b *testing.B) {
+	xs, ys := drawPairs(goldenPairs)
+	b.ResetTimer()
+	for b.Loop() {
+		for i := range xs {
+			Subtype(xs[i], ys[i])
+		}
+	}
+}
+
 // TestSubtypeSpeedVsJulia times x <: y over the golden pairs, Go against
 // julia's jl_subtype, in interleaved rounds on one core. It runs with
 // JLGO_ORACLE=1 JLGO_BENCH=1; it measures, it does not gate (a machine
@@ -39,23 +51,23 @@ function bench(ps)
     end
     return (time_ns() - t0, n)
 end
-bench(PS); nothing
+bench(PS)
+let (ns, n) = bench(PS); println(ns, " ", n) end
+nothing
 `)
-	if _, err := p.Call("eval", prog.String()); err != nil {
-		t.Fatal(err)
-	}
+	// the oracle's eval runs each request in a fresh module, so every round
+	// rebuilds the pairs (untimed) and times them, warm, in the same request
 	const rounds = 7
 	bestJ, bestG := time.Duration(1<<62), time.Duration(1<<62)
 	var nJ, nG int
 	for r := 0; r < rounds; r++ {
-		out, err := p.Call("eval", "bench(PS)")
+		out, err := p.Call("eval", prog.String())
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, v, _ := strings.Cut(out, "=> ")
-		v = strings.Trim(v, "()\n")
-		a, b, _ := strings.Cut(v, ", ")
-		ns, err := strconv.ParseInt(strings.TrimSuffix(a, "0x"), 10, 64)
+		printed, _, _ := strings.Cut(out, "\n=> ")
+		a, b, _ := strings.Cut(strings.TrimSpace(printed), " ")
+		ns, err := strconv.ParseInt(a, 10, 64)
 		if err != nil {
 			t.Fatalf("julia answered %q", out)
 		}
