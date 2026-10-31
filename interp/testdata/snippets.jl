@@ -270,6 +270,70 @@ f()
 #---
 (typeof(:(a + 1)), typeof(:(:a)), isa(:(a + 1), Expr), Expr <: Any)
 #---
+abstract type A end
+struct P <: A
+    x::Int
+    y
+end
+p = P(1, 2)
+(p, getfield(p, :x), getfield(p, 2), nfields(p), isa(p, A), typeof(p), P <: A)
+#---
+struct E end
+(E(), E() === E(), typeof(E), isa(E(), E))
+#---
+mutable struct M
+    x
+end
+m = M(1)
+(m, m === m, m === M(1), getfield(m, :x))
+#---
+struct P
+    x::Int
+    y
+end
+(fieldtype(P, 1), fieldtype(P, :y), fieldtype(typeof(tuple(1, :a)), 2))
+#---
+struct P
+    x::Int
+end
+try
+    P(1, 2)
+catch e
+    (typeof(e), getfield(e, :args))
+end
+#---
+abstract type Shape end
+struct Square <: Shape
+    side::Int
+end
+struct Circle <: Shape
+    r::Int
+end
+area(s::Shape) = 0
+area(s::Square) = getfield(s, :side)
+(area(Square(3)), area(Circle(2)))
+#---
+struct P
+    x::Int
+end
+struct P
+    x::Int
+end
+P(3)
+#---
+struct Pt
+    x
+    y
+end
+pt = Pt(:a, 2)
+(pt, pt === Pt(:a, 2), getfield(pt, :y))
+#---
+try
+    fieldtype(Int, 1)
+catch e
+    typeof(e)
+end
+#---
 nothing
 #---
 :sym

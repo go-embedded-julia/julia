@@ -305,6 +305,12 @@ func biIsdefinedglobal(vm *VM, args []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(args) == 3 {
+		_, ok := args[2].(bool)
+		if err := vm.typechk("isdefined", core.BoolType, args[2], ok); err != nil {
+			return nil, err
+		}
+	}
 	b := m.lookup(s, vm.taskWorld)
 	return b != nil && b.Value != undef, nil
 }

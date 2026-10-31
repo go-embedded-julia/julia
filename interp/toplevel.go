@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 	"github.com/go-embedded-julia/julia/lower"
 	"github.com/go-embedded-julia/julia/syntax"
@@ -164,6 +165,24 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 			}
 			b := m.declare(name, vm.newWorld())
 			b.Exports = b.Exports || e.Head == "export"
+		}
+		return nil, nil
+	case "global":
+		// jl_declare_global(m, arg, NULL, 0) for each name
+		// (toplevel.c:951-959): a weak declaration, a binding without a value
+		for _, a := range e.Args {
+			switch x := a.(type) {
+			case expr.Symbol:
+				if m.own(x) == nil {
+					m.declare(x, vm.newWorld())
+				}
+			case expr.GlobalRef:
+				if err := vm.declareGlobal(x, core.AnyType); err != nil {
+					return nil, err
+				}
+			default:
+				return nil, fmt.Errorf("%w: a global declaration of %v", ErrUnsupported, a)
+			}
 		}
 		return nil, nil
 	case "toplevel":
