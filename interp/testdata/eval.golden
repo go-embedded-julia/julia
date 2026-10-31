@@ -1,0 +1,55 @@
+{"src":"import Core.Intrinsics: add_int\nadd_int(1, 2)\n","want":"3"}
+{"src":"import Core.Intrinsics: add_int\nadd_int(9223372036854775807, 1)\n","want":"-9223372036854775808"}
+{"src":"import Core.Intrinsics: add_int, sub_int, mul_int\n(add_int(0xff, 0x01), sub_int(0x00, 0x01), mul_int(0xffff, 0x0002))\n","want":"(0x00, 0xff, 0xfffe)"}
+{"src":"import Core.Intrinsics: mul_int, sub_int\n(mul_int(0xffffffff, 0x00000003), sub_int(0x0000000000000000, 0x0000000000000001))\n","want":"(0xfffffffd, 0xffffffffffffffff)"}
+{"src":"import Core.Intrinsics: slt_int, sle_int, ult_int, ule_int, eq_int, ne_int\n(slt_int(-1, 1), ult_int(-1, 1), sle_int(2, 2), ule_int(0x02, 0x01), eq_int(3, 3), ne_int(3, 3))\n","want":"(true, false, true, false, true, false)"}
+{"src":"import Core.Intrinsics: checked_sdiv_int, checked_srem_int, checked_udiv_int, checked_urem_int\n(checked_sdiv_int(7, -2), checked_srem_int(7, -2), checked_udiv_int(0x07, 0x02), checked_urem_int(0x07, 0x02))\n","want":"(-3, 1, 0x03, 0x01)"}
+{"src":"import Core.Intrinsics: checked_sdiv_int\ntry\n    checked_sdiv_int(1, 0)\ncatch e\n    e\nend\n","want":"DivideError()"}
+{"src":"import Core.Intrinsics: checked_sdiv_int\ntry\n    checked_sdiv_int(-9223372036854775808, -1)\ncatch e\n    typeof(e)\nend\n","want":"DivideError"}
+{"src":"import Core.Intrinsics: checked_srem_int, sdiv_int, srem_int\n(checked_srem_int(-9223372036854775808, -1), sdiv_int(-7, 2), srem_int(-7, 2))\n","want":"(0, -3, -1)"}
+{"src":"import Core.Intrinsics: udiv_int\ntry\n    udiv_int(0x01, 0x00)\ncatch e\n    e\nend\n","want":"0x00"}
+{"src":"import Core.Intrinsics: sdiv_int, srem_int, udiv_int, urem_int\n(sdiv_int(5, 0), srem_int(5, 0), urem_int(0x05, 0x00), sdiv_int(-9223372036854775808, -1), srem_int(-9223372036854775808, -1), udiv_int(0xffff, 0x0000))\n","want":"(0, 5, 0x05, -9223372036854775808, 0, 0x0000)"}
+{"src":"import Core.Intrinsics: not_int, neg_int, and_int, or_int, xor_int\n(not_int(true), not_int(0x0f), neg_int(5), and_int(0x0c, 0x0a), or_int(0x0c, 0x0a), xor_int(0x0c, 0x0a))\n","want":"(false, 0xf0, -5, 0x08, 0x0e, 0x06)"}
+{"src":"import Core.Intrinsics: neg_int\nneg_int(-9223372036854775808)\n","want":"-9223372036854775808"}
+{"src":"import Core.Intrinsics: add_int\ntry\n    add_int(1, 0x01)\ncatch e\n    e\nend\n","want":"ErrorException(\"add_int: types of a and b must match\")"}
+{"src":"import Core.Intrinsics: add_int\ntry\n    add_int(1)\ncatch e\n    e\nend\n","want":"ArgumentError(\"intrinsic_call: too few arguments (expected 2)\")"}
+{"src":"import Core.Intrinsics: add_int\ntry\n    add_int(:a, :b)\ncatch e\n    e\nend\n","want":"ErrorException(\"add_int: a is not a primitive type\")"}
+{"src":"import Core.Intrinsics: add_float, sub_float, mul_float, div_float\n(add_float(1.5, 2.25), sub_float(1.0, 3.0), mul_float(2.0, 0.5), div_float(1.0, 4.0))\n","want":"(3.75, -2.0, 1.0, 0.25)"}
+{"src":"import Core.Intrinsics: div_float, neg_float\n(div_float(1.0, 0.0), div_float(-1.0, 0.0), neg_float(0.0), div_float(1.0e300, 1.0e-300))\n","want":"(Inf, -Inf, -0.0, Inf)"}
+{"src":"import Core.Intrinsics: mul_float\n(mul_float(1000.0, 1000.0), mul_float(100.0, 1000.0), mul_float(0.001, 0.1), mul_float(0.01, 0.01))\n","want":"(1.0e6, 100000.0, 0.0001, 0.0001)"}
+{"src":"import Core.Intrinsics: lt_float, le_float, eq_float, ne_float\n(lt_float(1.0, 2.0), le_float(2.0, 2.0), eq_float(0.0, -0.0), ne_float(1.0, 1.0))\n","want":"(true, true, true, false)"}
+{"src":"import Core.Intrinsics: add_float\ntry\n    add_float(1, 2)\ncatch e\n    e\nend\n","want":"ErrorException(\"add_float: runtime floating point intrinsics require both arguments to be Float16, BFloat16, Float32, or Float64\")"}
+{"src":"import Core.Intrinsics: neg_float\ntry\n    neg_float(1)\ncatch e\n    e\nend\n","want":"ErrorException(\"neg_float_withtype: runtime floating point intrinsics require both arguments to be Float16, BFloat16, Float32, or Float64\")"}
+{"src":"t = tuple(1, :a, true)\n(getfield(t, 2), nfields(t), typeof(t))\n","want":"(:a, 3, Tuple{Int64, Symbol, Bool})"}
+{"src":"try\n    getfield(tuple(1, 2), 3)\ncatch e\n    e\nend\n","want":"BoundsError((1, 2), 3)"}
+{"src":"try\n    getfield(tuple(1, 2), 1.5)\ncatch e\n    e\nend\n","want":"TypeError(:getfield, \"\", Union{Int64, Symbol}, 1.5)"}
+{"src":"(tuple(1, 2) === tuple(1, 2), :a === :a, 1 === 0x01, nothing === nothing, tuple() === tuple())\n","want":"(true, true, false, true, true)"}
+{"src":"(isa(1, Int), isa(1, Integer), isa(0x01, Signed), isa(nothing, Nothing), isa(tuple(1), Tuple))\n","want":"(true, true, false, true, true)"}
+{"src":"(typeof(1), typeof(0x02), typeof(tuple(1, 0x02)), typeof(nothing), typeof(typeof(1)))\n","want":"(Int64, UInt8, Tuple{Int64, UInt8}, Nothing, DataType)"}
+{"src":"(Int <: Integer, Integer <: Int, Union{} <: Int, tuple === tuple)\n","want":"(true, false, true, true)"}
+{"src":"try\n    isa(1, 2)\ncatch e\n    e\nend\n","want":"TypeError(:isa, \"\", Type, 2)"}
+{"src":"try\n    typeassert(1, Bool)\ncatch e\n    e\nend\n","want":"TypeError(:typeassert, \"\", Bool, 1)"}
+{"src":"typeassert(0x01, Unsigned)\n","want":"0x01"}
+{"src":"try\n    throw(:boom)\ncatch e\n    e\nend\n","want":":boom"}
+{"src":"try\n    if 1\n        2\n    end\ncatch e\n    e\nend\n","want":"TypeError(:if, \"\", Bool, 1)"}
+{"src":"import Core.Intrinsics: add_int, slt_int\nfunction collatz_like(n)\n    s = 0\n    i = 0\n    while slt_int(i, n)\n        s = add_int(s, i)\n        i = add_int(i, 1)\n    end\n    s\nend\n(collatz_like(10), collatz_like(0))\n","want":"(45, 0)"}
+{"src":"import Core.Intrinsics: add_int, sub_int, slt_int\nfib(n) = slt_int(n, 2) ? n : add_int(fib(sub_int(n, 1)), fib(sub_int(n, 2)))\nfib(20)\n","want":"6765"}
+{"src":"f(x::Int) = 2\nf(x::Integer) = 1\nf(x) = 0\n(f(1), f(0x01), f(:a))\n","want":"(2, 1, 0)"}
+{"src":"f(x::Int) = x\ntry\n    f(0x01)\ncatch e\n    (typeof(e), getfield(e, :args))\nend\n","want":"(MethodError, (0x01,))"}
+{"src":"f(xs...) = xs\n(f(), f(1), f(1, :b))\n","want":"((), (1,), (1, :b))"}
+{"src":"g(a, bs...) = (a, bs)\ng(1, 2, 3)\n","want":"(1, (2, 3))"}
+{"src":"function g(c)\n    if c\n        y = 1\n    end\n    y\nend\ntry\n    g(false)\ncatch e\n    (typeof(e), getfield(e, :var), getfield(e, :scope))\nend\n","want":"(UndefVarError, :y, :local)"}
+{"src":"try\n    an_undefined_name\ncatch e\n    (typeof(e), getfield(e, :var))\nend\n","want":"(UndefVarError, :an_undefined_name)"}
+{"src":"const c = 5\nc\n","want":"5"}
+{"src":"const c = 5\ntry\n    c = 6\ncatch e\n    typeof(e)\nend\n","want":"6"}
+{"src":"x = 1\nx = tuple(x, x)\nx\n","want":"(1, 1)"}
+{"src":"r = try\n    throw(5)\ncatch e\n    tuple(e, e)\nend\nr\n","want":"(5, 5)"}
+{"src":"function h(n)\n    try\n        throw(n)\n    catch e\n        try\n            throw(tuple(e, e))\n        catch e2\n            e2\n        end\n    end\nend\nh(3)\n","want":"(3, 3)"}
+{"src":"function k(n)\n    for_ever = true\n    i = 0\n    while for_ever\n        try\n            throw(i)\n        catch e\n            for_ever = false\n        end\n    end\n    for_ever\nend\nk(1)\n","want":"false"}
+{"src":"import Core.Intrinsics: add_int\nfunction deep(n)\n    deep(add_int(n, 1))\nend\ntry\n    deep(0)\ncatch e\n    typeof(e)\nend\n","want":"StackOverflowError"}
+{"src":"f() = 1\nf() = 2\nf()\n","want":"2"}
+{"src":"(svec_free = 1; Core)\n","want":"Core"}
+{"src":"(typeof(:(a + 1)), typeof(:(:a)), isa(:(a + 1), Expr), Expr <: Any)\n","want":"(Expr, QuoteNode, true, true)"}
+{"src":"nothing\n","want":"nothing"}
+{"src":":sym\n","want":":sym"}
+{"src":"\"a string\"\n","want":"\"a string\""}

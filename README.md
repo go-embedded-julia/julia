@@ -18,7 +18,7 @@ expectations written by hand.
 | M0 oracle harness | `internal/oracle`, `cmd/jloracle`, golden files | **done** |
 | M1 parser | Go port of JuliaSyntax → `expr.Expr` | **done** — see parity below |
 | M2 lowering | port of `src/julia-syntax.scm` → `CodeInfo` | **done** — see lowering parity below |
-| M3 Core runtime | types, subtyping, method specificity, dispatch, builtins, intrinsics | **in progress** — types, subtyping and specificity done (`core`); dispatch of concrete calls done (`core/dispatch`); builtins, intrinsics and the interpreter next |
+| M3 Core runtime | types, subtyping, method specificity, dispatch, builtins, intrinsics | **in progress** — types, subtyping and specificity done (`core`); dispatch of concrete calls done (`core/dispatch`); first interpreter slice (`interp`): lowered code over Core, 16 builtins, the integer and float intrinsics; `boot.jl`, the remaining builtins and intrinsics next |
 | M4 – M7 | Base, numeric stdlib, notebook bridge, wasm playground | planned |
 
 ### Parser parity with julia 1.12.6
@@ -104,7 +104,17 @@ core — Julia's type objects, apply_type, and subtyping (a port of jltypes.c an
 
 core/dispatch — method tables with world ages, and the method a call with concrete argument types runs (the most specific applicable one, or an ambiguity), with its static parameters: identical to julia's `which` and dispatch environment on 1 500 random method tables and 9 000 calls (4 675 method choices, 1 968 of them with static parameters, 87 ambiguities). Not yet ported: the interference sets julia 1.12 computes at method insertion, which need type intersection.
 
-Not measured yet: speed against julia's `jl_subtype` (the machine load was too high for an honest measurement).
+Speed: subtyping is **1.49× slower** than julia's `jl_subtype` on one core (3.63 ms against 2.44 ms for the 20 000 pairs), an open defect; the time goes to allocation.
+
+### Interpreter (interp)
+
+interp — a port of julia's `src/interpreter.c` that runs lowered code: `prepare` checks every SSA value, slot and label of a `CodeInfo` once, `evalBody` walks the statements (goto, conditional goto, return, try/catch through `EnterNode`/`leave`/`pop_exception`, assignment, method definition, global and constant declarations, world ages, `import`/`using`/`export`), `evalValue` evaluates operands and calls. Generic functions dispatch through `core/dispatch` in the task's world. Core holds the built-in types, the exception types of `boot.jl`, 16 builtins (`===`, `typeof`, `isa`, `<:`, `typeassert`, `throw`, `ifelse`, `tuple`, `svec`, `getfield`, `nfields`, `getglobal`, `setglobal!`, `isdefinedglobal`, `get_binding_type`, `apply_type`) and the integer and float intrinsics, with julia's argument checks and messages.
+
+Checked against julia: 55 Core-only programs (`interp/testdata/snippets.jl`: integer and float intrinsics on every width, overflow and division by zero, tuples, `===`, `isa`, typed methods and dispatch, varargs, try/catch nested in functions and loops, undefined locals and globals, constants, recursion to `StackOverflowError`) show the same value in Go and in julia 1.12.6; 100% statement coverage; fuzzed (`FuzzEval`).
+
+Not yet: Base (a program that calls `+`, `println` or `a.b` reaches a Base function and gets an `UndefVarError` for it), macro expansion, `boot.jl` (types called as constructors, `where` clauses), structs, arrays, strings beyond literals, `finally`. The plain integer division intrinsics follow arm64, where the goldens are made: C division, undefined on a zero divisor, does not trap there (x86_64 julia raises `DivideError`). Not measured yet: speed against julia's interpreter (`--compile=min`).
+
+Untrusted cells: `VM.MaxSteps` bounds the statements a VM runs (`while true end` is valid Julia), `VM.MaxDepth` bounds call and try-block nesting with a `StackOverflowError`, and `Session.Eval` reports a broken invariant as `interp.ErrInternal` instead of panicking.
 
 ## Use
 
@@ -126,6 +136,10 @@ fmt.Println(expr.Serialize(ex))
 - `lower.NewState().Lower(ex)` — `Meta.lower` of a macro-expanded top-level
   form: an `Expr(:thunk, CodeInfo)`, an atom, or `Expr(:error)`; one
   `State` per module, in file order.
+- `interp.New().NewSession().Eval(src)` — parse, lower and run a cell of
+  Core-only code in a module of its own, returning the last value
+  (`interp.Repr` shows it as julia does); state persists across `Eval` calls
+  of one session, as across notebook cells.
 - `expr` — the Go values of Julia's syntax tree (`*expr.Expr`, `expr.Symbol`,
   `expr.LineNumberNode`, `expr.QuoteNode`, `expr.GlobalRef`, `expr.Char` …)
   and `expr.Serialize`, the canonical type-tagged text form.
@@ -165,6 +179,7 @@ with the official release tarball).
 | `testdata/golden/lowering-cover.jsonl` | the 366 smallest corpus forms that together reach every statement the corpus reaches, replayed offline |
 | `testdata/golden/deparse.jsonl`, `lisp.jsonl` | femtolisp's answers (`julia --lisp`) for `deparse` and front-end functions |
 | `testdata/golden/programs.jsonl` | parse, `Meta.lower` and evaluation of `testdata/programs/*.jl` (for M2+) |
+| `interp/testdata/eval.golden` | the value julia shows for each program of `interp/testdata/snippets.jl` (`JLGO_ORACLE=1 JLGO_UPDATE_INTERP=1`) |
 | `internal/unitab/tables_gen.go` | utf8proc's Unicode 16 properties the lexer uses |
 
 ## Layout
@@ -176,6 +191,7 @@ with the official release tarball).
 | `lower` | lowering to `CodeInfo` (port of `src/julia-syntax.scm`, `macroexpand.scm`, `ast.scm`, `match.scm`) |
 | `core` | Julia's type objects, apply_type, subtyping and specificity (port of jltypes.c, subtype.c) |
 | `core/dispatch` | method tables, world ages, dispatch of concrete calls (after gf.c) |
+| `interp` | the interpreter of lowered code (port of interpreter.c, with builtins.c and runtime_intrinsics.c in part) |
 | `internal/unitab` | Unicode tables from the reference build, utf8proc's grapheme breaks |
 | `internal/oracle` | the reference julia as a differential oracle |
 | `internal/gen`, `cmd/jloracle` | the golden-file generators |

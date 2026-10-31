@@ -41,6 +41,9 @@ type TypeName struct {
 	// Fields are the field types of an immutable struct in terms of
 	// Primary's parameters, for isbits; nil when it has none or is not one.
 	Fields []any
+	// FieldNames are the names of the fields (jl_typename_t.names), for
+	// the types the runtime creates.
+	FieldNames []Symbol
 
 	// typeofWrapper is Type{Wrapper}, cached on the name
 	// (jltypes.c:1115-1120).
