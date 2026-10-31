@@ -25,7 +25,7 @@ func TestNewType(t *testing.T) {
 		t.Fatalf("isbits struct: %+v, %v", pt, err)
 	}
 	mt, err := NewType("Main", "M", nil, false, true, []Symbol{"x"}, []any{Int64Type})
-	if err != nil || mt.Name.Isbits || mt.Name.Fields != nil {
+	if err != nil || mt.Name.Isbits || mt.Name.Singleton || len(mt.Name.Fields) != 1 {
 		t.Fatalf("mutable struct: %+v, %v", mt, err)
 	}
 	at, err := NewType("Main", "A", nil, true, false, nil, nil)
@@ -43,12 +43,44 @@ func TestNewType(t *testing.T) {
 		names      []Symbol
 		types      []any
 	}{
-		{"C", "can only subtype abstract types", pt, false, false, nil, nil},
-		{"D", "field names for", nil, false, false, []Symbol{"x"}, nil},
+		{"C", "invalid subtyping in definition of C: can only subtype abstract types.", pt, false, false, nil, nil},
+		{"D", "field types for", nil, false, false, []Symbol{"x"}, nil},
 		{"E", "abstract type has no fields", nil, true, true, nil, nil},
 	} {
 		if _, err := NewType("Main", c.name, c.super, c.abstract, c.mutable, c.names, c.types); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want an error containing %q", c.name, err, c.want)
 		}
+	}
+}
+
+// SetSuper refuses what jl_set_datatype_super refuses, with its messages;
+// SetFieldTypes refuses an abstract type.
+func TestSetSuper(t *testing.T) {
+	for _, c := range []struct {
+		super any
+		want  string
+	}{
+		{int64(1), "can only subtype data types"},
+		{AnyTupleType, "cannot subtype a tuple type"},
+		{DataTypeType, "cannot add subtypes to Type"},
+		{Int64Type, "can only subtype abstract types"},
+	} {
+		d := NewIncompleteType("Main", "S", false, false, nil)
+		if err := d.SetSuper(c.super); err == nil || !strings.Contains(err.Error(), "invalid subtyping in definition of S: "+c.want+".") {
+			t.Errorf("super %v: %v", c.super, err)
+		}
+	}
+	d := NewIncompleteType("Main", "S", true, false, nil)
+	if err := d.SetSuper(d); err == nil || !strings.Contains(err.Error(), "a type cannot subtype itself") {
+		t.Errorf("itself: %v", err)
+	}
+	if err := d.SetSuper(AnyType); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetSuper(AnyType); err == nil || !strings.Contains(err.Error(), "type already has a supertype") {
+		t.Errorf("twice: %v", err)
+	}
+	if err := d.SetFieldTypes(nil); err == nil || !strings.Contains(err.Error(), "abstract type has no fields") {
+		t.Errorf("fields of an abstract type: %v", err)
 	}
 }
