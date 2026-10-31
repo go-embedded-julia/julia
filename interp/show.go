@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,33 @@ func showValue(v any) string {
 	var b strings.Builder
 	writeValue(&b, v)
 	return b.String()
+}
+
+// showFloat64 is julia's shortest round-trip form of a Float64: the digits
+// Go's 'g' with precision -1 chooses, at the same exponent thresholds (below
+// -4 or from 6 on), spelled as julia spells them: 1.0e6, 2.0, 1.0e-5.
+func showFloat64(x float64) string {
+	switch {
+	case math.IsNaN(x):
+		return "NaN"
+	case math.IsInf(x, 1):
+		return "Inf"
+	case math.IsInf(x, -1):
+		return "-Inf"
+	}
+	s := strconv.FormatFloat(x, 'g', -1, 64)
+	mant, exp, hasExp := strings.Cut(s, "e")
+	if !strings.Contains(mant, ".") {
+		mant += ".0"
+	}
+	if !hasExp {
+		return mant
+	}
+	sign := ""
+	if exp[0] == '-' {
+		sign = "-"
+	}
+	return mant + "e" + sign + strings.TrimLeft(exp[1:], "0")
 }
 
 // Repr is showValue, exported for the notebook and the tests.
@@ -41,6 +69,8 @@ func writeValue(b *strings.Builder, v any) {
 		fmt.Fprintf(b, "0x%08x", x)
 	case uint64:
 		fmt.Fprintf(b, "0x%016x", x)
+	case float64:
+		b.WriteString(showFloat64(x))
 	case string:
 		b.WriteString(strconv.Quote(x))
 	case expr.Symbol:
@@ -93,6 +123,13 @@ func writeValue(b *strings.Builder, v any) {
 			writeValue(b, e)
 		}
 		b.WriteByte(')')
+	case *core.UnionAll:
+		// julia shows a type's wrapper by its name: Type, Array
+		if d, ok := core.UnwrapUnionAll(x).(*core.DataType); ok && d.Name.Wrapper == any(x) {
+			b.WriteString(d.Name.Name)
+			return
+		}
+		b.WriteString(core.Show(x))
 	default:
 		if core.IsType(v) || core.TypeOf(v) != nil {
 			b.WriteString(core.Show(v))

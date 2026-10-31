@@ -78,6 +78,11 @@ func (vm *VM) NewModule(name expr.Symbol) *Module {
 	m := vm.addModule(name, vm.Main)
 	m.usings = []*Module{vm.Core, vm.Base}
 	vm.Main.declare(name, 0).Value = m
+	// a module made with the standard imports names Core and Base
+	for _, std := range []*Module{vm.Core, vm.Base} {
+		b := m.declare(std.Name, 0)
+		b.Value, b.Const = std, true
+	}
 	return m
 }
 
@@ -88,10 +93,27 @@ func (vm *VM) World() uint64 { return vm.world.Load() }
 // (jl_world_counter++ under the world lock).
 func (vm *VM) newWorld() uint64 { return vm.world.Add(1) }
 
-// setCore binds name in Core in world 0, exported.
+// coreExports are the names Core exports (boot.jl:207-243) that this
+// version defines; ifelse, svec, Typeof and the rest stay qualified.
+var coreExports = map[expr.Symbol]bool{
+	"Any": true, "DataType": true, "Vararg": true, "Tuple": true, "Type": true, "UnionAll": true,
+	"TypeVar": true, "Union": true, "Nothing": true, "Cvoid": true, "Function": true, "Module": true,
+	"Symbol": true, "Number": true, "Real": true, "Integer": true, "Bool": true, "AbstractFloat": true,
+	"Float16": true, "Float32": true, "Float64": true, "Signed": true, "Int": true, "Int8": true,
+	"Int16": true, "Int32": true, "Int64": true, "Unsigned": true, "UInt": true, "UInt8": true,
+	"UInt16": true, "UInt32": true, "UInt64": true, "AbstractChar": true, "Char": true,
+	"AbstractString": true, "String": true, "ErrorException": true, "BoundsError": true,
+	"DivideError": true, "Exception": true, "StackOverflowError": true, "UndefRefError": true,
+	"UndefVarError": true, "TypeError": true, "ArgumentError": true, "MethodError": true,
+	"getfield": true, "nfields": true, "throw": true, "tuple": true, "===": true,
+	"getglobal": true, "setglobal!": true, "isdefinedglobal": true, "<:": true, "typeof": true,
+	"isa": true, "typeassert": true, "nothing": true, "Main": true,
+}
+
+// setCore binds name in Core in world 0, exported when Core exports it.
 func (vm *VM) setCore(name expr.Symbol, v any) {
 	b := vm.Core.declare(name, 0)
-	b.Value, b.Const, b.Exports = v, true, true
+	b.Value, b.Const, b.Exports = v, true, coreExports[name]
 }
 
 // bootCore binds what Core holds before boot.jl runs: the built-in types
@@ -105,6 +127,7 @@ func (vm *VM) bootCore() {
 		"Tuple": core.AnyTupleType, "TypeofVararg": core.TypeofVarargType, "Vararg": core.VarargType,
 		"SimpleVector": core.SimpleVectorType, "Module": core.ModuleType, "Symbol": core.SymbolType,
 		"Function": core.FunctionType, "Bool": core.BoolType, "Int": core.Int64Type,
+		"UInt": core.UInt64Type, "Cvoid": core.NothingType,
 		"Int8": core.Int8Type, "UInt8": core.UInt8Type, "Int16": core.Int16Type, "UInt16": core.UInt16Type,
 		"Int32": core.Int32Type, "UInt32": core.UInt32Type, "Int64": core.Int64Type, "UInt64": core.UInt64Type,
 		"Float16": core.Float16Type, "Float32": core.Float32Type, "Float64": core.Float64Type,

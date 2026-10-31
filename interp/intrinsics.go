@@ -82,10 +82,6 @@ func (vm *VM) bootIntrinsics() {
 		},
 	} {
 		add(name, 2, vm.intCheckedDiv(name, div))
-		// the runtime's plain sdiv_int … urem_int throw the same DivideError
-		// (LLVMSDiv … LLVMURem, APInt-C.cpp:80-101)
-		plain := name[len("checked_"):]
-		add(plain, 2, vm.intCheckedDiv(plain, div))
 	}
 	for name, op := range map[expr.Symbol]func(a, b float64) float64{
 		"add_float": func(a, b float64) float64 { return a + b },
@@ -103,7 +99,9 @@ func (vm *VM) bootIntrinsics() {
 	} {
 		add(name, 2, vm.floatCompare(name, cmp))
 	}
-	// jl_fintrinsic_1 (runtime_intrinsics.c:1068-1092)
+	// jl_fintrinsic_1 (runtime_intrinsics.c:1068-1092), reached through
+	// un_fintrinsic's jl_neg_float_withtype, whose name the messages carry
+	// (:1059-1064)
 	add("neg_float", 1, func(vm *VM, a []any) (any, error) {
 		switch x := a[0].(type) {
 		case float64:
@@ -112,11 +110,55 @@ func (vm *VM) bootIntrinsics() {
 			return -x, nil
 		}
 		if _, _, ok := intBits(a[0]); !ok {
-			return nil, vm.errorf("neg_float: value is not a primitive type")
+			return nil, vm.errorf("neg_float_withtype: value is not a primitive type")
 		}
-		return nil, vm.errorf("neg_float%s", floatTypesMsg)
+		return nil, vm.errorf("neg_float_withtype%s", floatTypesMsg)
 	})
+	for name, op := range map[expr.Symbol]func(a, b uint64, w uint) uint64{
+		"sdiv_int": func(a, b uint64, w uint) uint64 {
+			x, y := signExtend(a, w), signExtend(b, w)
+			if y == 0 {
+				return 0
+			}
+			if y == -1 {
+				return uint64(-x) // MIN/-1 wraps to MIN
+			}
+			return uint64(x / y)
+		},
+		"udiv_int": func(a, b uint64, w uint) uint64 {
+			if b == 0 {
+				return 0
+			}
+			return a / b
+		},
+		"srem_int": func(a, b uint64, w uint) uint64 {
+			x, y := signExtend(a, w), signExtend(b, w)
+			if y == 0 {
+				return a
+			}
+			if y == -1 {
+				return 0
+			}
+			return uint64(x % y)
+		},
+		"urem_int": func(a, b uint64, w uint) uint64 {
+			if b == 0 {
+				return a
+			}
+			return a % b
+		},
+	} {
+		add(name, 2, vm.intBinary(name, op))
+	}
 }
+
+// The plain sdiv_int, udiv_int, srem_int and urem_int of 8 to 64 bits are C's
+// `a / b` and `a % b` in the runtime (bi_iintrinsic_fast,
+// runtime_intrinsics.c:1105-1119, 1356-1361), and a zero divisor or MIN/-1
+// is undefined behaviour in C. julia answers as the hardware does: x86_64
+// traps and julia raises DivideError, arm64 does not trap. The reference
+// julia of the goldens runs on arm64, so these follow arm64's sdiv, udiv and
+// msub: x/0 is 0, x%0 is x, MIN/-1 is MIN and MIN%-1 is 0.
 
 // intBits returns the bits of an integer-like primitive value and its width.
 func intBits(v any) (uint64, uint, bool) {
