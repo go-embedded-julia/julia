@@ -23,10 +23,80 @@ func (vm *VM) bootTypedefs() {
 		"_equiv_typedef": biEquivTypedef,
 		"_defaultctors":  biDefaultctors,
 		"fieldtype":      biFieldtype,
+		"_typevar":       biTypevar,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
 		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})
 	}
+	vm.bootTypeCtors()
+}
+
+// bootTypeCtors defines the constructors boot.jl:335-338 gives TypeVar and
+// UnionAll, built in Go until boot.jl itself is evaluated:
+//
+//	TypeVar(n) = _typevar(n::Symbol, Union{}, Any)
+//	TypeVar(n, ub) = _typevar(n::Symbol, Union{}, ub)
+//	TypeVar(n, lb, ub) = _typevar(n::Symbol, lb, ub)
+//	UnionAll(v, t) = ccall(:jl_type_unionall, Any, (Any, Any), v::TypeVar, t)
+func (vm *VM) bootTypeCtors() {
+	def := func(t *core.DataType, nargs int, body goMethod) {
+		params := make([]any, nargs)
+		for i := range params {
+			params[i] = core.AnyType
+		}
+		sig, _ := core.Apply(core.AnyTupleType, params...)
+		must(vm.ctorTable(t).Define(sig, vm.newWorld(), body))
+	}
+	symbol := func(vm *VM, n any) (expr.Symbol, error) {
+		s, ok := n.(expr.Symbol)
+		if !ok {
+			return "", vm.typeError("typeassert", "", core.SymbolType, n)
+		}
+		return s, nil
+	}
+	newTV := func(vm *VM, n, lb, ub any) (any, error) {
+		s, err := symbol(vm, n)
+		if err != nil {
+			return nil, err
+		}
+		return biTypevar(vm, []any{s, lb, ub})
+	}
+	def(core.TypeVarType, 1, func(vm *VM, a []any) (any, error) { return newTV(vm, a[0], core.Bottom, core.AnyType) })
+	def(core.TypeVarType, 2, func(vm *VM, a []any) (any, error) { return newTV(vm, a[0], core.Bottom, a[1]) })
+	def(core.TypeVarType, 3, func(vm *VM, a []any) (any, error) { return newTV(vm, a[0], a[1], a[2]) })
+	def(core.UnionAllType, 2, func(vm *VM, a []any) (any, error) {
+		v, ok := a[0].(*core.TypeVar)
+		if !ok {
+			return nil, vm.typeError("typeassert", "", core.TypeVarType, a[0])
+		}
+		// jl_type_unionall (jltypes.c:907-948)
+		if _, isVar := a[1].(*core.TypeVar); !core.IsType(a[1]) && !isVar {
+			if _, ok := a[1].(*core.Vararg); ok {
+				return nil, fmt.Errorf("%w: UnionAll over a bare Vararg (deprecated)", ErrUnsupported)
+			}
+			return nil, vm.typeError("UnionAll", "", core.TypeType, a[1])
+		}
+		return core.TypeUnionAll(v, a[1]), nil
+	})
+}
+
+// biTypevar is jl_f__typevar over jl_new_typevar (builtins.c:1688-1708).
+func biTypevar(vm *VM, args []any) (any, error) {
+	if err := vm.nargs("TypeVar", args, 3, 3); err != nil {
+		return nil, err
+	}
+	name, ok := args[0].(expr.Symbol)
+	if err := vm.typechk("TypeVar", core.SymbolType, args[0], ok); err != nil {
+		return nil, err
+	}
+	lb, ub := args[1], args[2]
+	if _, isVar := lb.(*core.TypeVar); lb != any(core.Bottom) && !core.IsType(lb) && !isVar {
+		return nil, vm.typeError("TypeVar", "lower bound", core.TypeType, lb)
+	}
+	if _, isVar := ub.(*core.TypeVar); ub != any(core.AnyType) && !core.IsType(ub) && !isVar {
+		return nil, vm.typeError("TypeVar", "upper bound", core.TypeType, ub)
+	}
+	return &core.TypeVar{Name: string(name), LB: lb, UB: ub}, nil
 }
 
 // typeArgs checks the module, name and parameter arguments every type

@@ -60,6 +60,17 @@
 {"src":"struct Pt\n    x\n    y\nend\npt = Pt(:a, 2)\n(pt, pt === Pt(:a, 2), getfield(pt, :y))\n","want":"(Main.OracleEval.Pt(:a, 2), true, 2)"}
 {"src":"struct P\n    x\nend\nP() = P(0)\n(P(), P(1))\n","want":"(Main.OracleEval.P(0), Main.OracleEval.P(1))"}
 {"src":"try\n    fieldtype(Int, 1)\ncatch e\n    typeof(e)\nend\n","want":"BoundsError"}
+{"src":"f(x::T) where {T<:Integer} = T\n(f(1), f(0x01))\n","want":"(Int64, UInt8)"}
+{"src":"g(a::T, b::T) where T = 1\ntry\n    g(1, 0x01)\ncatch e\n    (typeof(e), getfield(e, :args))\nend\n","want":"(MethodError, (1, 0x01))"}
+{"src":"h(a::T, b::T) where T = T\n(h(:a, :b), h(1, 2))\n","want":"(Symbol, Int64)"}
+{"src":"k(x::T) where {T} = isa(x, T)\n(k(3), k(:s))\n","want":"(true, true)"}
+{"src":"f(x::T) where {T<:Signed} = 1\nf(x) = 2\n(f(1), f(0x01))\n","want":"(1, 2)"}
+{"src":"tv = TypeVar(:S, Integer)\n(tv, UnionAll(tv, tv), TypeVar(:U), typeof(tv))\n","want":"(S<:Integer, Integer, U, TypeVar)"}
+{"src":"try\n    TypeVar(1)\ncatch e\n    e\nend\n","want":"TypeError(:typeassert, \"\", Symbol, 1)"}
+{"src":"try\n    TypeVar(:T, 1)\ncatch e\n    e\nend\n","want":"TypeError(:TypeVar, \"upper bound\", Type, 1)"}
+{"src":"try\n    TypeVar(:T, 1, Any)\ncatch e\n    e\nend\n","want":"TypeError(:TypeVar, \"lower bound\", Type, 1)"}
+{"src":"try\n    UnionAll(1, Int)\ncatch e\n    e\nend\n","want":"TypeError(:typeassert, \"\", TypeVar, 1)"}
+{"src":"try\n    UnionAll(TypeVar(:T), 1)\ncatch e\n    e\nend\n","want":"TypeError(:UnionAll, \"\", Type, 1)"}
 {"src":"nothing\n","want":"nothing"}
 {"src":":sym\n","want":":sym"}
 {"src":"\"a string\"\n","want":"\"a string\""}

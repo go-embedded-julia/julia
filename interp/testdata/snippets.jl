@@ -340,6 +340,59 @@ catch e
     typeof(e)
 end
 #---
+f(x::T) where {T<:Integer} = T
+(f(1), f(0x01))
+#---
+g(a::T, b::T) where T = 1
+try
+    g(1, 0x01)
+catch e
+    (typeof(e), getfield(e, :args))
+end
+#---
+h(a::T, b::T) where T = T
+(h(:a, :b), h(1, 2))
+#---
+k(x::T) where {T} = isa(x, T)
+(k(3), k(:s))
+#---
+f(x::T) where {T<:Signed} = 1
+f(x) = 2
+(f(1), f(0x01))
+#---
+tv = TypeVar(:S, Integer)
+(tv, UnionAll(tv, tv), TypeVar(:U), typeof(tv))
+#---
+try
+    TypeVar(1)
+catch e
+    e
+end
+#---
+try
+    TypeVar(:T, 1)
+catch e
+    e
+end
+#---
+try
+    TypeVar(:T, 1, Any)
+catch e
+    e
+end
+#---
+try
+    UnionAll(1, Int)
+catch e
+    e
+end
+#---
+try
+    UnionAll(TypeVar(:T), 1)
+catch e
+    e
+end
+#---
 nothing
 #---
 :sym

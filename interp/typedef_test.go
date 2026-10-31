@@ -2,6 +2,7 @@ package interp
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -63,6 +64,8 @@ func TestTypedefBuiltins(t *testing.T) {
 		{"fieldtype with boundscheck", "fieldtype", []any{st, int64(1), true}, "Int64"},
 		{"fieldtype of a UnionAll", "fieldtype", []any{core.ArrayType, int64(1)}, "!not ported"},
 		{"fieldtype of a value", "fieldtype", []any{int64(1), int64(1)}, "!TypeError(:fieldtype, \"\", DataType, 1)"},
+		{"_typevar arity", "_typevar", []any{sym("T")}, "!TypeVar: too few arguments (expected 3)"},
+		{"_typevar of a non-symbol", "_typevar", []any{int64(1), core.Bottom, core.AnyType}, "!TypeError(:TypeVar, \"\", Symbol, 1)"},
 		{"_typebody! with other field types", "_typebody!", []any{st, newSt("L", "St", "x"), SVec{core.BoolType}}, ""},
 		{"_typebody! with more fields", "_typebody!", []any{st, core.NewIncompleteType("L", "St", false, false, []expr.Symbol{"x", "y"}), SVec{core.Int64Type, core.Int64Type}}, ""},
 		{"fieldtype of an unknown name", "fieldtype", []any{st, sym("nope")}, "!type St has no field nope"},
@@ -110,6 +113,20 @@ func TestTypedefBuiltins(t *testing.T) {
 		ret(nil),
 	}), true)
 	check(t, "a constructor of Int", nil, err, "!not ported")
+	// a TypeVar shown with its bounds, as base/show.jl shows it
+	vec1 := core.TypeUnionAll(core.ArrayType.Var, core.ArrayType.Body.(*core.UnionAll).Body)
+	for tv, want := range map[*core.TypeVar]string{
+		{Name: "T", LB: core.Int64Type, UB: core.AnyType}:     "T>:Int64",
+		{Name: "T", LB: core.Int64Type, UB: core.IntegerType}: "Int64<:T<:Integer",
+		{Name: "T", LB: core.Bottom, UB: core.ArrayType}:      "T<:Array",
+		{Name: "T", LB: core.Bottom, UB: vec1}:                "T<:(",
+	} {
+		if got := Repr(tv); !strings.HasPrefix(got, want) {
+			t.Errorf("Repr(%s) = %s, want %s…", tv.Name, got, want)
+		}
+	}
+	_, err = vm.apply(core.UnionAllType, []any{&core.TypeVar{Name: "T", LB: core.Bottom, UB: core.AnyType}, core.VarargType})
+	check(t, "UnionAll over a bare Vararg", nil, err, "!not ported")
 	if !panics(func() { must(0, errors.New("x")) }) {
 		t.Error("must of an error did not panic")
 	}
