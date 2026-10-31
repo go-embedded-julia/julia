@@ -193,6 +193,23 @@ func (vm *VM) tupleTypeOf(vals []any) *core.DataType {
 	return t.(*core.DataType)
 }
 
+// argTupleType is jl_inst_arg_tuple_type with leaf set (jltypes.c:
+// 2477-2502), the tuple a call dispatches on: each argument's type, or
+// Type{a} for an argument a that is a type. Neither step can fail on the
+// values of a call.
+func (vm *VM) argTupleType(args []any) *core.DataType {
+	types := make([]any, len(args))
+	for i, a := range args {
+		if core.IsType(a) {
+			types[i], _ = core.Apply(core.TypeType, a)
+		} else {
+			types[i] = vm.typeOf(a)
+		}
+	}
+	t, _ := core.Apply(core.AnyTupleType, types...)
+	return t.(*core.DataType)
+}
+
 func biSvec(vm *VM, args []any) (any, error) { return SVec(append([]any(nil), args...)), nil }
 
 // fieldIndex is get_checked_fieldindex (builtins.c:994-1021) for reads.

@@ -71,6 +71,15 @@
 {"src":"try\n    TypeVar(:T, 1, Any)\ncatch e\n    e\nend\n","want":"TypeError(:TypeVar, \"lower bound\", Type, 1)"}
 {"src":"try\n    UnionAll(1, Int)\ncatch e\n    e\nend\n","want":"TypeError(:typeassert, \"\", TypeVar, 1)"}
 {"src":"try\n    UnionAll(TypeVar(:T), 1)\ncatch e\n    e\nend\n","want":"TypeError(:UnionAll, \"\", Type, 1)"}
+{"src":"struct Q{T}\n    x::T\nend\nq = Q(1)\n(q, typeof(q), getfield(q, :x), isa(q, Q))\n","want":"(Main.OracleEval.Q{Int64}(1), Main.OracleEval.Q{Int64}, 1, true)"}
+{"src":"struct Q{T}\n    x::T\nend\n(Q{Int}(1), Q{Integer}(2), typeof(Q{Integer}(2)), Q{Int} <: Q)\n","want":"(Main.OracleEval.Q{Int64}(1), Main.OracleEval.Q{Integer}(2), Main.OracleEval.Q{Integer}, true)"}
+{"src":"struct Pair2{A,B}\n    a::A\n    b::B\nend\np = Pair2(1, :s)\n(p, typeof(p), fieldtype(typeof(p), 2))\n","want":"(Main.OracleEval.Pair2{Int64, Symbol}(1, :s), Main.OracleEval.Pair2{Int64, Symbol}, Symbol)"}
+{"src":"abstract type AbstractBox{T} end\nstruct Box{T} <: AbstractBox{T}\n    v::T\nend\nunbox(b::AbstractBox{T}) where T = T\n(unbox(Box(0x01)), unbox(Box(:a)), Box{Int} <: AbstractBox{Int})\n","want":"(UInt8, Symbol, true)"}
+{"src":"struct N{T} end\n(N{Int}(), N{Int}() === N{Int}(), N{Int}() === N{Bool}())\n","want":"(Main.OracleEval.N{Int64}(), true, false)"}
+{"src":"struct Q{T<:Integer}\n    x::T\nend\ntry\n    Q(:a)\ncatch e\n    typeof(e)\nend\n","want":"MethodError"}
+{"src":"struct W{T}\n    x::Int\nend\ntry\n    W(1)\ncatch e\n    typeof(e)\nend\n","want":"MethodError"}
+{"src":"struct W{T}\n    x::Int\nend\nW{Symbol}(1)\n","want":"Main.OracleEval.W{Symbol}(1)"}
+{"src":"struct V{T, S<:T}\n    x::S\nend\nr = try\n    V(1)\ncatch e\n    typeof(e)\nend\n(r, V{Integer, Int}(2))\n","want":"(Main.OracleEval.V{Int64, Int64}(1), Main.OracleEval.V{Integer, Int64}(2))"}
 {"src":"nothing\n","want":"nothing"}
 {"src":":sym\n","want":":sym"}
 {"src":"\"a string\"\n","want":"\"a string\""}

@@ -417,15 +417,15 @@ func (f *frame) methodDef(s sMethodDef) error {
 	if !ok1 || !ok2 || len(argtypes) == 0 {
 		return vm.errorf("method: invalid declaration")
 	}
-	ft, _ := argtypes[0].(*core.DataType)
+	// a generic function's table leaves typeof(f) out of its signatures; a
+	// type's constructor table keeps Type{…} in, because Q(x) and Q{Int}(x)
+	// select different methods
+	params := argtypes[1:]
 	var tab *dispatch.Table
-	if fn := vm.funcs[ft]; fn != nil {
-		tab = fn.Table
-	} else if core.IsTypeType(ft) {
-		// a constructor: f::Type{T} with T a type of this VM
-		if t, ok := ft.TParam0().(*core.DataType); ok && vm.ctors[t] != nil {
-			tab = vm.ctors[t]
-		}
+	if ft, ok := argtypes[0].(*core.DataType); ok && vm.funcs[ft] != nil {
+		tab = vm.funcs[ft].Table
+	} else if name := ctorTypeName(argtypes[0]); name != nil && vm.ctors[name] != nil {
+		tab, params = vm.ctors[name], argtypes
 	}
 	if tab == nil {
 		return fmt.Errorf("%w: a method of %s, which is not a generic function of this VM", ErrUnsupported, core.Show(argtypes[0]))
@@ -437,7 +437,7 @@ func (f *frame) methodDef(s sMethodDef) error {
 	// jl_apply_tuple_type(atypes, 1): with the checks of apply_type, a
 	// Vararg only last. core reports their TypeError as text, raised here as
 	// an ErrorException.
-	sig, err := core.ApplyType(core.AnyTupleType, argtypes[1:]...)
+	sig, err := core.ApplyType(core.AnyTupleType, params...)
 	if err != nil {
 		return vm.errorf("%s", err.Error())
 	}
@@ -469,13 +469,27 @@ func (vm *VM) apply(fv any, args []any) (any, error) {
 	case *Intrinsic:
 		return fn.Fn(vm, args)
 	case *Function:
-		return vm.callTable(fn.Table, fn, args)
-	case *core.DataType:
-		if tab := vm.ctors[fn]; tab != nil {
-			return vm.callTable(tab, fn, args)
+		return vm.callTable(fn.Table, fn, args, false)
+	case *core.DataType, *core.UnionAll:
+		if d, ok := core.UnwrapUnionAll(fn).(*core.DataType); ok && vm.ctors[d.Name] != nil {
+			return vm.callTable(vm.ctors[d.Name], fn, args, true)
 		}
 	}
 	return nil, vm.methodErrorFor(fv, args)
+}
+
+// ctorTypeName is the type a constructor signature's first parameter
+// Type{T} (or Type{T{…}}) constructs, nil when it is not one.
+func ctorTypeName(ft any) *core.TypeName {
+	d, ok := core.UnwrapUnionAll(ft).(*core.DataType)
+	if !ok || !core.IsTypeType(d) {
+		return nil
+	}
+	t, ok := core.UnwrapUnionAll(d.TParam0()).(*core.DataType)
+	if !ok {
+		return nil
+	}
+	return t.Name
 }
 
 func (vm *VM) methodErrorFor(f any, args []any) error {
@@ -483,9 +497,15 @@ func (vm *VM) methodErrorFor(f any, args []any) error {
 }
 
 // callTable dispatches a call of self — a generic function, or a type
-// called as a constructor — on its method table in the task's world.
-func (vm *VM) callTable(tab *dispatch.Table, self any, args []any) (any, error) {
-	m, env, err := tab.Lookup(vm.tupleTypeOf(args), vm.taskWorld)
+// called as a constructor (ctor) — on its method table in the task's world,
+// on the dispatch tuple of the arguments, self's Type{…} first for a
+// constructor.
+func (vm *VM) callTable(tab *dispatch.Table, self any, args []any, ctor bool) (any, error) {
+	tt := vm.argTupleType(args)
+	if ctor {
+		tt = vm.argTupleType(append([]any{self}, args...))
+	}
+	m, env, err := tab.Lookup(tt, vm.taskWorld)
 	if err != nil {
 		if errors.Is(err, dispatch.ErrNoMethod) || errors.Is(err, dispatch.ErrAmbiguous) {
 			return nil, vm.methodErrorFor(self, args)
@@ -539,8 +559,10 @@ func (vm *VM) newStruct(tv any, fields []any) (any, error) {
 	if len(fields) > n {
 		return nil, vm.errorf("invalid struct allocation")
 	}
+	// the field types of this instance: Q{Int64}'s in terms of Int64
+	ft, _ := t.FieldTypes()
 	for i, v := range fields {
-		if ft := t.Name.Fields; ft != nil && !vm.isa(v, ft[i]) {
+		if ft != nil && !vm.isa(v, ft[i]) {
 			return nil, vm.typeError("new", "", ft[i], v)
 		}
 	}

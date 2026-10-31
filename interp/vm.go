@@ -48,7 +48,7 @@ type VM struct {
 	funcs map[*core.DataType]*Function
 	// ctors are the constructors of each type this VM created: the methods
 	// julia defines for Type{T}.
-	ctors map[*core.DataType]*dispatch.Table
+	ctors map[*core.TypeName]*dispatch.Table
 
 	builtinType, intrinsicType  *core.DataType
 	tError, tUndefVar           *core.DataType
@@ -68,7 +68,7 @@ const DefaultMaxDepth = 4000
 // Main in which Eval runs (L, as the oracle names its scratch module).
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
-		funcs: map[*core.DataType]*Function{}, ctors: map[*core.DataType]*dispatch.Table{}}
+		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{}}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	vm.Base = vm.addModule("Base", nil)
