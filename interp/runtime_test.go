@@ -310,9 +310,8 @@ func TestNewStruct(t *testing.T) {
 		check(t, c.name, v, err, c.want)
 	}
 	mut, _ := core.NewType("Main", "M2", nil, false, true, []expr.Symbol{"x"}, []any{core.Int64Type})
-	if _, err := vm.newStruct(mut, []any{"untyped check"}); err != nil {
-		t.Errorf("a mutable struct's fields are not checked yet: %v", err)
-	}
+	_, err := vm.newStruct(mut, []any{"s"})
+	check(t, "a mutable struct's field of the wrong type", nil, err, "!TypeError(:new, \"\", Int64, \"s\")")
 }
 
 // Global assignment and declaration as module.c answers them.

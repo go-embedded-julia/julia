@@ -48,6 +48,21 @@ func showFloat64(x float64) string {
 	return mant + "e" + sign + strings.TrimLeft(exp[1:], "0")
 }
 
+// modulePrefix is how julia qualifies a type defined in a module of a
+// session, which Main does not see: Main.L. for module L (the modules a VM
+// creates are under Main). Types of Core, Base and Main are shown bare.
+// Only the outermost name is qualified; a session type inside the
+// parameters of another type is shown bare.
+func modulePrefix(d *core.DataType) string {
+	switch d.Name.Module {
+	case "Core", "Base", "Main", "":
+		return ""
+	}
+	return "Main." + d.Name.Module + "."
+}
+
+func typeName(d *core.DataType) string { return modulePrefix(d) + d.Name.Name }
+
 // Repr is showValue, exported for the notebook and the tests.
 func Repr(v any) string { return showValue(v) }
 
@@ -88,7 +103,7 @@ func writeValue(b *strings.Builder, v any) {
 		}
 		b.WriteByte(')')
 	case *Struct:
-		b.WriteString(x.Type.Name.Name)
+		b.WriteString(typeName(x.Type))
 		b.WriteByte('(')
 		for i, f := range x.Fields {
 			if i > 0 {
@@ -128,6 +143,11 @@ func writeValue(b *strings.Builder, v any) {
 		if d, ok := core.UnwrapUnionAll(x).(*core.DataType); ok && d.Name.Wrapper == any(x) {
 			b.WriteString(d.Name.Name)
 			return
+		}
+		b.WriteString(core.Show(x))
+	case *core.DataType:
+		if q := modulePrefix(x); q != "" {
+			b.WriteString(q)
 		}
 		b.WriteString(core.Show(x))
 	default:

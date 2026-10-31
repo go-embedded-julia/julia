@@ -58,8 +58,11 @@ func TestEvalAgainstJulia(t *testing.T) {
 			t.Errorf("program %d:\n%s\nGo error: %v\njulia: %s", n, c.Src, err, c.Want)
 			continue
 		}
-		if got := Repr(v); got != c.Want {
-			t.Errorf("program %d:\n%s\nGo:    %s\njulia: %s", n, c.Src, got, c.Want)
+		// the oracle evaluates in its own scratch module, OracleEval; the
+		// session's is L: the name is the harness's, not the program's
+		want := strings.ReplaceAll(c.Want, "Main.OracleEval.", "Main.L.")
+		if got := Repr(v); got != want {
+			t.Errorf("program %d:\n%s\nGo:    %s\njulia: %s", n, c.Src, got, want)
 		}
 	}
 	if err := sc.Err(); err != nil {

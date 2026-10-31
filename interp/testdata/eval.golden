@@ -50,6 +50,16 @@
 {"src":"f() = 1\nf() = 2\nf()\n","want":"2"}
 {"src":"(svec_free = 1; Core)\n","want":"Core"}
 {"src":"(typeof(:(a + 1)), typeof(:(:a)), isa(:(a + 1), Expr), Expr <: Any)\n","want":"(Expr, QuoteNode, true, true)"}
+{"src":"abstract type A end\nstruct P <: A\n    x::Int\n    y\nend\np = P(1, 2)\n(p, getfield(p, :x), getfield(p, 2), nfields(p), isa(p, A), typeof(p), P <: A)\n","want":"(Main.OracleEval.P(1, 2), 1, 2, 2, true, Main.OracleEval.P, true)"}
+{"src":"struct E end\n(E(), E() === E(), typeof(E), isa(E(), E))\n","want":"(Main.OracleEval.E(), true, DataType, true)"}
+{"src":"mutable struct M\n    x\nend\nm = M(1)\n(m, m === m, m === M(1), getfield(m, :x))\n","want":"(Main.OracleEval.M(1), true, false, 1)"}
+{"src":"struct P\n    x::Int\n    y\nend\n(fieldtype(P, 1), fieldtype(P, :y), fieldtype(typeof(tuple(1, :a)), 2))\n","want":"(Int64, Any, Symbol)"}
+{"src":"struct P\n    x::Int\nend\ntry\n    P(1, 2)\ncatch e\n    (typeof(e), getfield(e, :args))\nend\n","want":"(MethodError, (1, 2))"}
+{"src":"abstract type Shape end\nstruct Square <: Shape\n    side::Int\nend\nstruct Circle <: Shape\n    r::Int\nend\narea(s::Shape) = 0\narea(s::Square) = getfield(s, :side)\n(area(Square(3)), area(Circle(2)))\n","want":"(3, 0)"}
+{"src":"struct P\n    x::Int\nend\nstruct P\n    x::Int\nend\nP(3)\n","want":"Main.OracleEval.P(3)"}
+{"src":"struct Pt\n    x\n    y\nend\npt = Pt(:a, 2)\n(pt, pt === Pt(:a, 2), getfield(pt, :y))\n","want":"(Main.OracleEval.Pt(:a, 2), true, 2)"}
+{"src":"struct P\n    x\nend\nP() = P(0)\n(P(), P(1))\n","want":"(Main.OracleEval.P(0), Main.OracleEval.P(1))"}
+{"src":"try\n    fieldtype(Int, 1)\ncatch e\n    typeof(e)\nend\n","want":"BoundsError"}
 {"src":"nothing\n","want":"nothing"}
 {"src":":sym\n","want":":sym"}
 {"src":"\"a string\"\n","want":"\"a string\""}

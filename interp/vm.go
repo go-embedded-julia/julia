@@ -46,6 +46,9 @@ type VM struct {
 
 	// funcs finds a generic function from its type, for jl_method_def.
 	funcs map[*core.DataType]*Function
+	// ctors are the constructors of each type this VM created: the methods
+	// julia defines for Type{T}.
+	ctors map[*core.DataType]*dispatch.Table
 
 	builtinType, intrinsicType  *core.DataType
 	tError, tUndefVar           *core.DataType
@@ -64,7 +67,8 @@ const DefaultMaxDepth = 4000
 // New returns a VM with Core, Base and Main, and a module named name under
 // Main in which Eval runs (L, as the oracle names its scratch module).
 func New() *VM {
-	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth, funcs: map[*core.DataType]*Function{}}
+	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
+		funcs: map[*core.DataType]*Function{}, ctors: map[*core.DataType]*dispatch.Table{}}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	vm.Base = vm.addModule("Base", nil)
@@ -120,6 +124,7 @@ var coreExports = map[expr.Symbol]bool{
 	"getglobal": true, "setglobal!": true, "isdefinedglobal": true, "<:": true, "typeof": true,
 	"isa": true, "typeassert": true, "nothing": true, "Main": true,
 	"Expr": true, "QuoteNode": true, "LineNumberNode": true, "GlobalRef": true,
+	"fieldtype": true,
 }
 
 // setCore binds name in Core in world 0, exported when Core exports it.
@@ -192,6 +197,7 @@ func (vm *VM) bootCore() {
 	}
 
 	vm.bootBuiltins()
+	vm.bootTypedefs()
 	vm.bootIntrinsics()
 
 	// boot.jl:282-286: Typeof(x) = isa(x,Type) ? Type{x} : typeof(x), a

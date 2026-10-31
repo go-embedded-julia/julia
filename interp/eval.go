@@ -364,10 +364,13 @@ func (vm *VM) declareConst(ref expr.GlobalRef, val any) error {
 // function name in m, created as a constant in a new world when absent.
 func (vm *VM) declareFunction(m *Module, name expr.Symbol) (any, error) {
 	if b := m.own(name); b != nil {
-		if fn, ok := b.resolve().Value.(*Function); ok {
-			return fn, nil
-		}
-		if b.Value != undef {
+		v := b.resolve().Value
+		if v != undef {
+			// jl_check_gf (method.c:1135-1139): an instance of a singleton
+			// type (a function) or a type (a constructor) can take methods
+			if t, ok := vm.typeOf(v).(*core.DataType); (ok && t.Name.Singleton) || core.IsType(v) {
+				return v, nil
+			}
 			return nil, vm.errorf("cannot define function %s; it already has a value", name)
 		}
 	}
@@ -415,8 +418,16 @@ func (f *frame) methodDef(s sMethodDef) error {
 		return vm.errorf("method: invalid declaration")
 	}
 	ft, _ := argtypes[0].(*core.DataType)
-	fn := vm.funcs[ft]
-	if fn == nil {
+	var tab *dispatch.Table
+	if fn := vm.funcs[ft]; fn != nil {
+		tab = fn.Table
+	} else if core.IsTypeType(ft) {
+		// a constructor: f::Type{T} with T a type of this VM
+		if t, ok := ft.TParam0().(*core.DataType); ok && vm.ctors[t] != nil {
+			tab = vm.ctors[t]
+		}
+	}
+	if tab == nil {
 		return fmt.Errorf("%w: a method of %s, which is not a generic function of this VM", ErrUnsupported, core.Show(argtypes[0]))
 	}
 	src, ok := mv.(*expr.CodeInfo)
@@ -445,7 +456,7 @@ func (f *frame) methodDef(s sMethodDef) error {
 	if last := argtypes[len(argtypes)-1]; last != nil {
 		_, isva = last.(*core.Vararg)
 	}
-	_, err = fn.Table.Define(sig, vm.newWorld(), &lambda{c: c, nargs: len(argtypes), isva: isva, mod: f.mod})
+	_, err = tab.Define(sig, vm.newWorld(), &lambda{c: c, nargs: len(argtypes), isva: isva, mod: f.mod})
 	return err
 }
 
@@ -458,7 +469,11 @@ func (vm *VM) apply(fv any, args []any) (any, error) {
 	case *Intrinsic:
 		return fn.Fn(vm, args)
 	case *Function:
-		return vm.callGeneric(fn, args)
+		return vm.callTable(fn.Table, fn, args)
+	case *core.DataType:
+		if tab := vm.ctors[fn]; tab != nil {
+			return vm.callTable(tab, fn, args)
+		}
 	}
 	return nil, vm.methodErrorFor(fv, args)
 }
@@ -467,11 +482,13 @@ func (vm *VM) methodErrorFor(f any, args []any) error {
 	return vm.exception(vm.tMethodError, f, vm.newTuple(args), vm.taskWorld)
 }
 
-func (vm *VM) callGeneric(fn *Function, args []any) (any, error) {
-	m, env, err := fn.Table.Lookup(vm.tupleTypeOf(args), vm.taskWorld)
+// callTable dispatches a call of self — a generic function, or a type
+// called as a constructor — on its method table in the task's world.
+func (vm *VM) callTable(tab *dispatch.Table, self any, args []any) (any, error) {
+	m, env, err := tab.Lookup(vm.tupleTypeOf(args), vm.taskWorld)
 	if err != nil {
 		if errors.Is(err, dispatch.ErrNoMethod) || errors.Is(err, dispatch.ErrAmbiguous) {
-			return nil, vm.methodErrorFor(fn, args)
+			return nil, vm.methodErrorFor(self, args)
 		}
 		return nil, err
 	}
@@ -484,7 +501,7 @@ func (vm *VM) callGeneric(fn *Function, args []any) (any, error) {
 	case goMethod:
 		return body(vm, args)
 	case *lambda:
-		return vm.callLambda(body, fn, args, env)
+		return vm.callLambda(body, self, args, env)
 	}
 	return nil, fmt.Errorf("%w: a method without a body", ErrUnsupported)
 }
@@ -492,10 +509,10 @@ func (vm *VM) callGeneric(fn *Function, args []any) (any, error) {
 // callLambda runs a method body: slot 1 is the function, the next slots
 // its arguments, the last a tuple of the rest when the method is vararg
 // (jl_fptr_interpret_call).
-func (vm *VM) callLambda(l *lambda, fn *Function, args []any, sparams []any) (any, error) {
+func (vm *VM) callLambda(l *lambda, self any, args []any, sparams []any) (any, error) {
 	f := vm.newFrame(l.c, l.mod)
 	f.sparams = sparams
-	all := append([]any{fn}, args...)
+	all := append([]any{self}, args...)
 	n := l.nargs
 	if l.isva {
 		copy(f.locals, all[:n-1])
