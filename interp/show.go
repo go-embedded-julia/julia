@@ -63,6 +63,47 @@ func modulePrefix(d *core.DataType) string {
 
 func typeName(d *core.DataType) string { return modulePrefix(d) + d.Name.Name }
 
+// writeTypeVar is show(io, ::TypeVar) (base/show.jl:2798-2830) for a type
+// variable shown on its own, outside a where clause: the lower bound when it
+// is not Union{}, the upper bound when it is not Any.
+func writeTypeVar(b *strings.Builder, tv *core.TypeVar) {
+	bound := func(v any) {
+		_, isUA := v.(*core.UnionAll)
+		paren := isUA && Repr(v) != showWrapperName(v)
+		if paren {
+			b.WriteByte('(')
+		}
+		writeValue(b, v)
+		if paren {
+			b.WriteByte(')')
+		}
+	}
+	if tv.LB != any(core.Bottom) {
+		if tv.UB == any(core.AnyType) {
+			b.WriteString(tv.Name + ">:")
+			bound(tv.LB)
+		} else {
+			bound(tv.LB)
+			b.WriteString("<:" + tv.Name)
+		}
+	} else {
+		b.WriteString(tv.Name)
+	}
+	if tv.UB != any(core.AnyType) {
+		b.WriteString("<:")
+		bound(tv.UB)
+	}
+}
+
+// showWrapperName is the name a type wrapper is shown by, or "" when v is
+// not a wrapper (print_without_params).
+func showWrapperName(v any) string {
+	if d, ok := core.UnwrapUnionAll(v).(*core.DataType); ok && d.Name.Wrapper == v {
+		return d.Name.Name
+	}
+	return ""
+}
+
 // Repr is showValue, exported for the notebook and the tests.
 func Repr(v any) string { return showValue(v) }
 
@@ -138,6 +179,8 @@ func writeValue(b *strings.Builder, v any) {
 			writeValue(b, e)
 		}
 		b.WriteByte(')')
+	case *core.TypeVar:
+		writeTypeVar(b, x)
 	case *core.UnionAll:
 		// julia shows a type's wrapper by its name: Type, Array
 		if d, ok := core.UnwrapUnionAll(x).(*core.DataType); ok && d.Name.Wrapper == any(x) {
