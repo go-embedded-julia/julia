@@ -58,6 +58,7 @@
 {"src":"abstract type Shape end\nstruct Square <: Shape\n    side::Int\nend\nstruct Circle <: Shape\n    r::Int\nend\narea(s::Shape) = 0\narea(s::Square) = getfield(s, :side)\n(area(Square(3)), area(Circle(2)))\n","want":"(3, 0)"}
 {"src":"struct P\n    x::Int\nend\nstruct P\n    x::Int\nend\nP(3)\n","want":"Main.OracleEval.P(3)"}
 {"src":"struct Pt\n    x\n    y\nend\npt = Pt(:a, 2)\n(pt, pt === Pt(:a, 2), getfield(pt, :y))\n","want":"(Main.OracleEval.Pt(:a, 2), true, 2)"}
+{"src":"struct P\n    x\nend\nP() = P(0)\n(P(), P(1))\n","want":"(Main.OracleEval.P(0), Main.OracleEval.P(1))"}
 {"src":"try\n    fieldtype(Int, 1)\ncatch e\n    typeof(e)\nend\n","want":"BoundsError"}
 {"src":"nothing\n","want":"nothing"}
 {"src":":sym\n","want":":sym"}

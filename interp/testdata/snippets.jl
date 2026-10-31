@@ -328,6 +328,12 @@ end
 pt = Pt(:a, 2)
 (pt, pt === Pt(:a, 2), getfield(pt, :y))
 #---
+struct P
+    x
+end
+P() = P(0)
+(P(), P(1))
+#---
 try
     fieldtype(Int, 1)
 catch e

@@ -364,10 +364,13 @@ func (vm *VM) declareConst(ref expr.GlobalRef, val any) error {
 // function name in m, created as a constant in a new world when absent.
 func (vm *VM) declareFunction(m *Module, name expr.Symbol) (any, error) {
 	if b := m.own(name); b != nil {
-		if fn, ok := b.resolve().Value.(*Function); ok {
-			return fn, nil
-		}
-		if b.Value != undef {
+		v := b.resolve().Value
+		if v != undef {
+			// jl_check_gf (method.c:1135-1139): an instance of a singleton
+			// type (a function) or a type (a constructor) can take methods
+			if t, ok := vm.typeOf(v).(*core.DataType); (ok && t.Name.Singleton) || core.IsType(v) {
+				return v, nil
+			}
 			return nil, vm.errorf("cannot define function %s; it already has a value", name)
 		}
 	}

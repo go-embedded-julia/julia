@@ -256,13 +256,7 @@ func biDefaultctors(vm *VM, args []any) (any, error) {
 	tab := vm.ctorTable(dt)
 	mod := vm.modules[expr.Symbol(dt.Name.Module)]
 
-	outer, err := low.DefaultOuterCtorBody(dt, len(fields), 0, string(file), int64(loc.Line))
-	if err != nil {
-		return nil, err
-	}
-	if err := vm.defineCtor(tab, mod, fields, outer, dt); err != nil {
-		return nil, err
-	}
+	vm.defineCtor(tab, mod, fields, must(low.DefaultOuterCtorBody(dt, len(fields), 0, string(file), int64(loc.Line))), dt)
 	allAny := true
 	kinds := make([]int64, len(fields))
 	anys := make([]any, len(fields))
@@ -277,36 +271,38 @@ func biDefaultctors(vm *VM, args []any) (any, error) {
 	if allAny {
 		return nil, nil
 	}
-	inner, err := low.DefaultInnerCtorBody(kinds, string(file), int64(loc.Line))
-	if err != nil {
-		return nil, err
-	}
-	return nil, vm.defineCtor(tab, mod, anys, inner, dt)
+	vm.defineCtor(tab, mod, anys, must(low.DefaultInnerCtorBody(kinds, string(file), int64(loc.Line))), dt)
+	return nil, nil
 }
 
 // defineCtor defines a constructor of dt taking argument types argtypes,
 // with the field names as the slot names of its arguments
-// (method.c:1394-1399).
-func (vm *VM) defineCtor(tab *dispatch.Table, mod *Module, argtypes []any, body any, dt *core.DataType) error {
+// (method.c:1394-1399). Its inputs are the runtime's own: a body lowered
+// from a fixed template, field types the definition checked, a world newer
+// than every table's; a failure is a broken invariant, which Session.Eval
+// reports as ErrInternal.
+func (vm *VM) defineCtor(tab *dispatch.Table, mod *Module, argtypes []any, body any, dt *core.DataType) {
 	src := body.(*expr.CodeInfo)
 	for i, n := range dt.Name.FieldNames {
 		if i+1 < len(src.SlotNames) {
 			src.SlotNames[i+1] = n
 		}
 	}
-	c, err := prepare(src, false)
-	if err != nil {
-		return err
-	}
-	sig, err := core.ApplyType(core.AnyTupleType, argtypes...)
-	if err != nil {
-		return vm.errorf("%s", err.Error())
-	}
+	c := must(prepare(src, false))
+	sig := must(core.ApplyType(core.AnyTupleType, argtypes...))
 	if mod == nil {
 		mod = vm.Main
 	}
-	_, err = tab.Define(sig, vm.newWorld(), &lambda{c: c, nargs: len(argtypes) + 1, mod: mod})
-	return err
+	must(tab.Define(sig, vm.newWorld(), &lambda{c: c, nargs: len(argtypes) + 1, mod: mod}))
+}
+
+// must is the value of a call whose failure would be a bug of the
+// interpreter, not of the program.
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(fmt.Sprintf("interp: broken invariant: %v", err))
+	}
+	return v
 }
 
 // ctorTable is the method table of calls of the type dt itself: the
