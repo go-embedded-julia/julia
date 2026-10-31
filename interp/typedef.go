@@ -40,11 +40,12 @@ func (vm *VM) bootTypedefs() {
 //	UnionAll(v, t) = ccall(:jl_type_unionall, Any, (Any, Any), v::TypeVar, t)
 func (vm *VM) bootTypeCtors() {
 	def := func(t *core.DataType, nargs int, body goMethod) {
-		params := make([]any, nargs)
-		for i := range params {
+		params := make([]any, nargs+1)
+		params[0] = must(core.Apply(core.TypeType, t))
+		for i := 1; i <= nargs; i++ {
 			params[i] = core.AnyType
 		}
-		sig, _ := core.Apply(core.AnyTupleType, params...)
+		sig := must(core.Apply(core.AnyTupleType, params...))
 		must(vm.ctorTable(t).Define(sig, vm.newWorld(), body))
 	}
 	symbol := func(vm *VM, n any) (expr.Symbol, error) {
@@ -100,36 +101,43 @@ func biTypevar(vm *VM, args []any) (any, error) {
 }
 
 // typeArgs checks the module, name and parameter arguments every type
-// definition builtin starts with.
-func (vm *VM) typeArgs(fname expr.Symbol, args []any) (*Module, expr.Symbol, error) {
+// definition builtin starts with; the parameters are the type variables the
+// lowered definition made.
+func (vm *VM) typeArgs(fname expr.Symbol, args []any) (*Module, expr.Symbol, []*core.TypeVar, error) {
 	m, ok := args[0].(*Module)
 	if err := vm.typechk(fname, core.ModuleType, args[0], ok); err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	name, ok := args[1].(expr.Symbol)
 	if err := vm.typechk(fname, core.SymbolType, args[1], ok); err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	params, ok := args[2].(SVec)
 	if err := vm.typechk(fname, core.SimpleVectorType, args[2], ok); err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
-	if len(params) > 0 {
-		return nil, "", fmt.Errorf("%w: a type with parameters (%s)", ErrUnsupported, name)
+	tvs := make([]*core.TypeVar, len(params))
+	for i, p := range params {
+		tv, ok := p.(*core.TypeVar)
+		if !ok {
+			return nil, "", nil, vm.typeError(fname, "", core.TypeVarType, p)
+		}
+		tvs[i] = tv
 	}
-	return m, name, nil
+	return m, name, tvs, nil
 }
 
-// biAbstracttype is jl_f__abstracttype (builtins.c:1997-2005).
+// biAbstracttype is jl_f__abstracttype (builtins.c:1997-2005): the new
+// type's wrapper.
 func biAbstracttype(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("_abstracttype", args, 3, 3); err != nil {
 		return nil, err
 	}
-	m, name, err := vm.typeArgs("_abstracttype", args)
+	m, name, params, err := vm.typeArgs("_abstracttype", args)
 	if err != nil {
 		return nil, err
 	}
-	return core.NewIncompleteType(string(m.Name), string(name), true, false, nil), nil
+	return core.NewIncompleteType(string(m.Name), string(name), params, true, false, nil).Name.Wrapper, nil
 }
 
 // biStructtype is jl_f__structtype (builtins.c:1978-1995). Field attributes
@@ -138,7 +146,7 @@ func biStructtype(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("_structtype", args, 7, 7); err != nil {
 		return nil, err
 	}
-	m, name, err := vm.typeArgs("_structtype", args)
+	m, name, params, err := vm.typeArgs("_structtype", args)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +177,7 @@ func biStructtype(vm *VM, args []any) (any, error) {
 		}
 		names[i] = s
 	}
-	return core.NewIncompleteType(string(m.Name), string(name), false, mutable, names), nil
+	return core.NewIncompleteType(string(m.Name), string(name), params, false, mutable, names).Name.Wrapper, nil
 }
 
 // biSetsuper is jl_f__setsuper (builtins.c:2051-2058).
@@ -278,10 +286,7 @@ func biFieldtype(vm *VM, args []any) (any, error) {
 		}
 		return nil, vm.typeError("fieldtype", "", core.DataTypeType, args[0])
 	}
-	types := st.Name.Fields
-	if core.IsTupleType(st) {
-		types = st.Parameters
-	}
+	types, _ := st.FieldTypes()
 	idx := -1
 	switch f := args[1].(type) {
 	case int64:
@@ -304,16 +309,18 @@ func biFieldtype(vm *VM, args []any) (any, error) {
 	return types[idx], nil
 }
 
-// biDefaultctors is jl_f__defaultctors, jl_ctor_def (method.c:1327-1454)
-// for a type without parameters: an outer constructor taking the field
-// types, and an inner one taking Any and converting, unless every field is
-// Any (then the two would be the same method).
+// biDefaultctors is jl_f__defaultctors over jl_ctor_def (method.c:
+// 1327-1454): an outer constructor taking the field types, when they
+// constrain every type parameter, and an inner one taking Any and converting
+// — left out when the type has no parameters and every field is Any, since
+// the two would be the same method.
 func biDefaultctors(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("_defaultctors", args, 2, 2); err != nil {
 		return nil, err
 	}
-	dt, ok := core.UnwrapUnionAll(args[0]).(*core.DataType)
-	if err := vm.typechk("ctor_def", core.DataTypeType, args[0], ok); err != nil {
+	ty := args[0]
+	dt, ok := core.UnwrapUnionAll(ty).(*core.DataType)
+	if err := vm.typechk("ctor_def", core.DataTypeType, ty, ok); err != nil {
 		return nil, err
 	}
 	loc, ok := args[1].(expr.LineNumberNode)
@@ -325,33 +332,76 @@ func biDefaultctors(vm *VM, args []any) (any, error) {
 	fields := dt.Name.Fields
 	tab := vm.ctorTable(dt)
 	mod := vm.modules[expr.Symbol(dt.Name.Module)]
+	var tvars []*core.TypeVar
+	for u, ok := ty.(*core.UnionAll); ok; u, ok = u.Body.(*core.UnionAll) {
+		tvars = append(tvars, u.Var)
+	}
 
-	vm.defineCtor(tab, mod, fields, must(low.DefaultOuterCtorBody(dt, len(fields), 0, string(file), int64(loc.Line))), dt)
-	allAny := true
-	kinds := make([]int64, len(fields))
-	anys := make([]any, len(fields))
-	for i, ft := range fields {
-		anys[i] = core.AnyType
-		if ft == any(core.AnyType) {
-			kinds[i] = -1
-		} else {
-			allAny = false
+	if constrainsAllTvars(tvars, fields) {
+		atypes := append([]any{must(core.Apply(core.TypeType, ty))}, fields...)
+		body := must(low.DefaultOuterCtorBody(ty, len(fields), len(tvars), string(file), int64(loc.Line)))
+		vm.defineCtor(tab, mod, atypes, tvars, body, dt)
+		if len(tvars) == 0 {
+			allAny := true
+			for _, ft := range fields {
+				allAny = allAny && ft == any(core.AnyType)
+			}
+			if allAny {
+				return nil, nil
+			}
 		}
 	}
-	if allAny {
-		return nil, nil
+	// the inner constructor: Type{dt} rewrapped in the type's variables,
+	// then Any for every field (method.c:1417-1452)
+	var typedt any = must(core.Apply(core.TypeType, dt))
+	for i := len(tvars) - 1; i >= 0; i-- {
+		typedt = core.TypeUnionAll(tvars[i], typedt)
 	}
-	vm.defineCtor(tab, mod, anys, must(low.DefaultInnerCtorBody(kinds, string(file), int64(loc.Line))), dt)
+	atypes := []any{typedt}
+	kinds := make([]int64, len(fields))
+	for i, ft := range fields {
+		atypes = append(atypes, core.AnyType)
+		if ft == any(core.AnyType) {
+			kinds[i] = -1
+		}
+	}
+	vm.defineCtor(tab, mod, atypes, nil, must(low.DefaultInnerCtorBody(kinds, string(file), int64(loc.Line))), dt)
 	return nil, nil
 }
 
-// defineCtor defines a constructor of dt taking argument types argtypes,
-// with the field names as the slot names of its arguments
-// (method.c:1394-1399). Its inputs are the runtime's own: a body lowered
-// from a fixed template, field types the definition checked, a world newer
-// than every table's; a failure is a broken invariant, which Session.Eval
-// reports as ErrInternal.
-func (vm *VM) defineCtor(tab *dispatch.Table, mod *Module, argtypes []any, body any, dt *core.DataType) {
+// constrainsAllTvars is the test of jl_ctor_def (method.c:1357-1384): every
+// type variable occurs in a field type, or in the upper bound of a variable
+// after it.
+func constrainsAllTvars(tvars []*core.TypeVar, fields []any) bool {
+	for i := len(tvars) - 1; i >= 0; i-- {
+		tv := tvars[i]
+		constrains := false
+		for _, ft := range fields {
+			if core.HasTypeVar(ft, tv) {
+				constrains = true
+				break
+			}
+		}
+		// the variables after tv (method.c:1369-1379)
+		for j := i + 1; !constrains && j < len(tvars); j++ {
+			if core.HasTypeVar(tvars[j].UB, tv) {
+				constrains = true
+			}
+		}
+		if !constrains {
+			return false
+		}
+	}
+	return true
+}
+
+// defineCtor defines a constructor of dt taking argument types atypes (the
+// first being Type{…}), wrapped in tvars, with the field names as the slot
+// names of its arguments (method.c:1394-1399). Its inputs are the runtime's
+// own: a body lowered from a fixed template, field types the definition
+// checked, a world newer than every table's; a failure is a broken
+// invariant, which Session.Eval reports as ErrInternal.
+func (vm *VM) defineCtor(tab *dispatch.Table, mod *Module, atypes []any, tvars []*core.TypeVar, body any, dt *core.DataType) {
 	src := body.(*expr.CodeInfo)
 	for i, n := range dt.Name.FieldNames {
 		if i+1 < len(src.SlotNames) {
@@ -359,11 +409,14 @@ func (vm *VM) defineCtor(tab *dispatch.Table, mod *Module, argtypes []any, body 
 		}
 	}
 	c := must(prepare(src, false))
-	sig := must(core.ApplyType(core.AnyTupleType, argtypes...))
+	sig := must(core.ApplyType(core.AnyTupleType, atypes...))
+	for i := len(tvars) - 1; i >= 0; i-- {
+		sig = core.TypeUnionAll(tvars[i], sig)
+	}
 	if mod == nil {
 		mod = vm.Main
 	}
-	must(tab.Define(sig, vm.newWorld(), &lambda{c: c, nargs: len(argtypes) + 1, mod: mod}))
+	must(tab.Define(sig, vm.newWorld(), &lambda{c: c, nargs: len(atypes), mod: mod}))
 }
 
 // must is the value of a call whose failure would be a bug of the
@@ -375,13 +428,14 @@ func must[T any](v T, err error) T {
 	return v
 }
 
-// ctorTable is the method table of calls of the type dt itself: the
-// methods julia keys by Type{dt}.
+// ctorTable is the method table of calls of the types named like dt —
+// Q and every Q{…}: the methods julia's one table holds under Type{Q},
+// Type{Q{T}} where T and the like, kept here with that first parameter.
 func (vm *VM) ctorTable(dt *core.DataType) *dispatch.Table {
-	tab := vm.ctors[dt]
+	tab := vm.ctors[dt.Name]
 	if tab == nil {
 		tab = &dispatch.Table{Name: dt.Name.Name}
-		vm.ctors[dt] = tab
+		vm.ctors[dt.Name] = tab
 	}
 	return tab
 }

@@ -53,6 +53,42 @@ func TestNewType(t *testing.T) {
 	}
 }
 
+// A parametric type: the primary type over its variables, the wrapper the
+// UnionAll over them, field types instantiated per instance, and an
+// instance without fields is a singleton.
+func TestParametricType(t *testing.T) {
+	T := &TypeVar{Name: "T", LB: Bottom, UB: AnyType}
+	q := NewIncompleteType("Main", "Q", []*TypeVar{T}, false, false, []Symbol{"x"})
+	if err := q.SetSuper(AnyType); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.SetFieldTypes([]any{T}); err != nil {
+		t.Fatal(err)
+	}
+	w, ok := q.Name.Wrapper.(*UnionAll)
+	if !ok || w.Var != T || w.Body != any(q) || q.IsConcrete {
+		t.Fatalf("wrapper %v, concrete %v", q.Name.Wrapper, q.IsConcrete)
+	}
+	qi, err := Apply(w, Int64Type)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ft, ok := qi.(*DataType).FieldTypes()
+	if !ok || len(ft) != 1 || ft[0] != any(Int64Type) || !qi.(*DataType).IsConcrete {
+		t.Fatalf("Q{Int64} fields %v, concrete %v", ft, qi.(*DataType).IsConcrete)
+	}
+	if !Subtype(qi, w) {
+		t.Error("Q{Int64} is not a Q")
+	}
+	n := NewIncompleteType("Main", "N", []*TypeVar{T}, false, false, nil)
+	n.SetSuper(AnyType)
+	n.SetFieldTypes(nil)
+	ni, _ := Apply(n.Name.Wrapper, Int64Type)
+	if n.Name.Singleton || !ni.(*DataType).isSingleton() {
+		t.Error("an instance of a parametric type without fields is not a singleton")
+	}
+}
+
 // SetSuper refuses what jl_set_datatype_super refuses, with its messages;
 // SetFieldTypes refuses an abstract type.
 func TestSetSuper(t *testing.T) {
@@ -65,12 +101,12 @@ func TestSetSuper(t *testing.T) {
 		{DataTypeType, "cannot add subtypes to Type"},
 		{Int64Type, "can only subtype abstract types"},
 	} {
-		d := NewIncompleteType("Main", "S", false, false, nil)
+		d := NewIncompleteType("Main", "S", nil, false, false, nil)
 		if err := d.SetSuper(c.super); err == nil || !strings.Contains(err.Error(), "invalid subtyping in definition of S: "+c.want+".") {
 			t.Errorf("super %v: %v", c.super, err)
 		}
 	}
-	d := NewIncompleteType("Main", "S", true, false, nil)
+	d := NewIncompleteType("Main", "S", nil, true, false, nil)
 	if err := d.SetSuper(d); err == nil || !strings.Contains(err.Error(), "a type cannot subtype itself") {
 		t.Errorf("itself: %v", err)
 	}

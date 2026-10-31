@@ -6,20 +6,34 @@ import "fmt"
 // a `struct` or `abstract type` definition takes (builtins.c:1978-2284):
 // Core._structtype or Core._abstracttype makes the type without a supertype
 // or field types, _setsuper! gives it its supertype, _typebody! its field
-// types. Only types without parameters are built here so far.
+// types.
 
 // NewIncompleteType is jl_new_datatype (datatype.c:858-957) as
-// jl_f__structtype and jl_f__abstracttype call it: a type without parameters,
-// with field names but neither a supertype nor field types yet. Nothing may
-// query it before SetSuper.
-func NewIncompleteType(module, name string, abstract, mutable bool, fieldNames []Symbol) *DataType {
+// jl_f__structtype and jl_f__abstracttype call it: the primary type over the
+// type variables params, with field names but neither a supertype nor field
+// types yet; its wrapper is the UnionAll over params (datatype.c:946-955).
+// Nothing may query it before SetSuper.
+func NewIncompleteType(module, name string, params []*TypeVar, abstract, mutable bool, fieldNames []Symbol) *DataType {
 	tn := &TypeName{Name: name, Module: module, Abstract: abstract, Mutable: mutable, FieldNames: fieldNames}
-	dt := &DataType{Name: tn, Parameters: []any{}, HasConcreteSubtype: true}
+	ps := make([]any, len(params))
+	for i, p := range params {
+		ps[i] = p
+	}
+	dt := &DataType{Name: tn, Parameters: ps, HasConcreteSubtype: true}
 	tn.Primary = dt
-	tn.Wrapper = dt
-	precomputeMemoized(dt, true)
+	var w any = dt
+	for i := len(params) - 1; i >= 0; i-- {
+		w = &UnionAll{Var: params[i], Body: w}
+	}
+	tn.Wrapper = w
+	precomputeMemoized(dt, len(params) == 0)
 	return dt
 }
+
+// FieldTypes is jl_get_fieldtypes for a struct or tuple type: the field
+// types of this instance (Q{Int64}'s in terms of Int64), false when d
+// records none.
+func (d *DataType) FieldTypes() ([]any, bool) { return d.fieldTypes() }
 
 // SetSuper is jl_set_datatype_super (builtins.c:2026-2049). A supertype
 // that is a subtype of Core.Builtin is refused by the caller, which owns
@@ -60,8 +74,12 @@ func (d *DataType) SetFieldTypes(fieldTypes []any) error {
 	if d.Name.Abstract {
 		return fmt.Errorf("%s: an abstract type has no fields", d.Name.Name)
 	}
-	d.Name.Fields = fieldTypes
-	if !d.Name.Mutable {
+	// never nil: nil means "no fields recorded" to fieldTypes, and a struct
+	// without fields records an empty list
+	d.Name.Fields = append([]any{}, fieldTypes...)
+	// a parametric type decides per instance, from its instantiated field
+	// types (isSingleton, isbits)
+	if !d.Name.Mutable && len(d.Parameters) == 0 {
 		d.Name.Singleton = len(fieldTypes) == 0
 		d.Name.Isbits = isbitsFields(fieldTypes)
 	}
@@ -74,7 +92,7 @@ func NewType(module, name string, super *DataType, abstract, mutable bool, field
 	if abstract && (mutable || len(fieldNames) > 0) {
 		return nil, fmt.Errorf("%s: an abstract type has no fields and is not mutable", name)
 	}
-	dt := NewIncompleteType(module, name, abstract, mutable, fieldNames)
+	dt := NewIncompleteType(module, name, nil, abstract, mutable, fieldNames)
 	if super == nil {
 		super = AnyType
 	}

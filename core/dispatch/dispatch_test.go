@@ -119,4 +119,24 @@ func TestBadInputs(t *testing.T) {
 	if _, _, err := tab.Lookup(mustApply(t, core.AnyTupleType, core.RealType), 0); err == nil {
 		t.Error("an abstract call tuple was accepted")
 	}
+	if _, _, err := tab.Lookup(core.Int64Type, 0); err == nil {
+		t.Error("a concrete non-tuple was accepted")
+	}
+}
+
+// A type argument dispatches as Type{T} (jl_inst_arg_tuple_type): the call
+// tuple is a dispatch tuple without being concrete, and a method on
+// Type{Int64} is chosen over one on DataType.
+func TestTypeArgumentDispatch(t *testing.T) {
+	tab := &Table{Name: "f"}
+	onDataType, _ := tab.Add(mustApply(t, core.AnyTupleType, core.DataTypeType))
+	onTypeInt, _ := tab.Add(mustApply(t, core.AnyTupleType, mustApply(t, core.TypeType, core.Int64Type)))
+	call := mustApply(t, core.AnyTupleType, mustApply(t, core.TypeType, core.Int64Type))
+	if m, _, err := tab.Lookup(call, tab.World()); err != nil || m != onTypeInt {
+		t.Fatalf("f(Int64): %v, %v; want the Type{Int64} method", m, err)
+	}
+	other := mustApply(t, core.AnyTupleType, mustApply(t, core.TypeType, core.BoolType))
+	if m, _, err := tab.Lookup(other, tab.World()); err != nil || m != onDataType {
+		t.Fatalf("f(Bool): %v, %v; want the DataType method", m, err)
+	}
 }

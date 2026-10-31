@@ -119,11 +119,14 @@ func (m *Method) visible(w uint64) bool { return m.PrimaryWorld <= w && w <= m.M
 func moreSpecific(a, b *Method) (bool, error) { return core.MoreSpecific(a.Sig, b.Sig) }
 
 // Lookup returns the method a call with argument tuple tt runs in world w,
-// and the values of its static parameters. tt is the concrete Tuple type of
-// the arguments (without typeof(f)).
+// and the values of its static parameters. tt is the dispatch tuple of the
+// arguments (without typeof(f)), as jl_inst_arg_tuple_type builds it
+// (jltypes.c:2477-2502): each argument's type, or Type{a} for an argument a
+// that is itself a type, which makes a dispatch tuple that is not concrete.
 func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
-	if !core.IsConcrete(tt) || !core.IsTupleType(tt) {
-		return nil, nil, fmt.Errorf("dispatch on %s: the argument tuple is not a concrete Tuple type", core.Show(tt))
+	d, ok := tt.(*core.DataType)
+	if !ok || !core.IsTupleType(d) || !d.IsDispatchTuple {
+		return nil, nil, fmt.Errorf("dispatch on %s: the argument tuple is not a dispatch Tuple type", core.Show(tt))
 	}
 	// one jl_subtype_env query per method gives both the answer and the
 	// static parameters the chosen method will need

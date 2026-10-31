@@ -61,8 +61,6 @@ func modulePrefix(d *core.DataType) string {
 	return "Main." + d.Name.Module + "."
 }
 
-func typeName(d *core.DataType) string { return modulePrefix(d) + d.Name.Name }
-
 // writeTypeVar is show(io, ::TypeVar) (base/show.jl:2798-2830) for a type
 // variable shown on its own, outside a where clause: the lower bound when it
 // is not Union{}, the upper bound when it is not Any.
@@ -144,7 +142,8 @@ func writeValue(b *strings.Builder, v any) {
 		}
 		b.WriteByte(')')
 	case *Struct:
-		b.WriteString(typeName(x.Type))
+		// the instance's whole type, parameters included: Q{Int64}(1)
+		b.WriteString(modulePrefix(x.Type) + core.Show(x.Type))
 		b.WriteByte('(')
 		for i, f := range x.Fields {
 			if i > 0 {

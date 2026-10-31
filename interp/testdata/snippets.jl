@@ -393,6 +393,67 @@ catch e
     e
 end
 #---
+struct Q{T}
+    x::T
+end
+q = Q(1)
+(q, typeof(q), getfield(q, :x), isa(q, Q))
+#---
+struct Q{T}
+    x::T
+end
+(Q{Int}(1), Q{Integer}(2), typeof(Q{Integer}(2)), Q{Int} <: Q)
+#---
+struct Pair2{A,B}
+    a::A
+    b::B
+end
+p = Pair2(1, :s)
+(p, typeof(p), fieldtype(typeof(p), 2))
+#---
+abstract type AbstractBox{T} end
+struct Box{T} <: AbstractBox{T}
+    v::T
+end
+unbox(b::AbstractBox{T}) where T = T
+(unbox(Box(0x01)), unbox(Box(:a)), Box{Int} <: AbstractBox{Int})
+#---
+struct N{T} end
+(N{Int}(), N{Int}() === N{Int}(), N{Int}() === N{Bool}())
+#---
+struct Q{T<:Integer}
+    x::T
+end
+try
+    Q(:a)
+catch e
+    typeof(e)
+end
+#---
+struct W{T}
+    x::Int
+end
+try
+    W(1)
+catch e
+    typeof(e)
+end
+#---
+struct W{T}
+    x::Int
+end
+W{Symbol}(1)
+#---
+struct V{T, S<:T}
+    x::S
+end
+r = try
+    V(1)
+catch e
+    typeof(e)
+end
+(r, V{Integer, Int}(2))
+#---
 nothing
 #---
 :sym

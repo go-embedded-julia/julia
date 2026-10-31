@@ -15,9 +15,9 @@ func TestTypedefBuiltins(t *testing.T) {
 	s := vm.NewSession()
 	m := s.Mod
 	sym := func(s string) expr.Symbol { return expr.Symbol(s) }
-	abs := core.NewIncompleteType("L", "Abs", true, false, nil)
+	abs := core.NewIncompleteType("L", "Abs", nil, true, false, nil)
 	abs.SetSuper(core.AnyType)
-	st := core.NewIncompleteType("L", "St", false, false, []expr.Symbol{"x"})
+	st := core.NewIncompleteType("L", "St", nil, false, false, []expr.Symbol{"x"})
 	st.SetSuper(core.AnyType)
 	st.SetFieldTypes([]any{core.Int64Type})
 	lnn := expr.LineNumberNode{Line: 1, File: sym("none")}
@@ -31,7 +31,7 @@ func TestTypedefBuiltins(t *testing.T) {
 		{"_abstracttype module", "_abstracttype", []any{int64(1), sym("A"), SVec{}}, "!TypeError(:_abstracttype, \"\", Module, 1)"},
 		{"_abstracttype name", "_abstracttype", []any{m, int64(1), SVec{}}, "!TypeError(:_abstracttype, \"\", Symbol, 1)"},
 		{"_abstracttype params", "_abstracttype", []any{m, sym("A"), int64(1)}, "!TypeError(:_abstracttype, \"\", Core.SimpleVector, 1)"},
-		{"_abstracttype with parameters", "_abstracttype", []any{m, sym("A"), SVec{int64(1)}}, "!not ported yet: a type with parameters"},
+		{"_abstracttype with a parameter that is not a TypeVar", "_abstracttype", []any{m, sym("A"), SVec{int64(1)}}, "!TypeError(:_abstracttype, \"\", TypeVar, 1)"},
 		{"_structtype arity", "_structtype", []any{m}, "!_structtype: too few arguments"},
 		{"_structtype header error", "_structtype", []any{int64(1), sym("S"), SVec{}, SVec{}, SVec{}, false, int64(0)}, "!TypeError(:_structtype"},
 		{"_structtype names", "_structtype", []any{m, sym("S"), SVec{}, int64(1), SVec{}, false, int64(0)}, "!TypeError(:_structtype, \"\", Core.SimpleVector, 1)"},
@@ -42,15 +42,15 @@ func TestTypedefBuiltins(t *testing.T) {
 		{"_structtype field name", "_structtype", []any{m, sym("S"), SVec{}, SVec{int64(1)}, SVec{}, false, int64(1)}, "!TypeError(:_structtype, \"\", Symbol, 1)"},
 		{"_setsuper! arity", "_setsuper!", nil, "!_setsuper!: too few arguments"},
 		{"_setsuper! of a non-type", "_setsuper!", []any{int64(1), core.AnyType}, "!TypeError(:_setsuper!, \"\", DataType, 1)"},
-		{"_setsuper! to Builtin", "_setsuper!", []any{core.NewIncompleteType("L", "B", false, false, nil), vm.builtinType}, "!cannot add subtypes to Core.Builtin."},
-		{"_setsuper! to a concrete type", "_setsuper!", []any{core.NewIncompleteType("L", "B", false, false, nil), core.Int64Type}, "!can only subtype abstract types."},
+		{"_setsuper! to Builtin", "_setsuper!", []any{core.NewIncompleteType("L", "B", nil, false, false, nil), vm.builtinType}, "!cannot add subtypes to Core.Builtin."},
+		{"_setsuper! to a concrete type", "_setsuper!", []any{core.NewIncompleteType("L", "B", nil, false, false, nil), core.Int64Type}, "!can only subtype abstract types."},
 		{"_typebody! arity", "_typebody!", nil, "!_typebody!: too few arguments"},
 		{"_typebody! of a non-type", "_typebody!", []any{false, int64(1)}, "!TypeError(:_typebody!, \"\", DataType, 1)"},
 		{"_typebody! without fields", "_typebody!", []any{false, abs}, "Main.L.Abs"},
 		{"_typebody! fields not an svec", "_typebody!", []any{false, st, int64(1)}, "!TypeError(:_typebody!, \"\", Core.SimpleVector, 1)"},
 		{"_typebody! field not a type", "_typebody!", []any{false, st, SVec{int64(1)}}, "!TypeError(:St, \"type definition\", Type, 1)"},
 		{"_typebody! of an abstract type", "_typebody!", []any{false, abs, SVec{}}, "!abstract type has no fields"},
-		{"_typebody! same fields as before", "_typebody!", []any{st, core.NewIncompleteType("L", "St", false, false, []expr.Symbol{"x"}), SVec{core.Int64Type}}, "Main.L.St"},
+		{"_typebody! same fields as before", "_typebody!", []any{st, core.NewIncompleteType("L", "St", nil, false, false, []expr.Symbol{"x"}), SVec{core.Int64Type}}, "Main.L.St"},
 		{"_equiv_typedef arity", "_equiv_typedef", nil, "!_equiv_typedef: too few arguments"},
 		{"_equiv_typedef of a non-type", "_equiv_typedef", []any{int64(1), st}, "false"},
 		{"_equiv_typedef of other kinds", "_equiv_typedef", []any{abs, st}, "false"},
@@ -67,7 +67,7 @@ func TestTypedefBuiltins(t *testing.T) {
 		{"_typevar arity", "_typevar", []any{sym("T")}, "!TypeVar: too few arguments (expected 3)"},
 		{"_typevar of a non-symbol", "_typevar", []any{int64(1), core.Bottom, core.AnyType}, "!TypeError(:TypeVar, \"\", Symbol, 1)"},
 		{"_typebody! with other field types", "_typebody!", []any{st, newSt("L", "St", "x"), SVec{core.BoolType}}, ""},
-		{"_typebody! with more fields", "_typebody!", []any{st, core.NewIncompleteType("L", "St", false, false, []expr.Symbol{"x", "y"}), SVec{core.Int64Type, core.Int64Type}}, ""},
+		{"_typebody! with more fields", "_typebody!", []any{st, core.NewIncompleteType("L", "St", nil, false, false, []expr.Symbol{"x", "y"}), SVec{core.Int64Type, core.Int64Type}}, ""},
 		{"fieldtype of an unknown name", "fieldtype", []any{st, sym("nope")}, "!type St has no field nope"},
 		{"fieldtype of a bad index", "fieldtype", []any{st, 1.5}, "!TypeError(:fieldtype, \"\", Symbol, 1.5)"},
 	}
@@ -127,13 +127,16 @@ func TestTypedefBuiltins(t *testing.T) {
 	}
 	_, err = vm.apply(core.UnionAllType, []any{&core.TypeVar{Name: "T", LB: core.Bottom, UB: core.AnyType}, core.VarargType})
 	check(t, "UnionAll over a bare Vararg", nil, err, "!not ported")
+	if ctorTypeName(must(core.Apply(core.TypeType, core.TypeUnion(core.Int64Type, core.BoolType)))) != nil {
+		t.Error("ctorTypeName of Type{Union{…}} named a type")
+	}
 	if !panics(func() { must(0, errors.New("x")) }) {
 		t.Error("must of an error did not panic")
 	}
 }
 
 func newSt(mod, name, field string) *core.DataType {
-	d := core.NewIncompleteType(mod, name, false, false, []expr.Symbol{expr.Symbol(field)})
+	d := core.NewIncompleteType(mod, name, nil, false, false, []expr.Symbol{expr.Symbol(field)})
 	d.SetSuper(core.AnyType)
 	d.SetFieldTypes([]any{core.Int64Type})
 	return d
