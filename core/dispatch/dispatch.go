@@ -32,6 +32,9 @@ type Method struct {
 	PrimaryWorld, MaxWorld uint64
 	// Index numbers the methods of a table in definition order.
 	Index int
+	// Def is what the caller defined the method with (the interpreter's
+	// prepared body); the table only carries it.
+	Def any
 }
 
 // Table is a generic function's method table (jl_methtable_t).
@@ -61,18 +64,33 @@ func (t *Table) World() uint64 {
 // method whose signature is type-equal to sig is replaced: it stays visible
 // in the worlds before this one (jl_method_table_insert, gf.c:3017).
 func (t *Table) Add(sig any) (*Method, error) {
+	t.mu.Lock()
+	w := t.world + 1
+	t.mu.Unlock()
+	return t.Define(sig, w, nil)
+}
+
+// Define defines a method with signature sig and body def in world w, which
+// a VM takes from its one world counter (jl_world_counter): julia's worlds
+// are global, shared by every table and binding. w must be newer than every
+// world the table has seen. A method whose signature is type-equal to sig is
+// replaced, as in Add.
+func (t *Table) Define(sig any, w uint64, def any) (*Method, error) {
 	if !core.IsTupleType(core.UnwrapUnionAll(sig)) {
 		return nil, fmt.Errorf("method signature %s is not a Tuple type", core.Show(sig))
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.world++
+	if w <= t.world {
+		return nil, fmt.Errorf("method of %s defined in world %d, not newer than world %d", t.Name, w, t.world)
+	}
+	t.world = w
 	for _, m := range t.methods {
 		if m.MaxWorld == ^uint64(0) && core.TypesEqual(m.Sig, sig) {
-			m.MaxWorld = t.world - 1
+			m.MaxWorld = w - 1
 		}
 	}
-	m := &Method{Sig: sig, PrimaryWorld: t.world, MaxWorld: ^uint64(0), Index: len(t.methods)}
+	m := &Method{Sig: sig, PrimaryWorld: w, MaxWorld: ^uint64(0), Index: len(t.methods), Def: def}
 	t.methods = append(t.methods, m)
 	return m, nil
 }

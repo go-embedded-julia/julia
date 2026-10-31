@@ -34,6 +34,23 @@ func TestWorldAges(t *testing.T) {
 	}
 }
 
+// Define takes the world from the caller's global counter and carries the
+// body; a world that is not newer than the table's is refused.
+func TestDefineInAGlobalWorld(t *testing.T) {
+	tab := &Table{Name: "f"}
+	sig := mustApply(t, core.AnyTupleType, core.Int64Type)
+	m, err := tab.Define(sig, 7, "body")
+	if err != nil || m.PrimaryWorld != 7 || m.Def != "body" || tab.World() != 7 {
+		t.Fatalf("Define: %+v, %v, table world %d", m, err, tab.World())
+	}
+	if _, err := tab.Define(sig, 7, nil); err == nil || !strings.Contains(err.Error(), "not newer") {
+		t.Fatalf("a stale world was accepted: %v", err)
+	}
+	if got, _, err := tab.Lookup(sig, 6); m == got || !errors.Is(err, ErrNoMethod) {
+		t.Fatalf("world 6 sees a method of world 7: %v", err)
+	}
+}
+
 // Static parameters come back from jl_subtype_env.
 func TestStaticParameters(t *testing.T) {
 	tab := &Table{Name: "f"}
