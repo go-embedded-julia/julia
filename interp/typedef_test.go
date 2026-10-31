@@ -116,10 +116,10 @@ func TestTypedefBuiltins(t *testing.T) {
 	// a TypeVar shown with its bounds, as base/show.jl shows it
 	vec1 := core.TypeUnionAll(core.ArrayType.Var, core.ArrayType.Body.(*core.UnionAll).Body)
 	for tv, want := range map[*core.TypeVar]string{
-		{Name: "T", LB: core.Int64Type, UB: core.AnyType}:       "T>:Int64",
-		{Name: "T", LB: core.Int64Type, UB: core.IntegerType}:   "Int64<:T<:Integer",
-		{Name: "T", LB: core.Bottom, UB: core.ArrayType}:        "T<:Array",
-		{Name: "T", LB: core.Bottom, UB: vec1}:                  "T<:(",
+		{Name: "T", LB: core.Int64Type, UB: core.AnyType}:     "T>:Int64",
+		{Name: "T", LB: core.Int64Type, UB: core.IntegerType}: "Int64<:T<:Integer",
+		{Name: "T", LB: core.Bottom, UB: core.ArrayType}:      "T<:Array",
+		{Name: "T", LB: core.Bottom, UB: vec1}:                "T<:(",
 	} {
 		if got := Repr(tv); !strings.HasPrefix(got, want) {
 			t.Errorf("Repr(%s) = %s, want %s…", tv.Name, got, want)
