@@ -11,6 +11,13 @@ import (
 // yet (as opposed to julia exceptions, which are *Thrown).
 var ErrUnsupported = errors.New("interp: not ported yet")
 
+// ErrInternal is wrapped by the error of a broken invariant of the
+// interpreter, reported by Session.Eval instead of a panic.
+var ErrInternal = errors.New("interp: internal error")
+
+// ErrStepLimit is the error of an evaluation that exceeded VM.MaxSteps.
+var ErrStepLimit = errors.New("interp: step limit exceeded")
+
 // code is a CodeInfo prepared for the interpreter: statements as a Go sum
 // type, with every SSAValue, slot and label checked against the counts once,
 // so that the loop of eval.go does not check them again
@@ -28,8 +35,8 @@ type code struct {
 type stmt interface{}
 
 type (
-	sGoto       struct{ to int } // 0-based; out of range is caught by the loop
-	sGotoIfNot  struct {
+	sGoto      struct{ to int } // 0-based; out of range is caught by the loop
+	sGotoIfNot struct {
 		cond op
 		to   int
 	}
@@ -66,8 +73,8 @@ type (
 type op interface{}
 
 type (
-	oSSA      int // 0-based
-	oSlot     struct {
+	oSSA  int // 0-based
+	oSlot struct {
 		i    int // 0-based
 		name expr.Symbol
 	}
@@ -76,11 +83,11 @@ type (
 		mod  expr.Symbol
 		name expr.Symbol
 	}
-	oSymbol   struct{ name expr.Symbol } // a bare global of the frame's module
-	oCall     struct{ args []op }
-	oNew      struct{ args []op }
-	oIsdefSlot struct{ i int }
-	oIsdefSparam struct{ n int }
+	oSymbol          struct{ name expr.Symbol } // a bare global of the frame's module
+	oCall            struct{ args []op }
+	oNew             struct{ args []op }
+	oIsdefSlot       struct{ i int }
+	oIsdefSparam     struct{ n int }
 	oThrowUndefIfNot struct {
 		name expr.Symbol
 		cond op
@@ -92,8 +99,8 @@ type (
 		mod  expr.Symbol // "" for the frame's module
 		name any
 	}
-	oRaise      struct{ msg string }        // jl_error when evaluated
-	oUnsupported struct{ what string }      // a form not ported yet
+	oRaise       struct{ msg string }  // jl_error when evaluated
+	oUnsupported struct{ what string } // a form not ported yet
 )
 
 func (c *code) ssa(id int) op {

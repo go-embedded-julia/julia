@@ -1,6 +1,8 @@
 package interp
 
 import (
+	"fmt"
+
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
@@ -109,7 +111,8 @@ func biTypeof(vm *VM, args []any) (any, error) {
 func (vm *VM) isa(v, t any) bool {
 	switch v.(type) {
 	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, nil, string,
-		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char:
+		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char,
+		*expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
 		return core.Subtype(vm.typeOf(v), t)
 	}
 	return core.Isa(v, t)
@@ -172,18 +175,22 @@ func biIfelse(vm *VM, args []any) (any, error) {
 }
 
 // tuple is jl_f_tuple: a Tuple of the arguments' types.
-func biTuple(vm *VM, args []any) (any, error) { return vm.newTuple(args) }
+func biTuple(vm *VM, args []any) (any, error) { return vm.newTuple(args), nil }
 
-func (vm *VM) newTuple(elems []any) (*Tuple, error) {
-	types := make([]any, len(elems))
-	for i, e := range elems {
-		types[i] = vm.typeOf(e)
+func (vm *VM) newTuple(elems []any) *Tuple {
+	return &Tuple{Type: vm.tupleTypeOf(elems), Elems: append([]any(nil), elems...)}
+}
+
+// tupleTypeOf is the concrete Tuple type of values. Applying Tuple to the
+// types of values cannot fail: each is a concrete DataType, a valid
+// parameter.
+func (vm *VM) tupleTypeOf(vals []any) *core.DataType {
+	types := make([]any, len(vals))
+	for i, v := range vals {
+		types[i] = vm.typeOf(v)
 	}
-	t, err := core.Apply(core.AnyTupleType, types...)
-	if err != nil {
-		return nil, err
-	}
-	return &Tuple{Type: t.(*core.DataType), Elems: append([]any(nil), elems...)}, nil
+	t, _ := core.Apply(core.AnyTupleType, types...)
+	return t.(*core.DataType)
 }
 
 func biSvec(vm *VM, args []any) (any, error) { return SVec(append([]any(nil), args...)), nil }
@@ -230,15 +237,13 @@ func biGetfield(vm *VM, args []any) (any, error) {
 			return nil, vm.exception(vm.tUndefRef)
 		}
 		return v.Fields[i], nil
+	case *expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
+		// their fields need Vector{Any} and Core.Binding, not built yet
+		return nil, fmt.Errorf("%w: getfield of a %s", ErrUnsupported, core.Show(vm.typeOf(v)))
 	}
 	// a value without fields (an Int, a Symbol …): every index is out of
 	// bounds, every name unknown
-	t := vm.typeOf(args[0])
-	st, _ := t.(*core.DataType)
-	if st == nil {
-		return nil, vm.errorf("getfield: %s has no fields", core.Show(t))
-	}
-	_, err := vm.fieldIndex("getfield", st, nil, 0, args[0], args[1])
+	_, err := vm.fieldIndex("getfield", vm.typeOf(args[0]).(*core.DataType), nil, 0, args[0], args[1])
 	return nil, err
 }
 

@@ -25,18 +25,14 @@ type evalCase struct {
 	Want string `json:"want"`
 }
 
-func loadSnippets(t *testing.T) []string {
+func loadSnippets(t testing.TB) []string {
 	t.Helper()
 	b, err := os.ReadFile(snippetsPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.Split(string(b), "#---\n")
-	var out []string
-	for _, p := range parts[1:] { // the first part is the header comment
-		out = append(out, p)
-	}
-	return out
+	// the first part is the header comment
+	return strings.Split(string(b), "#---\n")[1:]
 }
 
 func TestEvalAgainstJulia(t *testing.T) {

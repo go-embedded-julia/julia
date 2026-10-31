@@ -268,6 +268,8 @@ f()
 #---
 (svec_free = 1; Core)
 #---
+(typeof(:(a + 1)), typeof(:(:a)), isa(:(a + 1), Expr), Expr <: Any)
+#---
 nothing
 #---
 :sym

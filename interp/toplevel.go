@@ -27,32 +27,46 @@ func (vm *VM) NewSession() *Session {
 // order, returning the value of the last one (include_string). Macro
 // expansion is not ported: a statement holding a macro call is an
 // ErrUnsupported error.
-func (s *Session) Eval(src string) (any, error) {
-	top, ok := syntax.ParseAll([]byte(src), "none").(*expr.Expr)
-	if !ok || top.Head != "toplevel" {
-		return nil, fmt.Errorf("%w: the parser returned %v", ErrUnsupported, top)
+func (s *Session) Eval(src string) (res any, err error) {
+	// a broken invariant of the interpreter is a Go error for the embedder,
+	// never a panic that takes the notebook server down with the cell
+	defer func() {
+		if r := recover(); r != nil {
+			res, err = nil, fmt.Errorf("%w: %v", ErrInternal, r)
+		}
+	}()
+	// ParseAll returns Expr(:toplevel, …), or Expr(:error, …) for an input
+	// over its limits
+	top := syntax.ParseAll([]byte(src), "none").(*expr.Expr)
+	if top.Head != "toplevel" {
+		return nil, s.VM.syntaxError(top)
 	}
-	var res any
 	for _, form := range top.Args {
 		if _, ok := form.(expr.LineNumberNode); ok {
 			continue
 		}
-		if e, ok := form.(*expr.Expr); ok && (e.Head == "error" || e.Head == "incomplete") {
-			return nil, s.VM.syntaxError(e)
-		}
-		if hasMacroCall(form) {
-			return nil, fmt.Errorf("%w: macro expansion", ErrUnsupported)
-		}
-		lowered, err := s.low.Lower(form)
+		v, err := s.evalForm(form)
 		if err != nil {
 			return nil, err
 		}
-		res, err = s.VM.toplevelEval(s.Mod, lowered)
-		if err != nil {
-			return nil, err
-		}
+		res = v
 	}
 	return res, nil
+}
+
+// evalForm lowers and evaluates one parsed top-level form.
+func (s *Session) evalForm(form any) (any, error) {
+	if e, ok := form.(*expr.Expr); ok && (e.Head == "error" || e.Head == "incomplete") {
+		return nil, s.VM.syntaxError(e)
+	}
+	if hasMacroCall(form) {
+		return nil, fmt.Errorf("%w: macro expansion", ErrUnsupported)
+	}
+	lowered, err := s.low.Lower(form)
+	if err != nil {
+		return nil, err
+	}
+	return s.VM.toplevelEval(s.Mod, lowered)
 }
 
 func hasMacroCall(v any) bool {

@@ -49,6 +49,7 @@
 {"src":"import Core.Intrinsics: add_int\nfunction deep(n)\n    deep(add_int(n, 1))\nend\ntry\n    deep(0)\ncatch e\n    typeof(e)\nend\n","want":"StackOverflowError"}
 {"src":"f() = 1\nf() = 2\nf()\n","want":"2"}
 {"src":"(svec_free = 1; Core)\n","want":"Core"}
+{"src":"(typeof(:(a + 1)), typeof(:(:a)), isa(:(a + 1), Expr), Expr <: Any)\n","want":"(Expr, QuoteNode, true, true)"}
 {"src":"nothing\n","want":"nothing"}
 {"src":":sym\n","want":":sym"}
 {"src":"\"a string\"\n","want":"\"a string\""}

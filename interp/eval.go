@@ -43,6 +43,11 @@ func (f *frame) evalBody(ip int) (any, error) {
 		if ip < 0 || ip >= ns {
 			return nil, vm.errorf("`body` expression must terminate in `return`. Use `block` instead.")
 		}
+		if vm.MaxSteps > 0 {
+			if vm.steps++; vm.steps > vm.MaxSteps {
+				return nil, ErrStepLimit
+			}
+		}
 		next := ip + 1
 		switch s := f.c.stmts[ip].(type) {
 		case sGoto:
@@ -70,7 +75,15 @@ func (f *frame) evalBody(ip int) (any, error) {
 					return nil, err
 				}
 			}
+			// a try block is a nested evalBody, as in julia (a setjmp per
+			// handler): IR that jumps back to an EnterNode without leaving
+			// it nests without bound, so the nesting counts as depth
+			if vm.depth >= vm.MaxDepth {
+				return nil, vm.exception(vm.tStackOverflow)
+			}
+			vm.depth++
 			v, err := f.evalBody(next)
+			vm.depth--
 			var leave *leaveSignal
 			switch {
 			case err == nil:
@@ -122,15 +135,15 @@ func (f *frame) evalBody(ip int) (any, error) {
 				return nil, err
 			}
 		case sGlobalDecl:
-			var val any = undef
+			var setType any = core.AnyType
 			if s.val != nil {
 				v, err := f.evalValue(s.val)
 				if err != nil {
 					return nil, err
 				}
-				val = v
+				setType = v
 			}
-			if err := vm.declareGlobal(s.ref, val); err != nil {
+			if err := vm.declareGlobal(s.ref, setType); err != nil {
 				return nil, err
 			}
 			f.locals[f.c.nslots+ip] = nil
@@ -316,18 +329,19 @@ func (vm *VM) assignGlobal(m *Module, name expr.Symbol, v any) error {
 	return nil
 }
 
-// declareGlobal is jl_declare_global: a binding declared in a new world when
-// the module does not have one.
-func (vm *VM) declareGlobal(ref expr.GlobalRef, val any) error {
+// declareGlobal is jl_declare_global (toplevel.c:270-330) for `global x` and
+// `global x::T`: a binding declared in a new world when the module does not
+// have one. Bindings are untyped in this version, so T must be Any.
+func (vm *VM) declareGlobal(ref expr.GlobalRef, setType any) error {
 	m := vm.modules[ref.Mod]
 	if m == nil {
 		return fmt.Errorf("%w: a global of the unknown module %s", ErrUnsupported, ref.Mod)
 	}
+	if setType != any(core.AnyType) {
+		return fmt.Errorf("%w: a global declared with the type %s", ErrUnsupported, showValue(setType))
+	}
 	if m.own(ref.Name) == nil {
 		m.declare(ref.Name, vm.newWorld())
-	}
-	if val != undef {
-		return vm.assignGlobal(m, ref.Name, val)
 	}
 	return nil
 }
@@ -409,7 +423,10 @@ func (f *frame) methodDef(s sMethodDef) error {
 	if !ok {
 		return vm.errorf("method: invalid declaration")
 	}
-	sig, err := core.Apply(core.AnyTupleType, argtypes[1:]...)
+	// jl_apply_tuple_type(atypes, 1): with the checks of apply_type, a
+	// Vararg only last. core reports their TypeError as text, raised here as
+	// an ErrorException.
+	sig, err := core.ApplyType(core.AnyTupleType, argtypes[1:]...)
 	if err != nil {
 		return vm.errorf("%s", err.Error())
 	}
@@ -447,23 +464,11 @@ func (vm *VM) apply(fv any, args []any) (any, error) {
 }
 
 func (vm *VM) methodErrorFor(f any, args []any) error {
-	t, err := vm.newTuple(args)
-	if err != nil {
-		return err
-	}
-	return vm.exception(vm.tMethodError, f, t, vm.taskWorld)
+	return vm.exception(vm.tMethodError, f, vm.newTuple(args), vm.taskWorld)
 }
 
 func (vm *VM) callGeneric(fn *Function, args []any) (any, error) {
-	types := make([]any, len(args))
-	for i, a := range args {
-		types[i] = vm.typeOf(a)
-	}
-	tt, err := core.Apply(core.AnyTupleType, types...)
-	if err != nil {
-		return nil, err
-	}
-	m, env, err := fn.Table.Lookup(tt, vm.taskWorld)
+	m, env, err := fn.Table.Lookup(vm.tupleTypeOf(args), vm.taskWorld)
 	if err != nil {
 		if errors.Is(err, dispatch.ErrNoMethod) || errors.Is(err, dispatch.ErrAmbiguous) {
 			return nil, vm.methodErrorFor(fn, args)
@@ -493,12 +498,8 @@ func (vm *VM) callLambda(l *lambda, fn *Function, args []any, sparams []any) (an
 	all := append([]any{fn}, args...)
 	n := l.nargs
 	if l.isva {
-		rest, err := vm.newTuple(all[n-1:])
-		if err != nil {
-			return nil, err
-		}
 		copy(f.locals, all[:n-1])
-		f.locals[n-1] = rest
+		f.locals[n-1] = vm.newTuple(all[n-1:])
 	} else {
 		copy(f.locals, all[:n])
 	}

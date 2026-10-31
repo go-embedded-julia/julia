@@ -26,10 +26,17 @@ type VM struct {
 	Core, Base, Main *Module
 	modules          map[expr.Symbol]*Module
 
-	// MaxDepth bounds the nesting of calls; past it a call raises
-	// StackOverflowError instead of exhausting the Go stack.
+	// MaxDepth bounds the nesting of calls and of try blocks; past it a
+	// call or an EnterNode raises StackOverflowError instead of exhausting
+	// the Go stack.
 	MaxDepth int
 	depth    int
+
+	// MaxSteps, when positive, bounds the statements one VM executes; past
+	// it evaluation stops with ErrStepLimit. An embedder running untrusted
+	// cells sets it: `while true end` is valid Julia.
+	MaxSteps int64
+	steps    int64
 
 	// taskWorld is the world age of the running task (ct->world_age);
 	// excStack its exception stack (jl_excstack_t), whose depth an
@@ -40,13 +47,15 @@ type VM struct {
 	// funcs finds a generic function from its type, for jl_method_def.
 	funcs map[*core.DataType]*Function
 
-	builtinType, intrinsicType *core.DataType
-	tError, tUndefVar          *core.DataType
-	tTypeError, tMethodError   *core.DataType
-	tStackOverflow, tArgError  *core.DataType
-	tBounds, tUndefRef         *core.DataType
-	tDivide                    *core.DataType
-	typeofFn                   *Function
+	builtinType, intrinsicType  *core.DataType
+	tError, tUndefVar           *core.DataType
+	tTypeError, tMethodError    *core.DataType
+	tStackOverflow, tArgError   *core.DataType
+	tBounds, tUndefRef          *core.DataType
+	tDivide                     *core.DataType
+	tExpr, tQuoteNode           *core.DataType
+	tLineNumberNode, tGlobalRef *core.DataType
+	typeofFn                    *Function
 }
 
 // DefaultMaxDepth is the call depth a new VM allows.
@@ -63,6 +72,8 @@ func New() *VM {
 	vm.Base.usings = []*Module{vm.Core}
 	vm.Main.usings = []*Module{vm.Core, vm.Base}
 	vm.bootCore()
+	// the task starts in the newest world, after boot's definitions
+	vm.taskWorld = vm.World()
 	return vm
 }
 
@@ -108,6 +119,7 @@ var coreExports = map[expr.Symbol]bool{
 	"getfield": true, "nfields": true, "throw": true, "tuple": true, "===": true,
 	"getglobal": true, "setglobal!": true, "isdefinedglobal": true, "<:": true, "typeof": true,
 	"isa": true, "typeassert": true, "nothing": true, "Main": true,
+	"Expr": true, "QuoteNode": true, "LineNumberNode": true, "GlobalRef": true,
 }
 
 // setCore binds name in Core in world 0, exported when Core exports it.
@@ -163,6 +175,21 @@ func (vm *VM) bootCore() {
 		core.SymbolType, core.AnyType, core.TypeType, core.AnyType)
 	vm.tArgError = ex("ArgumentError", []expr.Symbol{"msg"}, core.AbstractStringType)
 	vm.tMethodError = ex("MethodError", []expr.Symbol{"f", "args", "world"}, core.AnyType, core.AnyType, core.UInt64Type)
+
+	// the AST types (jltypes.c:3284-3288, 3387-3399, 3455-3459), the types of
+	// quoted code a program holds as a value
+	vecAny, _ := core.Apply(core.ArrayType, core.AnyType, int64(1))
+	vm.tExpr, _ = core.NewType("Core", "Expr", core.AnyType, false, true,
+		[]expr.Symbol{"head", "args"}, []any{core.SymbolType, vecAny})
+	vm.tQuoteNode = mustType("Core", "QuoteNode", core.AnyType, false, []expr.Symbol{"value"}, []any{core.AnyType})
+	vm.tLineNumberNode = mustType("Core", "LineNumberNode", core.AnyType, false,
+		[]expr.Symbol{"line", "file"}, []any{core.Int64Type, core.TypeUnion(core.SymbolType, core.NothingType)})
+	vm.tGlobalRef = mustType("Core", "GlobalRef", core.AnyType, false,
+		[]expr.Symbol{"mod", "name", "binding"}, []any{core.ModuleType, core.SymbolType, core.AnyType})
+	for name, t := range map[expr.Symbol]*core.DataType{"Expr": vm.tExpr, "QuoteNode": vm.tQuoteNode,
+		"LineNumberNode": vm.tLineNumberNode, "GlobalRef": vm.tGlobalRef} {
+		vm.setCore(name, t)
+	}
 
 	vm.bootBuiltins()
 	vm.bootIntrinsics()
@@ -242,6 +269,14 @@ func (vm *VM) typeOf(v any) any {
 		return vm.intrinsicType
 	case *Module:
 		return core.ModuleType
+	case *expr.Expr:
+		return vm.tExpr
+	case expr.QuoteNode:
+		return vm.tQuoteNode
+	case expr.LineNumberNode:
+		return vm.tLineNumberNode
+	case expr.GlobalRef:
+		return vm.tGlobalRef
 	}
 	if t := core.TypeOf(v); t != nil {
 		return t
