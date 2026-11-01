@@ -60,9 +60,18 @@ func TestStaticParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 	call := mustApply(t, core.AnyTupleType, mustApply(t, core.ArrayType, core.Int64Type, int64(1)), core.Int64Type)
-	_, env, err := tab.Lookup(call, tab.World())
+	m, env, err := tab.Lookup(call, tab.World())
 	if err != nil || len(env) != 1 || env[0] != any(core.Int64Type) {
 		t.Fatalf("sparams %v, %v; want [Int64]", env, err)
+	}
+	// Env: a method's parameters for another tuple, false outside its
+	// signature (what invoke asks once it has chosen by a declared tuple)
+	call8 := mustApply(t, core.AnyTupleType, mustApply(t, core.ArrayType, core.Int8Type, int64(1)), core.Int8Type)
+	if env, ok, err := m.Env(call8); err != nil || !ok || env[0] != any(core.Int8Type) {
+		t.Errorf("Env: %v, %v, %v; want [Int8]", env, ok, err)
+	}
+	if _, ok, err := m.Env(mustApply(t, core.AnyTupleType, core.Int8Type)); err != nil || ok {
+		t.Errorf("Env outside the signature: %v, %v", ok, err)
 	}
 }
 

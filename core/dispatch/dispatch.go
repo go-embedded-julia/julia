@@ -170,6 +170,16 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 	return nil, nil, fmt.Errorf("%s%s is %w", t.Name, core.Show(tt), ErrAmbiguous)
 }
 
+// Env returns the values of m's static parameters for the argument tuple
+// tt, false when tt is not a subtype of m's signature: what invoke needs
+// once it has chosen a method by a declared tuple, for the actual
+// arguments (jl_gf_invoke_by_method specializes on them).
+func (m *Method) Env(tt any) ([]any, bool, error) {
+	env := make([]any, envSize(m.Sig))
+	sub, err := core.SubtypeEnv(tt, m.Sig, env)
+	return env, sub, err
+}
+
 // envSize is jl_subtype_env_size: the number of outer UnionAlls of t.
 func envSize(t any) int {
 	n := 0

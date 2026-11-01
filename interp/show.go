@@ -232,6 +232,22 @@ func writeValue(b *strings.Builder, v any) {
 		b.WriteByte(')')
 	case *Memory:
 		writeIn(b, x, nil)
+	case *Pointer:
+		// julia shows the address: a null pointer's is 0; one into a value
+		// here has none, and shows what it points into and the offset
+		writeType(b, x.Type)
+		b.WriteByte('(')
+		switch tg := x.Target.(type) {
+		case nil:
+			fmt.Fprintf(b, "0x%016x", uint64(x.Off))
+		case string:
+			fmt.Fprintf(b, "%s + %d", strconv.Quote(tg), x.Off)
+		case *ptrSlot:
+			fmt.Fprintf(b, "cglobal(:%s) + %d", tg.name, x.Off)
+		case *outStream:
+			fmt.Fprintf(b, "%s + %d", tg.name, x.Off)
+		}
+		b.WriteByte(')')
 	case *MemoryRef:
 		// julia shows the element's address, which has no value here: the
 		// element's index takes its place

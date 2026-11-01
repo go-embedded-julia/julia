@@ -72,6 +72,20 @@ func biCglobal(vm *VM, a []any) (any, error) {
 		return nil, vm.typeError("cglobal", "", core.SymbolType, a[0])
 	}
 	slot := vm.cglobals[name]
+	if slot == nil && name == "jl_options" {
+		// the command-line options, read through the struct Base mirrors
+		// them with (options.jl)
+		d, ok := a[1].(*core.DataType)
+		if !ok {
+			return nil, fmt.Errorf("%w: jl_options as %s", ErrUnsupported, showValue(a[1]))
+		}
+		opts, err := vm.defaultOptions(d)
+		if err != nil {
+			return nil, err
+		}
+		slot = &ptrSlot{name: name, val: opts}
+		vm.cglobals[name] = slot
+	}
 	if slot == nil {
 		return nil, fmt.Errorf("%w: cglobal(:%s)", ErrUnsupported, name)
 	}
@@ -217,10 +231,11 @@ func biSizeof(vm *VM, args []any) (any, error) {
 		if x.Name.Abstract {
 			return nil, vm.errorf("Abstract type %s does not have a definite size.", x.Name.Name)
 		}
-		if x.Name.Bits > 0 {
-			return int64(x.Name.Bits / 8), nil
+		size, _, err := dataLayout(x)
+		if err != nil {
+			return nil, err
 		}
-		return nil, fmt.Errorf("%w: sizeof of the struct type %s", ErrUnsupported, x.Name.Name)
+		return int64(size), nil
 	}
 	if args[0] == any(core.Bottom) {
 		return nil, vm.errorf("The empty type does not have a definite size since it does not have instances.")

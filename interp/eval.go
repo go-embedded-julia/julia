@@ -575,6 +575,12 @@ func (vm *VM) callTable(tab *dispatch.Table, self any, args []any, ctor bool) (a
 		}
 		return nil, err
 	}
+	return vm.callMethod(m, env, self, args)
+}
+
+// callMethod runs method m of self on args, with env its static
+// parameters.
+func (vm *VM) callMethod(m *dispatch.Method, env []any, self any, args []any) (any, error) {
 	if vm.depth >= vm.MaxDepth {
 		return nil, vm.exception(vm.tStackOverflow)
 	}
@@ -629,10 +635,49 @@ func (vm *VM) newStruct(tv any, fields []any) (any, error) {
 			return nil, vm.typeError("new", "", ft[i], v)
 		}
 	}
+	if v, ok := vm.astNode(t, fields); ok {
+		return v, nil
+	}
 	vals := make([]any, n)
 	for i := range vals {
 		vals[i] = undef
 	}
 	copy(vals, fields)
 	return &Struct{Type: t, Fields: vals}, nil
+}
+
+// astNode is :new of an AST or IR node type as package expr's value, the
+// one lowering, macro expansion and the evaluator read (boot.jl:519-539
+// builds them with :new): QuoteNode(x) must be the QuoteNode lowering
+// unquotes, not a struct that happens to have its type.
+func (vm *VM) astNode(t *core.DataType, f []any) (any, bool) {
+	n := len(f)
+	idx := func(i int) int { return int(f[i].(int64)) }
+	switch {
+	case t == vm.tQuoteNode && n == 1:
+		return expr.QuoteNode{Value: f[0]}, true
+	case t == vm.tLineNumberNode && n == 2:
+		return expr.LineNumberNode{Line: idx(0), File: f[1]}, true
+	case t == vm.tSSAValue && n == 1:
+		return expr.SSAValue(idx(0)), true
+	case t == vm.tSlotNumber && n == 1:
+		return expr.SlotNumber(idx(0)), true
+	case t == vm.tArgument && n == 1:
+		return expr.Argument(idx(0)), true
+	case t == vm.tGotoNode && n == 1:
+		return expr.GotoNode(idx(0)), true
+	case t == vm.tGotoIfNot && n == 2:
+		return expr.GotoIfNot{Cond: f[0], Dest: idx(1)}, true
+	case t == vm.tReturnNode && n == 0:
+		return expr.Unreachable{}, true
+	case t == vm.tReturnNode && n == 1:
+		return expr.ReturnNode{Val: f[0]}, true
+	case t == vm.tNewvarNode && n == 1:
+		return expr.NewvarNode{Slot: f[0]}, true
+	case t == vm.tEnterNode && n == 1:
+		return expr.EnterNode{Catch: idx(0)}, true
+	case t == vm.tEnterNode && n == 2:
+		return expr.EnterNode{Catch: idx(0), Scope: f[1], HasScope: true}, true
+	}
+	return nil, false
 }

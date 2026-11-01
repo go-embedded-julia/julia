@@ -269,6 +269,7 @@ func (vm *VM) bootCore() {
 	vm.bootTypedefs()
 	vm.bootIntrinsics()
 	vm.bootMemory()
+	vm.bootBuiltins2()
 	vm.bootPointers()
 	vm.bootShims()
 

@@ -58,6 +58,37 @@ func (vm *VM) bootShims() {
 		"jl_uv_putb":     func(vm *VM, a []any) (any, error) { return vm.uvPutb(a) },
 		"jl_uv_putc":     func(vm *VM, a []any) (any, error) { return vm.uvPutc(a) },
 		"jl_static_show": func(vm *VM, a []any) (any, error) { return vm.staticShow(a) },
+		// jl_module_globalref (module.c): boot.jl's GlobalRef(m, s)
+		"jl_module_globalref": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Module)
+			s, ok2 := a[1].(expr.Symbol)
+			if !ok || !ok2 {
+				return nil, vm.typeError("GlobalRef", "", core.ModuleType, a[0])
+			}
+			return expr.GlobalRef{Mod: m.Name, Name: s}, nil
+		},
+		// jl_sizeof_jl_options (jloptions.c): the size of the C struct that
+		// Base.JLOptions mirrors; there is no C struct here, so the size of
+		// that mirror, laid out as C lays its own out
+		"jl_sizeof_jl_options": func(vm *VM, a []any) (any, error) {
+			var t *core.DataType
+			if b := vm.Base.own("JLOptions"); b != nil {
+				t, _ = b.Value.(*core.DataType)
+			}
+			if t == nil {
+				return nil, vm.errorf("jl_sizeof_jl_options: Base.JLOptions is not defined")
+			}
+			size, _, err := dataLayout(t)
+			return int64(size), err
+		},
+		// jl_module_name (module.c)
+		"jl_module_name": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Module)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
+			}
+			return m.Name, nil
+		},
 		// jl_module_parent (module.c)
 		"jl_module_parent": func(vm *VM, a []any) (any, error) {
 			m, ok := a[0].(*Module)

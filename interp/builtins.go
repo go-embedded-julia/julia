@@ -125,7 +125,9 @@ func (vm *VM) isa(v, t any) bool {
 	switch v.(type) {
 	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, *Pointer, nil, string,
 		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char,
-		*expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
+		*expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef,
+		expr.SSAValue, expr.SlotNumber, expr.Argument, expr.GotoNode, expr.GotoIfNot, expr.ReturnNode,
+		expr.Unreachable, expr.NewvarNode, expr.EnterNode, *expr.CodeInfo:
 		return core.Subtype(vm.typeOf(v), t)
 	}
 	return core.Isa(v, t)
@@ -449,13 +451,49 @@ func biSetfield(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("setfield!", args, 3, 4); err != nil {
 		return nil, err
 	}
+	order := expr.Symbol("not_atomic")
 	if len(args) == 4 {
-		order, ok := args[3].(expr.Symbol)
+		o, ok := args[3].(expr.Symbol)
 		if err := vm.typechk("setfield!", core.SymbolType, args[3], ok); err != nil {
 			return nil, err
 		}
-		if order != "not_atomic" {
-			return nil, fmt.Errorf("%w: setfield! with the atomic order %s", ErrUnsupported, order)
+		if o != "not_atomic" && !validAtomicOrder(o, false, true) {
+			return nil, vm.atomicError("invalid atomic ordering")
+		}
+		order = o
+	}
+	// isatomic == (order == notatomic) is the mismatch (builtins.c:1068-1071)
+	atomicCheck := func(isatomic bool) error {
+		if isatomic == (order == "not_atomic") {
+			if isatomic {
+				return vm.atomicError("setfield!: atomic field cannot be written non-atomically")
+			}
+			return vm.atomicError("setfield!: non-atomic field cannot be written atomically")
+		}
+		return nil
+	}
+	if tn, ok := args[0].(*core.TypeName); ok {
+		i, err := vm.fieldIndex("setfield!", core.TypeNameType, core.TypeNameType.Name.FieldNames, len(core.TypeNameType.Name.FieldNames), tn, args[1])
+		if err != nil {
+			return nil, err
+		}
+		// typename_atomicfields (jltypes.c:3015): Typeofwrapper, cache,
+		// linearcache, max_args, cache_entry_count
+		if err := atomicCheck(i == 7 || i == 8 || i == 9 || i == 12 || i == 15); err != nil {
+			return nil, err
+		}
+		// the fields that steer inference and method caches; there is no
+		// inference here, so a hint is accepted and kept nowhere
+		switch core.TypeNameType.Name.FieldNames[i] {
+		case "max_methods", "constprop_heuristic", "max_args", "cache_entry_count":
+			return args[2], nil
+		}
+		return nil, fmt.Errorf("%w: setfield! of a TypeName's %s", ErrUnsupported, core.TypeNameType.Name.FieldNames[i])
+	}
+	if _, isMod := args[0].(*Module); !isMod {
+		// no other field is atomic here
+		if err := atomicCheck(false); err != nil {
+			return nil, err
 		}
 	}
 	switch v := args[0].(type) {
@@ -477,16 +515,6 @@ func biSetfield(vm *VM, args []any) (any, error) {
 		return args[2], nil
 	case *expr.Expr:
 		return vm.setExprField(v, args[1], args[2])
-	case *core.TypeName:
-		// the fields that steer inference and method caches; there is no
-		// inference here, so a hint is accepted and kept nowhere
-		if f, ok := args[1].(expr.Symbol); ok {
-			switch f {
-			case "max_methods", "constprop_heuristic", "max_args", "cache_entry_count":
-				return args[2], nil
-			}
-		}
-		return nil, fmt.Errorf("%w: setfield! of a TypeName's %v", ErrUnsupported, args[1])
 	}
 	t := vm.typeOf(args[0]).(*core.DataType)
 	return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", t.Name.Name)

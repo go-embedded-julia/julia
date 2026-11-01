@@ -180,6 +180,9 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 		return nil, nil
 	case "module":
 		return vm.evalModule(m, e)
+	case "thunk":
+		// a lowered form inside another (jl_toplevel_eval_flex's thunk case)
+		return vm.toplevelEval(m, e)
 	case "toplevel":
 		// each form expanded and lowered in turn, in the latest world
 		// (toplevel.c:965-975)
