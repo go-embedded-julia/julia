@@ -104,6 +104,11 @@ func NewStateIn(mod expr.Module, top expr.Symbol) *State {
 	return &State{bindings: map[string]bool{}, mod: mod, top: top}
 }
 
+// SetTop changes the top module later forms name: jl_base_relative_to is
+// asked again for each form, and a module that becomes a top module
+// (jl_set_istopmod, as Base does early in Base_compiler.jl) changes it.
+func (st *State) SetTop(top expr.Symbol) { st.top = top }
+
 func (st *State) converter() *converter { return &converter{mod: st.mod, top: st.top} }
 
 // lowerer holds what one lowering reads and writes.

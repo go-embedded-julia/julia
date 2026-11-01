@@ -69,6 +69,7 @@ func (s *Session) evalForm(form any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.low.SetTop(s.VM.baseRelativeTo(s.Mod).Name)
 	lowered, err := s.low.Lower(form)
 	if err != nil {
 		return nil, err

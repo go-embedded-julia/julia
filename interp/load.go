@@ -13,7 +13,7 @@ import (
 // at their paths under julia's base/: the directory julia builds its system
 // image from, so the names the include calls give resolve as they do there.
 //
-//go:embed boot/*.jl
+//go:embed boot
 var bootFiles embed.FS
 
 // baseSources is bootFiles rooted at boot/, as julia's base/ is.

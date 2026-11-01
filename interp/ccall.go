@@ -32,10 +32,39 @@ func (vm *VM) bootShims() {
 		},
 		// jl_load_ (toplevel.c:1194-1201), boot.jl's include
 		"jl_load_": func(vm *VM, a []any) (any, error) { return vm.jlLoad(a) },
-		// jl_set_istopmod (module.c): marks Core or Base as a top module;
-		// the top module of each session's lowering is fixed when the
-		// session is made
-		"jl_set_istopmod": func(vm *VM, a []any) (any, error) { return nil, nil },
+		// jl_set_istopmod (module.c:743-749): a top module, and for the
+		// primary one the module every other falls back to; the primary
+		// Base becomes the VM's Base
+		"jl_set_istopmod": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Module)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
+			}
+			m.istopmod = true
+			if primary, _ := a[1].(bool); primary {
+				vm.topModule = m
+				if m.Name == "Base" && m != vm.Base {
+					vm.replaceBase(m)
+				}
+			}
+			return nil, nil
+		},
+		// jl_prepend_cwd (init.c): a path made absolute against the working
+		// directory; include's paths are VM.Sources', which has none
+		"jl_prepend_cwd": func(vm *VM, a []any) (any, error) { return a[0], nil },
+		// jl_uv_flush (jl_uv.c): output is written through as it comes
+		"jl_uv_flush": func(vm *VM, a []any) (any, error) { return nil, nil },
+		// jl_module_parent (module.c)
+		"jl_module_parent": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Module)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
+			}
+			if m.Parent == nil {
+				return m, nil // a root module is its own parent
+			}
+			return m.Parent, nil
+		},
 		// jl_type_unionall (jltypes.c:907-948); boot.jl's UnionAll asserts
 		// v::TypeVar before the call
 		"jl_type_unionall": func(vm *VM, a []any) (any, error) {
@@ -53,18 +82,42 @@ func (vm *VM) bootShims() {
 }
 
 // sessionFor is the session that evaluates code in module m: its lowering
-// state, made on first use (Core's top module is Core, every other's Base).
+// state, made on first use. Its top module is asked again for every form
+// (baseRelativeTo).
 func (vm *VM) sessionFor(m *Module) *Session {
 	if s := vm.sessions[m]; s != nil {
 		return s
 	}
-	top := expr.Symbol("Base")
-	if m == vm.Core {
-		top = "Core"
-	}
-	s := &Session{VM: vm, Mod: m, low: lower.NewStateIn(exprModule(m), top)}
+	s := &Session{VM: vm, Mod: m, low: lower.NewStateIn(exprModule(m), vm.baseRelativeTo(m).Name)}
 	vm.sessions[m] = s
 	return s
+}
+
+// baseRelativeTo is jl_base_relative_to (toplevel.c:356-366): the nearest
+// enclosing top module, else the primary one (Core until Base claims it).
+func (vm *VM) baseRelativeTo(m *Module) *Module {
+	for ; m != nil; m = m.Parent {
+		if m.istopmod {
+			return m
+		}
+	}
+	return vm.topModule
+}
+
+// replaceBase makes m, the Base that Base_compiler.jl defines, the VM's
+// Base in place of the empty one New made: the module Main and the
+// standard imports name.
+func (vm *VM) replaceBase(m *Module) {
+	old := vm.Base
+	vm.Base = m
+	vm.modules["Base"] = m
+	vm.Main.mu.Lock()
+	for i, u := range vm.Main.usings {
+		if u == old {
+			vm.Main.usings[i] = m
+		}
+	}
+	vm.Main.mu.Unlock()
 }
 
 // oForeign is a prepared :foreigncall: the callee's literal name, the

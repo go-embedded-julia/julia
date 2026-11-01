@@ -28,6 +28,9 @@ func (vm *VM) Boot() error {
 			return fmt.Errorf("boot.jl:%d: %w", line, err)
 		}
 	}
+	// julia's state after boot.jl: Core is the top module of every module
+	// until Base claims it
+	vm.topModule = vm.Core
 	return vm.postBootHooks()
 }
 

@@ -28,6 +28,12 @@ type VM struct {
 
 	Core, Base, Main *Module
 	modules          map[expr.Symbol]*Module
+	// topModule is jl_top_module, the top module of every module without
+	// an enclosing one. In julia it is Core (init.c:593) until a primary
+	// Base sets itself (jl_set_istopmod). A VM that has not booted models
+	// the Main of a running julia, whose top module is Base: there it is
+	// the Base New makes, and Boot sets Core, as after julia's boot.jl.
+	topModule *Module
 
 	// MaxDepth bounds the nesting of calls and of try blocks; past it a
 	// call or an EnterNode raises StackOverflowError instead of exhausting
@@ -105,7 +111,11 @@ func New() *VM {
 		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
+	// Core lowers against itself, as boot.jl needs (it marks Core a top
+	// module itself at its end)
+	vm.Core.istopmod = true
 	vm.Base = vm.addModule("Base", nil)
+	vm.topModule = vm.Base
 	vm.Main = vm.addModule("Main", nil)
 	vm.Base.usings = []*Module{vm.Core}
 	vm.Main.usings = []*Module{vm.Core, vm.Base}

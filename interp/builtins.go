@@ -472,6 +472,16 @@ func biSetfield(vm *VM, args []any) (any, error) {
 		return args[2], nil
 	case *expr.Expr:
 		return vm.setExprField(v, args[1], args[2])
+	case *core.TypeName:
+		// the fields that steer inference and method caches; there is no
+		// inference here, so a hint is accepted and kept nowhere
+		if f, ok := args[1].(expr.Symbol); ok {
+			switch f {
+			case "max_methods", "constprop_heuristic", "max_args", "cache_entry_count":
+				return args[2], nil
+			}
+		}
+		return nil, fmt.Errorf("%w: setfield! of a TypeName's %v", ErrUnsupported, args[1])
 	}
 	t := vm.typeOf(args[0]).(*core.DataType)
 	return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", t.Name.Name)

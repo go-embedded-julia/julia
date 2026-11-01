@@ -68,6 +68,8 @@ type Module struct {
 	mu       sync.RWMutex
 	bindings map[expr.Symbol]*Binding
 	usings   []*Module
+	// istopmod marks a module `(top x)` resolves in (jl_set_istopmod).
+	istopmod bool
 }
 
 // Binding is a module's global variable. julia 1.12 partitions a binding by
