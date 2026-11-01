@@ -194,6 +194,10 @@ func writeValue(b *strings.Builder, v any) {
 		fmt.Fprintf(b, "0x%08x", x)
 	case uint64:
 		fmt.Fprintf(b, "0x%016x", x)
+	case Int128:
+		b.WriteString(u128{x.Hi, x.Lo}.decimal(128, true))
+	case UInt128:
+		fmt.Fprintf(b, "0x%016x%016x", x.Hi, x.Lo)
 	case float64:
 		b.WriteString(showFloat64(x))
 	case float32:

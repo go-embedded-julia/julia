@@ -221,7 +221,8 @@ func TestIntrinsicsWidths(t *testing.T) {
 		{"trunc_int", []any{int64(1), int64(1)}, "!TypeError(:trunc_int, \"\", DataType, 1)"},
 		{"trunc_int", []any{core.IntegerType, int64(1)}, "!trunc_int: target type not a leaf primitive type"},
 		{"trunc_int", []any{core.Int8Type, expr.Symbol("a")}, "!trunc_int: value is not a primitive type"},
-		{"zext_int", []any{core.Int128Type, int64(1)}, "!not ported yet: zext_int to Int128"},
+		{"zext_int", []any{core.Int128Type, int64(1)}, "1"},
+		{"trunc_int", []any{core.Float16Type, int64(1)}, "!not ported yet: trunc_int to Float16"},
 		{"bitcast", []any{core.Float64Type, int64(0)}, "0.0"},
 		{"bitcast", []any{core.Float32Type, uint32(0x3f800000)}, "1.0f0"},
 		{"bitcast", []any{core.CharType, uint32(0x61000000)}, "'a'"},
@@ -250,7 +251,7 @@ func TestIntrinsicsWidths(t *testing.T) {
 	if v, _ := vm.apply(intrinsic(t, vm, "add_float"), []any{float32(1.5), float32(2.25)}); v != float32(3.75) {
 		t.Errorf("Float32 add: %v", v)
 	}
-	if fromBits(float64(0), 7) != uint64(7) {
+	if fromBits(float64(0), from64(7)) != uint64(7) {
 		t.Error("fromBits of a non-integer kept the bits")
 	}
 }

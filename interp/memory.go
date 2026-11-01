@@ -121,7 +121,7 @@ func (vm *VM) zeroElem(t any) any {
 	if !ok || !d.IsConcrete {
 		return undef
 	}
-	if v, ok := bitsValue(d, 0); ok {
+	if v, ok := bitsValue(d, u128{}); ok {
 		return v
 	}
 	if d == core.NothingType {

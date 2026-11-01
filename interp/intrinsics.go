@@ -3,15 +3,14 @@ package interp
 import (
 	"fmt"
 	"math"
-	"math/bits"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
 
 // The intrinsics of src/runtime_intrinsics.c over the primitive types that
-// have a Go counterpart: the integers up to 64 bits, Bool, Char, Float32 and
-// Float64. An integer is handled as its bits in a uint64 and its width, so
+// have a Go counterpart: the integers up to 128 bits, Bool, Char, Float32
+// and Float64. An integer is handled as its bits (a u128) and its width, so
 // that one implementation serves every width, as julia's does
 // (jl_iintrinsic_2, runtime_intrinsics.c:1174-1211).
 
@@ -31,111 +30,144 @@ func (vm *VM) bootIntrinsics() {
 		ib := im.declare(name, 0)
 		ib.Value, ib.Const, ib.Exports = x, true, true
 	}
-	for name, op := range map[expr.Symbol]func(a, b uint64, w uint) uint64{
-		"add_int": func(a, b uint64, w uint) uint64 { return a + b },
-		"sub_int": func(a, b uint64, w uint) uint64 { return a - b },
-		"mul_int": func(a, b uint64, w uint) uint64 { return a * b },
-		"and_int": func(a, b uint64, w uint) uint64 { return a & b },
-		"or_int":  func(a, b uint64, w uint) uint64 { return a | b },
-		"xor_int": func(a, b uint64, w uint) uint64 { return a ^ b },
+	for name, op := range map[expr.Symbol]func(a, b u128, w uint) u128{
+		"add_int": func(a, b u128, w uint) u128 { return a.add(b) },
+		"sub_int": func(a, b u128, w uint) u128 { return a.sub(b) },
+		"mul_int": func(a, b u128, w uint) u128 { return a.mul(b) },
+		"and_int": func(a, b u128, w uint) u128 { return a.and(b) },
+		"or_int":  func(a, b u128, w uint) u128 { return a.or(b) },
+		"xor_int": func(a, b u128, w uint) u128 { return a.xor(b) },
 	} {
 		add(name, 2, vm.intBinary(name, op))
 	}
-	for name, cmp := range map[expr.Symbol]func(a, b uint64, w uint) bool{
-		"eq_int":  func(a, b uint64, w uint) bool { return a == b },
-		"ne_int":  func(a, b uint64, w uint) bool { return a != b },
-		"ult_int": func(a, b uint64, w uint) bool { return a < b },
-		"ule_int": func(a, b uint64, w uint) bool { return a <= b },
-		"slt_int": func(a, b uint64, w uint) bool { return signExtend(a, w) < signExtend(b, w) },
-		"sle_int": func(a, b uint64, w uint) bool { return signExtend(a, w) <= signExtend(b, w) },
+	for name, cmp := range map[expr.Symbol]func(a, b u128, w uint) bool{
+		"eq_int":  func(a, b u128, w uint) bool { return a == b },
+		"ne_int":  func(a, b u128, w uint) bool { return a != b },
+		"ult_int": func(a, b u128, w uint) bool { return a.ult(b) },
+		"ule_int": func(a, b u128, w uint) bool { return !b.ult(a) },
+		"slt_int": func(a, b u128, w uint) bool { return a.slt(b, w) },
+		"sle_int": func(a, b u128, w uint) bool { return !b.slt(a, w) },
 	} {
 		add(name, 2, vm.intCompare(name, cmp))
 	}
-	// the overflow-checked arithmetic: (result, overflowed)
-	for name, op := range map[expr.Symbol]func(a, b uint64, w uint) (uint64, bool){
-		"checked_sadd_int": func(a, b uint64, w uint) (uint64, bool) {
-			x, y := signExtend(a, w), signExtend(b, w)
-			r := x + y
-			return uint64(r), signedOut(r, w) || (w == 64 && (x >= 0) == (y >= 0) && (r >= 0) != (x >= 0))
-		},
-		"checked_ssub_int": func(a, b uint64, w uint) (uint64, bool) {
-			x, y := signExtend(a, w), signExtend(b, w)
-			r := x - y
-			return uint64(r), signedOut(r, w) || (w == 64 && (x >= 0) != (y >= 0) && (r >= 0) != (x >= 0))
-		},
-		"checked_smul_int": func(a, b uint64, w uint) (uint64, bool) {
-			x, y := signExtend(a, w), signExtend(b, w)
-			r := x * y
-			if w < 64 {
-				return uint64(r), signedOut(r, w)
+	// the overflow-checked arithmetic: (result, overflowed). Below 128 bits
+	// the exact result fits a u128 and overflows when it does not survive
+	// being cut to w bits; at 128 the signs or the high half tell.
+	fits := func(r u128, w uint) bool { return r.mask(w).sext(w) == r }
+	for name, op := range map[expr.Symbol]func(a, b u128, w uint) (u128, bool){
+		"checked_sadd_int": func(a, b u128, w uint) (u128, bool) {
+			x, y := a.sext(w), b.sext(w)
+			r := x.add(y)
+			if w < 128 {
+				return r, !fits(r, w)
 			}
-			return uint64(r), x != 0 && (r/x != y || (x == -1 && y == math.MinInt64))
+			return r, x.neg128() == y.neg128() && r.neg128() != x.neg128()
 		},
-		"checked_uadd_int": func(a, b uint64, w uint) (uint64, bool) {
-			r, carry := bits.Add64(a, b, 0)
-			return r, carry != 0 || (w < 64 && r>>w != 0)
+		"checked_ssub_int": func(a, b u128, w uint) (u128, bool) {
+			x, y := a.sext(w), b.sext(w)
+			r := x.sub(y)
+			if w < 128 {
+				return r, !fits(r, w)
+			}
+			return r, x.neg128() != y.neg128() && r.neg128() != x.neg128()
 		},
-		"checked_usub_int": func(a, b uint64, w uint) (uint64, bool) {
-			return a - b, a < b
+		"checked_smul_int": func(a, b u128, w uint) (u128, bool) {
+			x, y := a.sext(w), b.sext(w)
+			r := x.mul(y)
+			if w <= 64 {
+				return r, !fits(r, w)
+			}
+			ax, ay := x, y
+			if x.neg128() {
+				ax = x.neg()
+			}
+			if y.neg128() {
+				ay = y.neg()
+			}
+			hi, lo := ax.mulFull(ay)
+			min := from64(1).shl(127)
+			negative := x.neg128() != y.neg128() && !x.isZero() && !y.isZero()
+			return r, !hi.isZero() || (lo.neg128() && !(negative && lo == min))
 		},
-		"checked_umul_int": func(a, b uint64, w uint) (uint64, bool) {
-			hi, lo := bits.Mul64(a, b)
-			return lo, hi != 0 || (w < 64 && lo>>w != 0)
+		"checked_uadd_int": func(a, b u128, w uint) (u128, bool) {
+			r := a.add(b)
+			if w < 128 {
+				return r, !r.lshr(w).isZero()
+			}
+			return r, r.ult(a)
+		},
+		"checked_usub_int": func(a, b u128, w uint) (u128, bool) {
+			return a.sub(b), a.ult(b)
+		},
+		"checked_umul_int": func(a, b u128, w uint) (u128, bool) {
+			hi, lo := a.mulFull(b)
+			if w < 128 {
+				return lo, !hi.isZero() || !lo.lshr(w).isZero()
+			}
+			return lo, !hi.isZero()
 		},
 	} {
 		add(name, 2, vm.intChecked(name, op))
 	}
 	// runtime_intrinsics.c:1569-1574, each op on a's C type
-	add("shl_int", 2, vm.intShift("shl_int", func(a, b uint64, w uint) uint64 {
-		if b >= uint64(w) {
-			return 0
+	tooFar := func(b u128, w uint) bool { return b.hi != 0 || b.lo >= uint64(w) }
+	add("shl_int", 2, vm.intShift("shl_int", func(a, b u128, w uint) u128 {
+		if tooFar(b, w) {
+			return u128{}
 		}
-		return a << b
+		return a.shl(uint(b.lo))
 	}))
-	add("lshr_int", 2, vm.intShift("lshr_int", func(a, b uint64, w uint) uint64 {
-		if b >= uint64(w) {
-			return 0
+	add("lshr_int", 2, vm.intShift("lshr_int", func(a, b u128, w uint) u128 {
+		if tooFar(b, w) {
+			return u128{}
 		}
-		return a >> b
+		return a.lshr(uint(b.lo))
 	}))
-	add("ashr_int", 2, vm.intShift("ashr_int", func(a, b uint64, w uint) uint64 {
-		x, s := signExtend(a, w), signExtend(b, w)
-		if s < 0 || s >= int64(w) {
-			return uint64(x >> (w - 1))
+	add("ashr_int", 2, vm.intShift("ashr_int", func(a, b u128, w uint) u128 {
+		x, s := a.sext(w), b.sext(w)
+		if s.neg128() || tooFar(s, w) {
+			return x.ashr(w - 1)
 		}
-		return uint64(x >> s)
+		return x.ashr(uint(s.lo))
 	}))
-	add("neg_int", 1, vm.intUnary("neg_int", func(a uint64) uint64 { return -a }))
-	add("not_int", 1, vm.intUnary("not_int", func(a uint64) uint64 { return ^a }))
-	for name, div := range map[expr.Symbol]func(a, b uint64, w uint) (uint64, bool){
-		"checked_sdiv_int": func(a, b uint64, w uint) (uint64, bool) {
-			x, y := signExtend(a, w), signExtend(b, w)
-			if y == 0 || (y == -1 && x == math.MinInt64>>(64-w)) {
-				return 0, true
+	add("neg_int", 1, vm.intUnary("neg_int", func(a u128) u128 { return a.neg() }))
+	add("not_int", 1, vm.intUnary("not_int", func(a u128) u128 { return a.not() }))
+	// the quotient's overflow is MIN / -1 (sdivmod is not asked then)
+	isMin := func(x u128, w uint) bool { return x == from64(1).shl(w-1).sext(w) }
+	minusOne := u128{^uint64(0), ^uint64(0)}
+	for name, div := range map[expr.Symbol]func(a, b u128, w uint) (u128, bool){
+		"checked_sdiv_int": func(a, b u128, w uint) (u128, bool) {
+			x, y := a.sext(w), b.sext(w)
+			if y.isZero() || (y == minusOne && isMin(x, w)) {
+				return u128{}, true
 			}
-			return uint64(x / y), false
+			q, _ := a.sdivmod(b, w)
+			return q, false
 		},
-		"checked_srem_int": func(a, b uint64, w uint) (uint64, bool) {
-			x, y := signExtend(a, w), signExtend(b, w)
-			if y == 0 {
-				return 0, true
+		"checked_srem_int": func(a, b u128, w uint) (u128, bool) {
+			y := b.sext(w)
+			if y.isZero() {
+				return u128{}, true
 			}
-			if y == -1 {
-				return 0, false
+			if y == minusOne {
+				return u128{}, false
 			}
-			return uint64(x % y), false
+			_, r := a.sdivmod(b, w)
+			return r, false
 		},
-		"checked_udiv_int": func(a, b uint64, w uint) (uint64, bool) {
-			if b == 0 {
-				return 0, true
+		"checked_udiv_int": func(a, b u128, w uint) (u128, bool) {
+			if b.isZero() {
+				return u128{}, true
 			}
-			return a / b, false
+			q, _ := a.udivmod(b)
+			return q, false
 		},
-		"checked_urem_int": func(a, b uint64, w uint) (uint64, bool) {
-			if b == 0 {
-				return 0, true
+		"checked_urem_int": func(a, b u128, w uint) (u128, bool) {
+			if b.isZero() {
+				return u128{}, true
 			}
-			return a % b, false
+			_, r := a.udivmod(b)
+			return r, false
 		},
 	} {
 		add(name, 2, vm.intCheckedDiv(name, div))
@@ -156,17 +188,9 @@ func (vm *VM) bootIntrinsics() {
 	} {
 		add(name, 2, vm.floatCompare(name, cmp))
 	}
-	mask := func(bits uint64, w uint) uint64 {
-		if w >= 64 {
-			return bits
-		}
-		return bits & (1<<w - 1)
-	}
-	add("trunc_int", 2, vm.intCvt("trunc_int", func(b uint64, from, to uint) uint64 { return mask(b, to) }))
-	add("zext_int", 2, vm.intCvt("zext_int", func(b uint64, from, to uint) uint64 { return mask(b, from) }))
-	add("sext_int", 2, vm.intCvt("sext_int", func(b uint64, from, to uint) uint64 {
-		return mask(uint64(signExtend(b, from)), to)
-	}))
+	add("trunc_int", 2, vm.intCvt("trunc_int", func(b u128, from, to uint) u128 { return b.mask(to) }))
+	add("zext_int", 2, vm.intCvt("zext_int", func(b u128, from, to uint) u128 { return b.mask(from) }))
+	add("sext_int", 2, vm.intCvt("sext_int", func(b u128, from, to uint) u128 { return b.sext(from).mask(to) }))
 	add("bitcast", 2, biBitcast)
 	add("cglobal", 2, biCglobal)
 	add("pointerref", 3, biPointerref)
@@ -185,38 +209,42 @@ func (vm *VM) bootIntrinsics() {
 		}
 		return nil, vm.errorf("neg_float_withtype%s", floatTypesMsg)
 	})
-	for name, op := range map[expr.Symbol]func(a, b uint64, w uint) uint64{
-		"sdiv_int": func(a, b uint64, w uint) uint64 {
-			x, y := signExtend(a, w), signExtend(b, w)
-			if y == 0 {
-				return 0
+	for name, op := range map[expr.Symbol]func(a, b u128, w uint) u128{
+		"sdiv_int": func(a, b u128, w uint) u128 {
+			x, y := a.sext(w), b.sext(w)
+			if y.isZero() {
+				return u128{}
 			}
-			if y == -1 {
-				return uint64(-x) // MIN/-1 wraps to MIN
+			if y == minusOne {
+				return x.neg() // MIN/-1 wraps to MIN
 			}
-			return uint64(x / y)
+			q, _ := a.sdivmod(b, w)
+			return q
 		},
-		"udiv_int": func(a, b uint64, w uint) uint64 {
-			if b == 0 {
-				return 0
+		"udiv_int": func(a, b u128, w uint) u128 {
+			if b.isZero() {
+				return u128{}
 			}
-			return a / b
+			q, _ := a.udivmod(b)
+			return q
 		},
-		"srem_int": func(a, b uint64, w uint) uint64 {
-			x, y := signExtend(a, w), signExtend(b, w)
-			if y == 0 {
+		"srem_int": func(a, b u128, w uint) u128 {
+			y := b.sext(w)
+			if y.isZero() {
 				return a
 			}
-			if y == -1 {
-				return 0
+			if y == minusOne {
+				return u128{}
 			}
-			return uint64(x % y)
+			_, r := a.sdivmod(b, w)
+			return r
 		},
-		"urem_int": func(a, b uint64, w uint) uint64 {
-			if b == 0 {
+		"urem_int": func(a, b u128, w uint) u128 {
+			if b.isZero() {
 				return a
 			}
-			return a % b
+			_, r := a.udivmod(b)
+			return r
 		},
 	} {
 		add(name, 2, vm.intBinary(name, op))
@@ -229,49 +257,54 @@ func (vm *VM) bootIntrinsics() {
 // is undefined behaviour in C. julia answers as the hardware does: x86_64
 // traps and julia raises DivideError, arm64 does not trap. The reference
 // julia of the goldens runs on arm64, so these follow arm64's sdiv, udiv and
-// msub: x/0 is 0, x%0 is x, MIN/-1 is MIN and MIN%-1 is 0.
+// msub: x/0 is 0, x%0 is x, MIN/-1 is MIN and MIN%-1 is 0; the 128-bit
+// ones answer the same.
 
 // primBits returns the bits of any primitive value this VM represents and
 // its width: the integers, Bool, Char, and the floats' bit patterns.
-func primBits(v any) (uint64, uint, bool) {
+func primBits(v any) (u128, uint, bool) {
 	switch x := v.(type) {
 	case float64:
-		return math.Float64bits(x), 64, true
+		return from64(math.Float64bits(x)), 64, true
 	case float32:
-		return uint64(math.Float32bits(x)), 32, true
+		return from64(uint64(math.Float32bits(x))), 32, true
 	}
 	return intBits(v)
 }
 
 // bitsValue is jl_new_bits: the value of primitive type t with these bits
 // (truncated to t's width), false for a primitive type without a Go
-// representation here (Int128, Float16, a user's primitive type).
-func bitsValue(t *core.DataType, bits uint64) (any, bool) {
+// representation here (Float16, BFloat16, a user's primitive type).
+func bitsValue(t *core.DataType, bits u128) (any, bool) {
 	switch t {
 	case core.Int8Type:
-		return int8(bits), true
+		return int8(bits.lo), true
 	case core.Int16Type:
-		return int16(bits), true
+		return int16(bits.lo), true
 	case core.Int32Type:
-		return int32(bits), true
+		return int32(bits.lo), true
 	case core.Int64Type:
-		return int64(bits), true
+		return int64(bits.lo), true
+	case core.Int128Type:
+		return Int128{bits.hi, bits.lo}, true
 	case core.UInt8Type:
-		return uint8(bits), true
+		return uint8(bits.lo), true
 	case core.UInt16Type:
-		return uint16(bits), true
+		return uint16(bits.lo), true
 	case core.UInt32Type:
-		return uint32(bits), true
+		return uint32(bits.lo), true
 	case core.UInt64Type:
-		return bits, true
+		return bits.lo, true
+	case core.UInt128Type:
+		return UInt128{bits.hi, bits.lo}, true
 	case core.BoolType:
-		return bits&1 == 1, true
+		return bits.lo&1 == 1, true
 	case core.CharType:
-		return expr.Char(bits), true
+		return expr.Char(bits.lo), true
 	case core.Float32Type:
-		return math.Float32frombits(uint32(bits)), true
+		return math.Float32frombits(uint32(bits.lo)), true
 	case core.Float64Type:
-		return math.Float64frombits(bits), true
+		return math.Float64frombits(bits.lo), true
 	}
 	return nil, false
 }
@@ -291,7 +324,7 @@ func (vm *VM) cvtTarget(name expr.Symbol, ty any) (*core.DataType, error) {
 
 // intCvt is jl_intrinsic_cvt (runtime_intrinsics.c:1032-1045) for trunc_int,
 // sext_int and zext_int: the value's bits resized to the target's width.
-func (vm *VM) intCvt(name expr.Symbol, op func(bits uint64, from, to uint) uint64) func(*VM, []any) (any, error) {
+func (vm *VM) intCvt(name expr.Symbol, op func(bits u128, from, to uint) u128) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
 		t, err := vm.cvtTarget(name, a[0])
 		if err != nil {
@@ -315,6 +348,27 @@ func biBitcast(vm *VM, a []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// pointers without addresses (vptr.go): a pointer retyped keeps what it
+	// points into; an integer made a pointer points at nothing (C_NULL); a
+	// pointer made an integer has an address only when it points at nothing
+	isPtr := t.Name == core.PtrType.Body.(*core.DataType).Name
+	if p, ok := a[1].(*Pointer); ok {
+		if isPtr {
+			return &Pointer{Type: t, Target: p.Target, Off: p.Off}, nil
+		}
+		if p.Target != nil || t.Name.Bits != 64 {
+			return nil, fmt.Errorf("%w: the address of %s", ErrUnsupported, showValue(p))
+		}
+		v, _ := bitsValue(t, from64(uint64(p.Off)))
+		return v, nil
+	}
+	if isPtr {
+		x, w, ok := primBits(a[1])
+		if !ok || w != 64 {
+			return nil, vm.errorf("bitcast: argument size does not match size of target type")
+		}
+		return &Pointer{Type: t, Off: int64(x.lo)}, nil
+	}
 	x, w, ok := primBits(a[1])
 	if !ok {
 		return nil, vm.errorf("bitcast: value not a primitive type")
@@ -333,110 +387,110 @@ func biBitcast(vm *VM, a []any) (any, error) {
 }
 
 // intBits returns the bits of an integer-like primitive value and its width.
-func intBits(v any) (uint64, uint, bool) {
+func intBits(v any) (u128, uint, bool) {
 	switch x := v.(type) {
 	case int8:
-		return uint64(uint8(x)), 8, true
+		return from64(uint64(uint8(x))), 8, true
 	case int16:
-		return uint64(uint16(x)), 16, true
+		return from64(uint64(uint16(x))), 16, true
 	case int32:
-		return uint64(uint32(x)), 32, true
+		return from64(uint64(uint32(x))), 32, true
 	case int64:
-		return uint64(x), 64, true
+		return from64(uint64(x)), 64, true
+	case Int128:
+		return u128{x.Hi, x.Lo}, 128, true
 	case uint8:
-		return uint64(x), 8, true
+		return from64(uint64(x)), 8, true
 	case uint16:
-		return uint64(x), 16, true
+		return from64(uint64(x)), 16, true
 	case uint32:
-		return uint64(x), 32, true
+		return from64(uint64(x)), 32, true
 	case uint64:
-		return x, 64, true
+		return from64(x), 64, true
+	case UInt128:
+		return u128{x.Hi, x.Lo}, 128, true
 	case bool:
 		if x {
-			return 1, 8, true
+			return from64(1), 8, true
 		}
-		return 0, 8, true
+		return u128{}, 8, true
 	case expr.Char:
-		return uint64(x), 32, true
+		return from64(uint64(x)), 32, true
 	}
-	return 0, 0, false
+	return u128{}, 0, false
 }
 
 // fromBits is jl_new_bits for the type of like: the bits truncated to its
 // width; a Bool keeps the low bit (jl_new_bits returns jl_true or jl_false).
-func fromBits(like any, bits uint64) any {
+func fromBits(like any, bits u128) any {
 	switch like.(type) {
 	case int8:
-		return int8(bits)
+		return int8(bits.lo)
 	case int16:
-		return int16(bits)
+		return int16(bits.lo)
 	case int32:
-		return int32(bits)
+		return int32(bits.lo)
 	case int64:
-		return int64(bits)
+		return int64(bits.lo)
+	case Int128:
+		return Int128{bits.hi, bits.lo}
 	case uint8:
-		return uint8(bits)
+		return uint8(bits.lo)
 	case uint16:
-		return uint16(bits)
+		return uint16(bits.lo)
 	case uint32:
-		return uint32(bits)
+		return uint32(bits.lo)
+	case UInt128:
+		return UInt128{bits.hi, bits.lo}
 	case bool:
-		return bits&1 == 1
+		return bits.lo&1 == 1
 	case expr.Char:
-		return expr.Char(bits)
+		return expr.Char(bits.lo)
 	}
-	return bits
+	return bits.lo
 }
 
-func signExtend(a uint64, w uint) int64 { return int64(a<<(64-w)) >> (64 - w) }
-
 // sameIntTypes is the check of jl_iintrinsic_2 without cvtb.
-func (vm *VM) sameIntTypes(name expr.Symbol, a, b any) (uint64, uint64, uint, error) {
+func (vm *VM) sameIntTypes(name expr.Symbol, a, b any) (u128, u128, uint, error) {
 	if vm.typeOf(a) != vm.typeOf(b) {
-		return 0, 0, 0, vm.errorf("%s: types of a and b must match", name)
+		return u128{}, u128{}, 0, vm.errorf("%s: types of a and b must match", name)
 	}
 	x, w, ok := intBits(a)
 	if !ok {
-		return 0, 0, 0, vm.errorf("%s: a is not a primitive type", name)
+		return u128{}, u128{}, 0, vm.errorf("%s: a is not a primitive type", name)
 	}
 	y, _, _ := intBits(b)
 	return x, y, w, nil
 }
 
-func (vm *VM) intBinary(name expr.Symbol, op func(a, b uint64, w uint) uint64) func(*VM, []any) (any, error) {
+func (vm *VM) intBinary(name expr.Symbol, op func(a, b u128, w uint) u128) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
 		x, y, w, err := vm.sameIntTypes(name, a[0], a[1])
 		if err != nil {
 			return nil, err
 		}
-		return fromBits(a[0], op(x, y, w)), nil
+		return fromBits(a[0], op(x, y, w).mask(w)), nil
 	}
 }
 
 // intChecked is jl_iintrinsic_2 over jl_intrinsiclambda_checked
 // (runtime_intrinsics.c:1228-1244): the wrapped result and whether it
 // overflowed, as a Tuple{T, Bool}.
-func (vm *VM) intChecked(name expr.Symbol, op func(a, b uint64, w uint) (uint64, bool)) func(*VM, []any) (any, error) {
+func (vm *VM) intChecked(name expr.Symbol, op func(a, b u128, w uint) (u128, bool)) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
 		x, y, w, err := vm.sameIntTypes(name, a[0], a[1])
 		if err != nil {
 			return nil, err
 		}
 		r, ovf := op(x, y, w)
-		return vm.newTuple([]any{fromBits(a[0], r), ovf}), nil
+		return vm.newTuple([]any{fromBits(a[0], r.mask(w)), ovf}), nil
 	}
-}
-
-// signedOut reports that r, exact in int64, is outside the range of a
-// w-bit signed integer (never for w = 64, whose callers check themselves).
-func signedOut(r int64, w uint) bool {
-	return w < 64 && (r < -1<<(w-1) || r >= 1<<(w-1))
 }
 
 // intShift is jl_iintrinsic_2 with cvtb set (runtime_intrinsics.c:1174-1211):
 // b may be of another primitive type, zero-extended or truncated to a's
 // width before the op sees it.
-func (vm *VM) intShift(name expr.Symbol, op func(a, b uint64, w uint) uint64) func(*VM, []any) (any, error) {
+func (vm *VM) intShift(name expr.Symbol, op func(a, b u128, w uint) u128) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
 		y, wb, okb := intBits(a[1])
 		if vm.typeOf(a[0]) != vm.typeOf(a[1]) && !okb {
@@ -447,13 +501,13 @@ func (vm *VM) intShift(name expr.Symbol, op func(a, b uint64, w uint) uint64) fu
 			return nil, vm.errorf("%s: a is not a primitive type", name)
 		}
 		if wb > w {
-			y &= 1<<w - 1
+			y = y.mask(w)
 		}
-		return fromBits(a[0], op(x, y, w)), nil
+		return fromBits(a[0], op(x, y, w).mask(w)), nil
 	}
 }
 
-func (vm *VM) intCompare(name expr.Symbol, cmp func(a, b uint64, w uint) bool) func(*VM, []any) (any, error) {
+func (vm *VM) intCompare(name expr.Symbol, cmp func(a, b u128, w uint) bool) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
 		x, y, w, err := vm.sameIntTypes(name, a[0], a[1])
 		if err != nil {
@@ -463,19 +517,19 @@ func (vm *VM) intCompare(name expr.Symbol, cmp func(a, b uint64, w uint) bool) f
 	}
 }
 
-func (vm *VM) intUnary(name expr.Symbol, op func(a uint64) uint64) func(*VM, []any) (any, error) {
+func (vm *VM) intUnary(name expr.Symbol, op func(a u128) u128) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
-		x, _, ok := intBits(a[0])
+		x, w, ok := intBits(a[0])
 		if !ok {
 			return nil, vm.errorf("%s: value is not a primitive type", name)
 		}
-		return fromBits(a[0], op(x)), nil
+		return fromBits(a[0], op(x).mask(w)), nil
 	}
 }
 
 // intCheckedDiv is jl_intrinsiclambda_checkeddiv (runtime_intrinsics.c:
 // 1245-1253): DivideError on a zero divisor or an overflowing quotient.
-func (vm *VM) intCheckedDiv(name expr.Symbol, div func(a, b uint64, w uint) (uint64, bool)) func(*VM, []any) (any, error) {
+func (vm *VM) intCheckedDiv(name expr.Symbol, div func(a, b u128, w uint) (u128, bool)) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
 		x, y, w, err := vm.sameIntTypes(name, a[0], a[1])
 		if err != nil {
@@ -485,7 +539,7 @@ func (vm *VM) intCheckedDiv(name expr.Symbol, div func(a, b uint64, w uint) (uin
 		if ovf {
 			return nil, vm.exception(vm.tDivide)
 		}
-		return fromBits(a[0], r), nil
+		return fromBits(a[0], r.mask(w)), nil
 	}
 }
 

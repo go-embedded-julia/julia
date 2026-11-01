@@ -76,7 +76,7 @@ func (vm *VM) defaultOptions(t *core.DataType) (any, error) {
 			fields[i] = &Pointer{Type: d} // NULL
 			continue
 		}
-		v, ok := bitsValue(d, uint64(set[t.Name.FieldNames[i]]))
+		v, ok := bitsValue(d, from64(uint64(set[t.Name.FieldNames[i]])).sext(64))
 		if !ok {
 			return nil, fmt.Errorf("%w: the jl_options field %s", ErrUnsupported, t.Name.FieldNames[i])
 		}

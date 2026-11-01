@@ -288,6 +288,9 @@ func TestWhiteboxShowAndTypes(t *testing.T) {
 	if TypeOf(Int64Type.Name) != any(TypeNameType) {
 		t.Error("TypeOf of a TypeName")
 	}
+	if !Int64Type.IsBits() || StringType.IsBits() {
+		t.Error("IsBits")
+	}
 	if ft, ok := TypeVarType.FieldTypes(); !ok || len(ft) != 3 || len(TypeNameType.Name.FieldNames) != 18 {
 		t.Error("the kinds' layouts")
 	}

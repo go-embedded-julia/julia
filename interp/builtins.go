@@ -124,7 +124,7 @@ func biTypeof(vm *VM, args []any) (any, error) {
 func (vm *VM) isa(v, t any) bool {
 	switch v.(type) {
 	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, *Pointer, nil, string,
-		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char,
+		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char, Int128, UInt128,
 		*expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef,
 		expr.SSAValue, expr.SlotNumber, expr.Argument, expr.GotoNode, expr.GotoIfNot, expr.ReturnNode,
 		expr.Unreachable, expr.NewvarNode, expr.EnterNode, *expr.CodeInfo:
@@ -343,6 +343,8 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 					return SVec{}, true
 				}
 				return nil, true
+			case 7:
+				return dataTypeFlags(x), true
 			}
 			return nil, false
 		}
@@ -362,6 +364,8 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 				return fs, true
 			case 6:
 				return x.Wrapper, true
+			case 14:
+				return typeNameFlags(x), true
 			}
 			return nil, false
 		}

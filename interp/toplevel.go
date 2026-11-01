@@ -377,6 +377,7 @@ func (vm *VM) importName(m *Module, from *Module, name expr.Symbol) error {
 	b := m.declare(name, vm.newWorld())
 	if b != src {
 		b.Alias = src.resolve()
+		b.implicit = false // an export made it; the import defines it
 	}
 	return nil
 }

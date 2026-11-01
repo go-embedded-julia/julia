@@ -211,6 +211,7 @@ func (vm *VM) bootCore() {
 		"UInt": core.UInt64Type, "Cvoid": core.NothingType,
 		"Int8": core.Int8Type, "UInt8": core.UInt8Type, "Int16": core.Int16Type, "UInt16": core.UInt16Type,
 		"Int32": core.Int32Type, "UInt32": core.UInt32Type, "Int64": core.Int64Type, "UInt64": core.UInt64Type,
+		"Int128": core.Int128Type, "UInt128": core.UInt128Type,
 		"Float16": core.Float16Type, "Float32": core.Float32Type, "Float64": core.Float64Type,
 		"Number": core.NumberType, "Real": core.RealType, "AbstractFloat": core.AbstractFloatType,
 		"Integer": core.IntegerType, "Signed": core.SignedType, "Unsigned": core.UnsignedType,
@@ -335,6 +336,10 @@ func (vm *VM) typeOf(v any) any {
 		return core.UInt32Type
 	case uint64:
 		return core.UInt64Type
+	case Int128:
+		return core.Int128Type
+	case UInt128:
+		return core.UInt128Type
 	case float32:
 		return core.Float32Type
 	case float64:

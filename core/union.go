@@ -177,6 +177,9 @@ func (d *DataType) isbits() bool {
 	return true
 }
 
+// IsBits is jl_isbits of d (isbits above).
+func (d *DataType) IsBits() bool { return d.isbits() }
+
 // countUnionComponents is count_union_components (jltypes.c:497-516).
 func countUnionComponents(types []any, widen bool) int {
 	c := 0

@@ -21,7 +21,7 @@ struct S2; x::S1; y::Int8; end
 struct S3; a::Int8; b::Any; end
 struct U1; a::Union{Int8, Int16}; end
 struct O1; banner::Int8; opt_level::Int8; project::Ptr{UInt8}; heap::UInt64; end
-struct O2; a::Int8; b::Int128; end
+struct O2; a::Int8; b::Float16; end
 abstract type A1 end`); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ abstract type A1 end`); err != nil {
 	_, err = biCglobal(New(), []any{expr.Symbol("jl_options"), free(t)})
 	check(t, "jl_options as a free type", nil, err, "!cglobal: type argument not concrete")
 	_, err = biCglobal(New(), []any{expr.Symbol("jl_options"), coreValue(t, vm, "O2")})
-	check(t, "jl_options as a struct with an Int128", nil, err, "!not ported yet: the jl_options field b")
+	check(t, "jl_options as a struct with a Float16", nil, err, "!not ported yet: the jl_options field b")
 	_, err = vm.shims["jl_sizeof_jl_options"](vm, nil)
 	check(t, "jl_sizeof_jl_options without Base.JLOptions", nil, err, "!Base.JLOptions is not defined")
 	b := vm.Base.declare("JLOptions", 0)
