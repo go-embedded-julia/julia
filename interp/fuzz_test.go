@@ -50,6 +50,8 @@ func FuzzEval(f *testing.F) {
 	f.Add("getfield(:(a + 1), :head), getfield(QuoteNode(1), 1)")
 	f.Add("module M\nusing ..L\nend\nimport .M")
 	f.Add("Core.invokelatest(Core.tuple, 1)")
+	f.Add("m = Core.memorynew(Core.GenericMemory{:not_atomic, Any, Core.CPU}, 3); r = Core.memoryrefnew(m); Core.memoryrefset!(Core.memoryrefnew(r, 2, true), 1, :not_atomic, true); m")
+	f.Add("Core.checked_smul_int(typemax(Int64), 2), Core.memorynew(Core.GenericMemory{:not_atomic, Int8, Core.CPU}, -1)")
 	f.Fuzz(func(t *testing.T, src string) {
 		if len(src) > 1<<12 {
 			return
@@ -57,6 +59,7 @@ func FuzzEval(f *testing.F) {
 		s := New().NewSession()
 		s.VM.MaxSteps = 1 << 16
 		s.VM.MaxDepth = 200
+		s.VM.MaxMemoryElems = 1 << 12
 		v, err := s.Eval(src)
 		if err == nil {
 			_ = Repr(v)

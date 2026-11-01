@@ -63,12 +63,19 @@ type VM struct {
 	// by default, rooted as julia's base/ is.
 	Sources fs.FS
 
+	// MaxMemoryElems bounds the elements of one memorynew; past it the
+	// allocation stops with ErrMemoryLimit instead of exhausting the host.
+	// emptyMemory holds each memory type's zero-length instance.
+	MaxMemoryElems int
+	emptyMemory    map[*core.DataType]*Memory
+
 	builtinType, intrinsicType  *core.DataType
 	tError, tUndefVar           *core.DataType
 	tTypeError, tMethodError    *core.DataType
 	tStackOverflow, tArgError   *core.DataType
 	tBounds, tUndefRef          *core.DataType
 	tDivide, tLoadError         *core.DataType
+	tAtomicError                *core.DataType
 	tExpr, tQuoteNode           *core.DataType
 	tSSAValue, tSlotNumber      *core.DataType
 	tArgument, tGotoNode        *core.DataType
@@ -87,7 +94,8 @@ const DefaultMaxDepth = 4000
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
-		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources}
+		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources,
+		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{}}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	vm.Base = vm.addModule("Base", nil)
@@ -223,6 +231,7 @@ func (vm *VM) bootCore() {
 	vm.bootBuiltins()
 	vm.bootTypedefs()
 	vm.bootIntrinsics()
+	vm.bootMemory()
 	vm.bootShims()
 
 	// Base.iterate, the iterate lowering passes to Core._apply_iterate for
@@ -305,6 +314,10 @@ func (vm *VM) typeOf(v any) any {
 		return x.Type
 	case SVec:
 		return core.SimpleVectorType
+	case *Memory:
+		return x.Type
+	case *MemoryRef:
+		return x.Type
 	case *Intrinsic:
 		return vm.intrinsicType
 	case *Module:

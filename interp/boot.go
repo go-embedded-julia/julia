@@ -49,23 +49,28 @@ func (vm *VM) postBootHooks() error {
 		}
 		return t, nil
 	}
-	for name, field := range map[expr.Symbol]**core.DataType{
-		"ErrorException":     &vm.tError,
-		"UndefVarError":      &vm.tUndefVar,
-		"TypeError":          &vm.tTypeError,
-		"MethodError":        &vm.tMethodError,
-		"StackOverflowError": &vm.tStackOverflow,
-		"ArgumentError":      &vm.tArgError,
-		"BoundsError":        &vm.tBounds,
-		"UndefRefError":      &vm.tUndefRef,
-		"DivideError":        &vm.tDivide,
-		"LoadError":          &vm.tLoadError,
+	// in post_boot_hooks' order (jltypes.c:3939-3955)
+	for _, f := range []struct {
+		name  expr.Symbol
+		field **core.DataType
+	}{
+		{"StackOverflowError", &vm.tStackOverflow},
+		{"DivideError", &vm.tDivide},
+		{"UndefRefError", &vm.tUndefRef},
+		{"ErrorException", &vm.tError},
+		{"UndefVarError", &vm.tUndefVar},
+		{"ConcurrencyViolationError", &vm.tAtomicError},
+		{"BoundsError", &vm.tBounds},
+		{"TypeError", &vm.tTypeError},
+		{"ArgumentError", &vm.tArgError},
+		{"MethodError", &vm.tMethodError},
+		{"LoadError", &vm.tLoadError},
 	} {
-		t, err := coreType(name)
+		t, err := coreType(f.name)
 		if err != nil {
 			return err
 		}
-		*field = t
+		*f.field = t
 	}
 	return nil
 }
