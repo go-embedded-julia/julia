@@ -85,7 +85,7 @@ func TestBuiltins(t *testing.T) {
 		{"getfield of an undefined field", "getfield", []any{partial, int64(2)}, "!UndefRefError()"},
 		{"getfield of an Int", "getfield", []any{int64(1), int64(1)}, "!BoundsError(1, 1)"},
 		{"getfield of an Expr's head", "getfield", []any{expr.New("call", expr.Symbol("f")), expr.Symbol("head")}, ":call"},
-		{"getfield of an Expr's args", "getfield", []any{expr.New("call"), int64(2)}, "!not ported yet: the field args of a Expr"},
+		{"getfield of an Expr's args", "getfield", []any{expr.New("call"), int64(2)}, "Any[]"},
 		{"getfield of a QuoteNode", "getfield", []any{expr.QuoteNode{Value: int64(3)}, expr.Symbol("value")}, "3"},
 		{"getfield of a line", "getfield", []any{expr.LineNumberNode{Line: 3, File: expr.Symbol("f")}, int64(1)}, "3"},
 		{"getfield of a file", "getfield", []any{expr.LineNumberNode{Line: 3, File: expr.Symbol("f")}, expr.Symbol("file")}, ":f"},

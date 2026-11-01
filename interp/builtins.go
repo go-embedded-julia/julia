@@ -282,7 +282,12 @@ func (vm *VM) astField(v, arg any) (any, error) {
 	switch x := v.(type) {
 	case *expr.Expr:
 		names = []expr.Symbol{"head", "args"}
-		get = func(i int) (any, bool) { return x.Head, i == 0 }
+		get = func(i int) (any, bool) {
+			if i == 1 {
+				return vm.exprArgs(x), true
+			}
+			return x.Head, true
+		}
 	case expr.QuoteNode:
 		names = []expr.Symbol{"value"}
 		get = func(i int) (any, bool) { return x.Value, true }
@@ -463,7 +468,10 @@ func biSetfield(vm *VM, args []any) (any, error) {
 			return nil, vm.typeError("setfield!", "", ft[i], args[2])
 		}
 		v.Fields[i] = args[2]
+		syncArgs(v) // an Expr's args vector: the Expr follows it
 		return args[2], nil
+	case *expr.Expr:
+		return vm.setExprField(v, args[1], args[2])
 	}
 	t := vm.typeOf(args[0]).(*core.DataType)
 	return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", t.Name.Name)
