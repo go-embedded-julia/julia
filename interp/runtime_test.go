@@ -333,7 +333,7 @@ func TestGlobals(t *testing.T) {
 func TestToplevel(t *testing.T) {
 	for _, c := range []struct{ src, want string }{
 		{"1 +", "!syntax:"},
-		{"@m x", "!not ported yet: macro expansion"},
+		{"@m x", "!UndefVarError(:@m,"},
 		{strings.Repeat("(", 5000) + "1" + strings.Repeat(")", 5000), "!syntax:"},
 		{"import Core.Intrinsics\nIntrinsics", "Core.Intrinsics"},
 		{"using Core.Intrinsics\nadd_int", "Core.Intrinsics.add_int"},
@@ -390,10 +390,6 @@ func TestToplevel(t *testing.T) {
 	}
 	if _, err := s.evalForm(expr.New("incomplete", "eof")); err == nil {
 		t.Error("an incomplete form was evaluated")
-	}
-	if !hasMacroCall(expr.New("block", expr.New("macrocall", expr.Symbol("@m")))) ||
-		hasMacroCall(expr.New("quote", expr.New("macrocall"))) || hasMacroCall(int64(1)) {
-		t.Error("hasMacroCall")
 	}
 	if firstArg(expr.New("thunk")) != nil {
 		t.Error("firstArg of no arguments")

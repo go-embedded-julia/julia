@@ -41,6 +41,29 @@ func TestDefaultCtorBodies(t *testing.T) {
 	}
 }
 
+// Backquote turns an interpolating quote into the calls that build it, and
+// reports a splat outside a call as julia-bq-macro does.
+func TestBackquote(t *testing.T) {
+	st := NewState()
+	q := expr.New("call", expr.Symbol("+"), int64(1), expr.New("$", expr.Symbol("x")))
+	out, err := st.Backquote(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasHead(expr.Vector{out}, "call") {
+		t.Errorf("Backquote: %v", out)
+	}
+	// ($ a b) at depth 0 splices several expressions where one is expected
+	bad, err := st.Backquote(expr.New("$", expr.Symbol("a"), expr.Symbol("b")))
+	if err != nil || !hasHead(expr.Vector{bad}, "error") {
+		t.Errorf("splat outside a call: %v, %v", bad, err)
+	}
+	// a malformed interpolation is femtolisp's error, wrapped as (error …)
+	if out, err := st.Backquote(expr.New("$")); err != nil || !hasHead(expr.Vector{out}, "error") {
+		t.Errorf("a malformed interpolation: %v, %v", out, err)
+	}
+}
+
 func hasHead(code expr.Vector, head expr.Symbol) bool {
 	for _, s := range code {
 		if e, ok := s.(*expr.Expr); ok {

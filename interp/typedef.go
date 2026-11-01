@@ -24,6 +24,7 @@ func (vm *VM) bootTypedefs() {
 		"_defaultctors":  biDefaultctors,
 		"fieldtype":      biFieldtype,
 		"_typevar":       biTypevar,
+		"_apply_iterate": biApplyIterate,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
 		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})
@@ -65,6 +66,22 @@ func (vm *VM) bootTypeCtors() {
 	def(core.TypeVarType, 1, func(vm *VM, a []any) (any, error) { return newTV(vm, a[0], core.Bottom, core.AnyType) })
 	def(core.TypeVarType, 2, func(vm *VM, a []any) (any, error) { return newTV(vm, a[0], core.Bottom, a[1]) })
 	def(core.TypeVarType, 3, func(vm *VM, a []any) (any, error) { return newTV(vm, a[0], a[1], a[2]) })
+	// boot.jl:293 and 519-534, the AST constructors macros build results with
+	def(vm.tQuoteNode, 1, func(vm *VM, a []any) (any, error) { return expr.QuoteNode{Value: a[0]}, nil })
+	lnn := func(vm *VM, l, f any) (any, error) {
+		n, ok := l.(int64)
+		if !ok {
+			return nil, vm.methodErrorFor(vm.tLineNumberNode, []any{l, f})
+		}
+		if s, ok := f.(string); ok {
+			f = expr.Symbol(s) // isa(f, String) && (f = Symbol(f))
+		}
+		return expr.LineNumberNode{Line: int(n), File: f}, nil
+	}
+	def(vm.tLineNumberNode, 1, func(vm *VM, a []any) (any, error) { return lnn(vm, a[0], nil) })
+	def(vm.tLineNumberNode, 2, func(vm *VM, a []any) (any, error) { return lnn(vm, a[0], a[1]) })
+	exprSig := must(core.Apply(core.AnyTupleType, must(core.Apply(core.TypeType, vm.tExpr)), must(core.WrapVararg(core.AnyType, nil))))
+	must(vm.ctorTable(vm.tExpr).Define(exprSig, vm.newWorld(), goMethod(biExpr)))
 	def(core.UnionAllType, 2, func(vm *VM, a []any) (any, error) {
 		v, ok := a[0].(*core.TypeVar)
 		if !ok {
@@ -79,6 +96,29 @@ func (vm *VM) bootTypeCtors() {
 		}
 		return core.TypeUnionAll(v, a[1]), nil
 	})
+}
+
+// biApplyIterate is jl_f__apply_iterate (builtins.c:661-830) for the
+// arguments it spreads without calling iterate: tuples and simple vectors.
+// Spreading anything else calls Base.iterate, whose methods are Base's
+// code, not run yet.
+func biApplyIterate(vm *VM, args []any) (any, error) {
+	if err := vm.nargs("_apply_iterate", args, 2, -1); err != nil {
+		return nil, err
+	}
+	f := args[1]
+	var spread []any
+	for _, a := range args[2:] {
+		switch x := a.(type) {
+		case SVec:
+			spread = append(spread, x...)
+		case *Tuple:
+			spread = append(spread, x.Elems...)
+		default:
+			return nil, fmt.Errorf("%w: splatting a %s, which needs Base.iterate", ErrUnsupported, core.Show(vm.typeOf(a)))
+		}
+	}
+	return vm.apply(f, spread)
 }
 
 // biTypevar is jl_f__typevar over jl_new_typevar (builtins.c:1688-1708).
