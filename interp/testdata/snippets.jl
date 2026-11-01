@@ -454,6 +454,74 @@ catch e
 end
 (r, V{Integer, Int}(2))
 #---
+macro one()
+    1
+end
+(@one(), @one)
+#---
+import Core.Intrinsics: add_int
+macro twice(ex)
+    quote
+        $ex
+        $ex
+    end
+end
+x = 0
+@twice(global x = add_int(x, 1))
+x
+#---
+macro sym(s)
+    QuoteNode(s)
+end
+(@sym(abc), @sym(1))
+#---
+macro mk(n)
+    :(tuple($n, $n))
+end
+@mk(3)
+#---
+macro hyg()
+    :(y = 5; y)
+end
+y = 1
+(@hyg(), y)
+#---
+macro getx()
+    :x
+end
+x = 7
+@getx()
+#---
+macro one()
+    1
+end
+macro two()
+    :((@one(), @one()))
+end
+@two()
+#---
+macro src()
+    __source__
+end
+typeof(@src())
+#---
+macro modname()
+    __module__
+end
+@modname()
+#---
+macro count(args...)
+    length_of = 0
+    for_each = args
+    tuple(args...)
+end
+@count(1, 2, 3)
+#---
+(typeof(QuoteNode(1)), typeof(LineNumberNode(3)), typeof(LineNumberNode(3, :file)), typeof(Expr(:call, :f)))
+#---
+q = :(a + $(1))
+(typeof(q), typeof(:(:s)), typeof(:sym))
+#---
 nothing
 #---
 :sym

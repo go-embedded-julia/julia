@@ -200,6 +200,13 @@ func (vm *VM) bootCore() {
 	vm.bootTypedefs()
 	vm.bootIntrinsics()
 
+	// Base.iterate, the iterate lowering passes to Core._apply_iterate for
+	// every splat: declared with no methods, so that spreading a tuple
+	// (which never calls it) works; calling it is a MethodError until
+	// Base's methods run
+	must(vm.declareFunction(vm.Base, "iterate"))
+	vm.Base.own("iterate").Exports = true
+
 	// boot.jl:282-286: Typeof(x) = isa(x,Type) ? Type{x} : typeof(x), a
 	// generic function of Core with one method; built here until boot.jl
 	// itself is evaluated.

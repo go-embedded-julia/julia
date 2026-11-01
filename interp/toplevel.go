@@ -55,38 +55,21 @@ func (s *Session) Eval(src string) (res any, err error) {
 	return res, nil
 }
 
-// evalForm lowers and evaluates one parsed top-level form.
+// evalForm expands the macros of one parsed top-level form, lowers it and
+// evaluates it (jl_expand_with_loc_warn, then jl_toplevel_eval_flex).
 func (s *Session) evalForm(form any) (any, error) {
 	if e, ok := form.(*expr.Expr); ok && (e.Head == "error" || e.Head == "incomplete") {
 		return nil, s.VM.syntaxError(e)
 	}
-	if hasMacroCall(form) {
-		return nil, fmt.Errorf("%w: macro expansion", ErrUnsupported)
+	form, err := s.macroexpand(form)
+	if err != nil {
+		return nil, err
 	}
 	lowered, err := s.low.Lower(form)
 	if err != nil {
 		return nil, err
 	}
 	return s.VM.toplevelEval(s.Mod, lowered)
-}
-
-func hasMacroCall(v any) bool {
-	e, ok := v.(*expr.Expr)
-	if !ok {
-		return false
-	}
-	if e.Head == "macrocall" {
-		return true
-	}
-	if e.Head == "quote" {
-		return false
-	}
-	for _, a := range e.Args {
-		if hasMacroCall(a) {
-			return true
-		}
-	}
-	return false
 }
 
 // syntaxError is the :error / :incomplete branch of jl_toplevel_eval_flex

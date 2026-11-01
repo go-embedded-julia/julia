@@ -80,6 +80,18 @@
 {"src":"struct W{T}\n    x::Int\nend\ntry\n    W(1)\ncatch e\n    typeof(e)\nend\n","want":"MethodError"}
 {"src":"struct W{T}\n    x::Int\nend\nW{Symbol}(1)\n","want":"Main.OracleEval.W{Symbol}(1)"}
 {"src":"struct V{T, S<:T}\n    x::S\nend\nr = try\n    V(1)\ncatch e\n    typeof(e)\nend\n(r, V{Integer, Int}(2))\n","want":"(Main.OracleEval.V{Int64, Int64}(1), Main.OracleEval.V{Integer, Int64}(2))"}
+{"src":"macro one()\n    1\nend\n(@one(), @one)\n","want":"(1, 1)"}
+{"src":"import Core.Intrinsics: add_int\nmacro twice(ex)\n    quote\n        $ex\n        $ex\n    end\nend\nx = 0\n@twice(global x = add_int(x, 1))\nx\n","want":"2"}
+{"src":"macro sym(s)\n    QuoteNode(s)\nend\n(@sym(abc), @sym(1))\n","want":"(:abc, 1)"}
+{"src":"macro mk(n)\n    :(tuple($n, $n))\nend\n@mk(3)\n","want":"(3, 3)"}
+{"src":"macro hyg()\n    :(y = 5; y)\nend\ny = 1\n(@hyg(), y)\n","want":"(5, 1)"}
+{"src":"macro getx()\n    :x\nend\nx = 7\n@getx()\n","want":"7"}
+{"src":"macro one()\n    1\nend\nmacro two()\n    :((@one(), @one()))\nend\n@two()\n","want":"(1, 1)"}
+{"src":"macro src()\n    __source__\nend\ntypeof(@src())\n","want":"Nothing"}
+{"src":"macro modname()\n    __module__\nend\n@modname()\n","want":"Main.OracleEval"}
+{"src":"macro count(args...)\n    length_of = 0\n    for_each = args\n    tuple(args...)\nend\n@count(1, 2, 3)\n","want":"(1, 2, 3)"}
+{"src":"(typeof(QuoteNode(1)), typeof(LineNumberNode(3)), typeof(LineNumberNode(3, :file)), typeof(Expr(:call, :f)))\n","want":"(QuoteNode, LineNumberNode, LineNumberNode, Expr)"}
+{"src":"q = :(a + $(1))\n(typeof(q), typeof(:(:s)), typeof(:sym))\n","want":"(Expr, QuoteNode, Symbol)"}
 {"src":"nothing\n","want":"nothing"}
 {"src":":sym\n","want":":sym"}
 {"src":"\"a string\"\n","want":"\"a string\""}

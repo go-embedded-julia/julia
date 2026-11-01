@@ -28,6 +28,7 @@ func (vm *VM) bootBuiltins() {
 		"isdefinedglobal":  biIsdefinedglobal,
 		"get_binding_type": biGetBindingType,
 		"apply_type":       biApplyType,
+		"_expr":            biExpr,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
 		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})

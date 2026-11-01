@@ -44,6 +44,8 @@ func FuzzEval(f *testing.F) {
 	}
 	f.Add("while true\nend")
 	f.Add("f(x) = f(x)\nf(1)")
+	f.Add("macro r()\n    :(@r())\nend\n@r()")
+	f.Add("macro m(x)\n    :(($x, $x))\nend\n@m(@m(1))")
 	f.Fuzz(func(t *testing.T, src string) {
 		if len(src) > 1<<12 {
 			return
