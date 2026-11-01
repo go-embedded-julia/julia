@@ -30,6 +30,8 @@ func (vm *VM) bootShims() {
 			}
 			return vm.sessionFor(m).evalForm(a[1])
 		},
+		// jl_load_ (toplevel.c:1194-1201), boot.jl's include
+		"jl_load_": func(vm *VM, a []any) (any, error) { return vm.jlLoad(a) },
 		// jl_set_istopmod (module.c): marks Core or Base as a top module;
 		// the top module of each session's lowering is fixed when the
 		// session is made
@@ -107,7 +109,9 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if atypes[i] != any(core.AnyType) {
+		// an Any argument is passed boxed; a primitive one by value, which
+		// lowering has already converted (cconvert/unsafe_convert) to it
+		if atypes[i] != any(core.AnyType) && atypes[i] != any(vm.typeOf(v)) {
 			return nil, fmt.Errorf("%w: a ccall argument of type %s", ErrUnsupported, showValue(atypes[i]))
 		}
 		args[i] = v

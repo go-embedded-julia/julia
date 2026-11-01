@@ -30,6 +30,8 @@ func (vm *VM) bootBuiltins() {
 		"apply_type":       biApplyType,
 		"_expr":            biExpr,
 		"setfield!":        biSetfield,
+		"invokelatest":     biInvokelatest,
+		"invoke_in_world":  biInvokeInWorld,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
 		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})
@@ -162,6 +164,34 @@ func biThrow(vm *VM, args []any) (any, error) {
 	return nil, &Thrown{Value: args[0]}
 }
 
+// biInvokelatest is jl_f_invokelatest (builtins.c:874-884): the call runs
+// in the latest world, and the task's age is restored after it.
+func biInvokelatest(vm *VM, args []any) (any, error) {
+	if err := vm.nargs("invokelatest", args, 1, -1); err != nil {
+		return nil, err
+	}
+	last := vm.taskWorld
+	defer func() { vm.taskWorld = last }()
+	vm.taskWorld = vm.World()
+	return vm.apply(args[0], args[1:])
+}
+
+// biInvokeInWorld is jl_f_invoke_in_world (builtins.c:888-903): as
+// invokelatest, capped at the given world.
+func biInvokeInWorld(vm *VM, args []any) (any, error) {
+	if err := vm.nargs("invoke_in_world", args, 2, -1); err != nil {
+		return nil, err
+	}
+	w, ok := args[0].(uint64)
+	if err := vm.typechk("invoke_in_world", core.UInt64Type, args[0], ok); err != nil {
+		return nil, err
+	}
+	last := vm.taskWorld
+	defer func() { vm.taskWorld = last }()
+	vm.taskWorld = min(vm.World(), w)
+	return vm.apply(args[1], args[2:])
+}
+
 func biIfelse(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("ifelse", args, 3, 3); err != nil {
 		return nil, err
@@ -236,6 +266,45 @@ func (vm *VM) fieldIndex(fname expr.Symbol, st *core.DataType, names []expr.Symb
 	return 0, vm.typeError(fname, "", core.TypeUnion(core.Int64Type, core.SymbolType), arg)
 }
 
+// astField is getfield of the AST nodes held as package expr's values, with
+// the layouts jltypes.c gives them: Expr(head, args) :3388-3392,
+// LineNumberNode(line, file) :3395-3398, QuoteNode(value) :3455-3458,
+// GlobalRef(mod, name, binding) :3284-3287. Expr's args (a Vector{Any}) and
+// GlobalRef's module and binding have no value here yet.
+func (vm *VM) astField(v, arg any) (any, error) {
+	t := vm.typeOf(v).(*core.DataType)
+	var names []expr.Symbol
+	var get func(i int) (any, bool)
+	switch x := v.(type) {
+	case *expr.Expr:
+		names = []expr.Symbol{"head", "args"}
+		get = func(i int) (any, bool) { return x.Head, i == 0 }
+	case expr.QuoteNode:
+		names = []expr.Symbol{"value"}
+		get = func(i int) (any, bool) { return x.Value, true }
+	case expr.LineNumberNode:
+		names = []expr.Symbol{"line", "file"}
+		get = func(i int) (any, bool) {
+			if i == 0 {
+				return int64(x.Line), true
+			}
+			return x.File, true
+		}
+	case expr.GlobalRef:
+		names = []expr.Symbol{"mod", "name", "binding"}
+		get = func(i int) (any, bool) { return x.Name, i == 1 }
+	}
+	i, err := vm.fieldIndex("getfield", t, names, len(names), v, arg)
+	if err != nil {
+		return nil, err
+	}
+	f, ok := get(i)
+	if !ok {
+		return nil, fmt.Errorf("%w: the field %s of a %s", ErrUnsupported, names[i], t.Name.Name)
+	}
+	return f, nil
+}
+
 func biGetfield(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("getfield", args, 2, 4); err != nil {
 		return nil, err
@@ -259,8 +328,7 @@ func biGetfield(vm *VM, args []any) (any, error) {
 		}
 		return v.Fields[i], nil
 	case *expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
-		// their fields need Vector{Any} and Core.Binding, not built yet
-		return nil, fmt.Errorf("%w: getfield of a %s", ErrUnsupported, core.Show(vm.typeOf(v)))
+		return vm.astField(v, args[1])
 	}
 	// a value without fields (an Int, a Symbol …): every index is out of
 	// bounds, every name unknown

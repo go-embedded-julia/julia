@@ -1,21 +1,21 @@
 package interp
 
 import (
-	"os"
+	"io/fs"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/expr"
 	"github.com/go-embedded-julia/julia/syntax"
 )
 
-// TestBootProgress evaluates boot.jl form by form in Core and reports how
-// far it gets: the first form that fails, with its error.
-func TestBootProgress(t *testing.T) {
-	src, err := os.ReadFile("boot/boot.jl")
+// TestBoot evaluates boot.jl form by form in Core, as julia does after
+// jl_init_types, and fails on the first form that raises.
+func TestBoot(t *testing.T) {
+	vm := New()
+	src, err := fs.ReadFile(vm.Sources, "boot.jl")
 	if err != nil {
 		t.Fatal(err)
 	}
-	vm := New()
 	s := vm.CoreSession()
 	top := syntax.ParseAll(src, "boot.jl").(*expr.Expr)
 	n, line := 0, 0
@@ -25,8 +25,7 @@ func TestBootProgress(t *testing.T) {
 			continue
 		}
 		if _, err := s.evalForm(form); err != nil {
-			t.Logf("boot.jl:%d: form %d fails: %v", line, n+1, err)
-			return
+			t.Fatalf("boot.jl:%d: form %d fails: %v", line, n+1, err)
 		}
 		n++
 	}

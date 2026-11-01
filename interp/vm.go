@@ -11,6 +11,7 @@ package interp
 
 import (
 	"fmt"
+	"io/fs"
 	"sync/atomic"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -58,6 +59,10 @@ type VM struct {
 	shims    map[expr.Symbol]shim
 	sessions map[*Module]*Session
 
+	// Sources holds the files include reads (load.go): julia's own sources
+	// by default, rooted as julia's base/ is.
+	Sources fs.FS
+
 	builtinType, intrinsicType  *core.DataType
 	tError, tUndefVar           *core.DataType
 	tTypeError, tMethodError    *core.DataType
@@ -82,7 +87,7 @@ const DefaultMaxDepth = 4000
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
-		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}}
+		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	vm.Base = vm.addModule("Base", nil)
