@@ -71,19 +71,40 @@ func ctorLambda(name sym, fieldNames []any, newExpr []any, file string, line int
 	return list(sLambda, append([]any{name}, fieldNames...), []any{}, list(sym("scope-block"), body))
 }
 
-// lowerBuilt is expand-to-thunk- (jlfrontend.scm:166-168) of a form the
-// front end builds itself, converted back to julia values as
-// jl_call_scm_on_ast_and_loc does.
-func (st *State) lowerBuilt(build func(lw *lowerer) any, file string, line int64) (out any, err error) {
+// Backquote is julia-bq-macro (julia-syntax.scm) of the argument of a quote,
+// as jl_expand_macros calls it before expanding the macros inside
+// (ast.c:1173-1179): the expression that builds the quoted value, with its
+// interpolations as calls of Core._expr and copyast.
+func (st *State) Backquote(ex any) (any, error) {
+	return guarded(func() any {
+		lw := &lowerer{st: st}
+		res := lw.errorWrap(func() any { return lw.bqMacro(toSx(ex)) })
+		return (&converter{mod: st.mod}).fromSx(res)
+	})
+}
+
+// guarded runs f, reporting a panic of the port as ErrInternal.
+func guarded(f func() any) (out any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			out, err = nil, fmt.Errorf("%w: %v", ErrInternal, r)
 		}
 	}()
-	lw := &lowerer{st: st}
-	res := lw.errorWrap(func() any { return lw.expandToplevelExpr(build(lw), sym(file), line) })
-	c := &converter{mod: st.mod}
-	v := c.fromSx(res)
+	return f(), nil
+}
+
+// lowerBuilt is expand-to-thunk- (jlfrontend.scm:166-168) of a form the
+// front end builds itself, converted back to julia values as
+// jl_call_scm_on_ast_and_loc does.
+func (st *State) lowerBuilt(build func(lw *lowerer) any, file string, line int64) (any, error) {
+	v, err := guarded(func() any {
+		lw := &lowerer{st: st}
+		res := lw.errorWrap(func() any { return lw.expandToplevelExpr(build(lw), sym(file), line) })
+		return (&converter{mod: st.mod}).fromSx(res)
+	})
+	if err != nil {
+		return nil, err
+	}
 	if _, ok := v.(*expr.CodeInfo); !ok {
 		return nil, fmt.Errorf("%w: a constructor body lowered to %T", ErrInternal, v)
 	}
