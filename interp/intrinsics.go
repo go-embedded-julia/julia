@@ -168,6 +168,8 @@ func (vm *VM) bootIntrinsics() {
 		return mask(uint64(signExtend(b, from)), to)
 	}))
 	add("bitcast", 2, biBitcast)
+	add("cglobal", 2, biCglobal)
+	add("pointerref", 3, biPointerref)
 	// jl_fintrinsic_1 (runtime_intrinsics.c:1068-1092), reached through
 	// un_fintrinsic's jl_neg_float_withtype, whose name the messages carry
 	// (:1059-1064)

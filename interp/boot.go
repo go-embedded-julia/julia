@@ -29,8 +29,8 @@ func (vm *VM) Boot() error {
 		}
 	}
 	// julia's state after boot.jl: Core is the top module of every module
-	// until Base claims it
-	vm.topModule = vm.Core
+	// until Base claims it, and there is no Base yet
+	vm.topModule, vm.baseModule = vm.Core, nil
 	return vm.postBootHooks()
 }
 

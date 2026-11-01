@@ -327,24 +327,42 @@ func (vm *VM) assignGlobal(m *Module, name expr.Symbol, v any) error {
 	if b.Const {
 		return vm.errorf("invalid assignment to constant %s.%s. This redefinition may be permitted using the `const` keyword.", m.Name, name)
 	}
+	// jl_check_binding_assign_value (module.c:1886-1899)
+	if b.Type != nil && !vm.isa(v, b.Type) {
+		return vm.exception(vm.tTypeError, expr.Symbol("setglobal!"), expr.GlobalRef{Mod: m.Name, Name: name}, b.Type, v)
+	}
 	b.Value = v
 	return nil
 }
 
-// declareGlobal is jl_declare_global (toplevel.c:270-330) for `global x` and
+// declareGlobal is jl_declare_global (toplevel.c:270-331) for `global x` and
 // `global x::T`: a binding declared in a new world when the module does not
-// have one. Bindings are untyped in this version, so T must be Any.
+// have one, with T as its type. A type is refused for a constant or an
+// import, and for a global that has a value or another type.
 func (vm *VM) declareGlobal(ref expr.GlobalRef, setType any) error {
 	m := vm.modules[ref.Mod]
 	if m == nil {
 		return fmt.Errorf("%w: a global of the unknown module %s", ErrUnsupported, ref.Mod)
 	}
-	if setType != any(core.AnyType) {
-		return fmt.Errorf("%w: a global declared with the type %s", ErrUnsupported, showValue(setType))
+	b := m.own(ref.Name)
+	if b == nil {
+		b = m.declare(ref.Name, vm.newWorld())
 	}
-	if m.own(ref.Name) == nil {
-		m.declare(ref.Name, vm.newWorld())
+	b.implicit = false
+	if setType == any(core.AnyType) {
+		return nil
 	}
+	switch {
+	case b.Const:
+		return vm.errorf("cannot set type for constant %s.%s.", m.Name, ref.Name)
+	case b.Alias != nil:
+		return vm.errorf("cannot set type for imported binding %s.%s.", m.Name, ref.Name)
+	case b.Type != nil && core.Egal(b.Type, setType):
+		return nil
+	case b.Type != nil || b.Value != undef:
+		return vm.errorf("cannot set type for global %s.%s. It already has a value or is already set to a different type.", m.Name, ref.Name)
+	}
+	b.Type = setType
 	return nil
 }
 
@@ -388,6 +406,45 @@ type lambda struct {
 	nargs int
 	isva  bool
 	mod   *Module
+}
+
+// definitionEffects is resolve_definition_effects with binding effects
+// (method.c:81-104), as jl_method_set_source runs it: a body's `global x`
+// and `(globaldecl x)` declare their globals when the method is defined and
+// become `nothing`, so that the interpreter never meets them. The body is
+// copied when it changes.
+func (vm *VM) definitionEffects(m *Module, src *expr.CodeInfo) (*expr.CodeInfo, error) {
+	var code []any
+	for i, st := range src.Code {
+		e, ok := st.(*expr.Expr)
+		if !ok || (e.Head != "global" && !(e.Head == "globaldecl" && len(e.Args) == 1)) {
+			continue
+		}
+		for _, a := range e.Args {
+			var ref expr.GlobalRef
+			switch x := a.(type) {
+			case expr.Symbol:
+				ref = expr.GlobalRef{Mod: m.Name, Name: x}
+			case expr.GlobalRef:
+				ref = x
+			default:
+				return nil, vm.errorf("syntax: malformed \"%s\" statement", e.Head)
+			}
+			if err := vm.declareGlobal(ref, core.AnyType); err != nil {
+				return nil, err
+			}
+		}
+		if code == nil {
+			code = append([]any(nil), src.Code...)
+		}
+		code[i] = nil
+	}
+	if code == nil {
+		return src, nil
+	}
+	cp := *src
+	cp.Code = code
+	return &cp, nil
 }
 
 // methodDef is eval_methoddef's three-argument form and jl_method_def
@@ -449,6 +506,10 @@ func (f *frame) methodDef(s sMethodDef) error {
 			return vm.typeError("method signature", "", core.TypeVarType, tvars[i])
 		}
 		sig = core.TypeUnionAll(tv, sig)
+	}
+	src, err = vm.definitionEffects(f.mod, src)
+	if err != nil {
+		return err
 	}
 	c, err := prepare(src, false)
 	if err != nil {

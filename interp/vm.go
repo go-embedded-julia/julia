@@ -11,6 +11,7 @@ package interp
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,10 @@ type VM struct {
 	// the Main of a running julia, whose top module is Base: there it is
 	// the Base New makes, and Boot sets Core, as after julia's boot.jl.
 	topModule *Module
+	// baseModule is jl_base_module: the Base standard imports use, nil
+	// from Boot until Base_compiler.jl's `module Base` (toplevel.c:177-180).
+	// A VM that has not booted has the Base New makes.
+	baseModule *Module
 
 	// MaxDepth bounds the nesting of calls and of try blocks; past it a
 	// call or an EnterNode raises StackOverflowError instead of exhausting
@@ -77,6 +82,12 @@ type VM struct {
 	MaxMemoryElems int
 	emptyMemory    map[*core.DataType]*Memory
 
+	// Stdout and Stderr receive what Julia code prints (Core.println,
+	// print): io.Discard unless the embedder sets them. cglobals are the C
+	// globals cglobal can name (vptr.go).
+	Stdout, Stderr io.Writer
+	cglobals       map[expr.Symbol]*ptrSlot
+
 	// argVectors is each Expr's args vector (exprargs.go).
 	argMu      sync.Mutex
 	argVectors map[weak.Pointer[expr.Expr]]*Struct
@@ -108,14 +119,14 @@ func New() *VM {
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
 		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources,
 		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{},
-		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}}
+		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, Stdout: io.Discard, Stderr: io.Discard}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	// Core lowers against itself, as boot.jl needs (it marks Core a top
 	// module itself at its end)
 	vm.Core.istopmod = true
 	vm.Base = vm.addModule("Base", nil)
-	vm.topModule = vm.Base
+	vm.topModule, vm.baseModule = vm.Base, vm.Base
 	vm.Main = vm.addModule("Main", nil)
 	vm.Base.usings = []*Module{vm.Core}
 	vm.Main.usings = []*Module{vm.Core, vm.Base}
@@ -155,6 +166,7 @@ func (vm *VM) newWorld() uint64 { return vm.world.Add(1) }
 // coreExports are the names Core exports (boot.jl:207-243) that this
 // version defines; ifelse, svec, Typeof and the rest stay qualified.
 var coreExports = map[expr.Symbol]bool{
+	"Core": true, // every module exports its own name (jl_add_default_names)
 	"Any": true, "DataType": true, "Vararg": true, "Tuple": true, "Type": true, "UnionAll": true,
 	"TypeVar": true, "Union": true, "Nothing": true, "Cvoid": true, "Function": true, "Module": true,
 	"Symbol": true, "Number": true, "Real": true, "Integer": true, "Bool": true, "AbstractFloat": true,
@@ -181,6 +193,14 @@ func (vm *VM) setCore(name expr.Symbol, v any) {
 // (builtins.c:2487-2573), the builtins and intrinsics, and the parts of
 // boot.jl this first version needs, built in Go.
 func (vm *VM) bootCore() {
+	// Core and Main name themselves, exported (jl_add_default_names), and
+	// Core names Main (jl_init_main_module, toplevel.c:49-53)
+	for _, m := range []*Module{vm.Core, vm.Main} {
+		self := m.declare(m.Name, 0)
+		self.Value, self.Const, self.Exports = m, true, true
+	}
+	cm := vm.Core.declare("Main", 0)
+	cm.Value, cm.Const = vm.Main, true
 	for name, t := range map[expr.Symbol]any{
 		"Any": core.AnyType, "Type": core.TypeType, "Nothing": core.NothingType, "nothing": nil,
 		"TypeName": core.TypeNameType, "DataType": core.DataTypeType, "TypeVar": core.TypeVarType,
@@ -249,6 +269,7 @@ func (vm *VM) bootCore() {
 	vm.bootTypedefs()
 	vm.bootIntrinsics()
 	vm.bootMemory()
+	vm.bootPointers()
 	vm.bootShims()
 
 	// Base.iterate, the iterate lowering passes to Core._apply_iterate for
@@ -334,6 +355,8 @@ func (vm *VM) typeOf(v any) any {
 	case *Memory:
 		return x.Type
 	case *MemoryRef:
+		return x.Type
+	case *Pointer:
 		return x.Type
 	case *Intrinsic:
 		return vm.intrinsicType

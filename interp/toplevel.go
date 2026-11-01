@@ -151,7 +151,12 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 			if !ok {
 				return nil, vm.errorf("syntax: malformed \"%s\" statement", e.Head)
 			}
-			b := m.declare(name, vm.newWorld())
+			b := m.own(name)
+			if b == nil {
+				// jl_module_public: the name only, its binding implicit
+				b = m.declare(name, vm.newWorld())
+				b.implicit = true
+			}
 			b.Exports = b.Exports || e.Head == "export"
 		}
 		return nil, nil
@@ -214,12 +219,24 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 	}
 	newm := vm.addModule(name, parent)
 	newm.usings = []*Module{vm.Core}
-	if e.Args[0] == true {
-		newm.usings = append(newm.usings, vm.Base)
-		for _, std := range []*Module{vm.Core, vm.Base} {
+	// its own name, exported (jl_add_default_names, module.c:535-548)
+	self := newm.declare(name, 0)
+	self.Value, self.Const, self.Exports = newm, true, true
+	// standard imports once a Base exists: using the top module above it
+	// (jl_add_standard_imports, toplevel.c:39-46); Core stays used, which
+	// julia gets through Base's exports
+	if e.Args[0] == true && vm.baseModule != nil {
+		base := vm.baseRelativeTo(newm)
+		newm.usings = append(newm.usings, base)
+		for _, std := range []*Module{vm.Core, base} {
 			b := newm.declare(std.Name, 0)
 			b.Value, b.Const = std, true
 		}
+	}
+	// the Base of the bootstrap (toplevel.c:177-180)
+	if parent == vm.Main && name == "Base" && vm.baseModule == nil {
+		vm.baseModule = newm
+		vm.replaceBase(newm)
 	}
 	b := parent.declare(name, vm.newWorld())
 	b.Value, b.Const = newm, true
@@ -331,7 +348,8 @@ func (vm *VM) importPath(m *Module, v any, verb string) (*Module, error) {
 			}
 			v = b.Value
 		} else {
-			b := cur.own(name)
+			// jl_eval_global_var (toplevel.c:562): through usings too
+			b := cur.lookup(name, vm.taskWorld)
 			if b == nil {
 				return nil, vm.undefVar(name, vm.taskWorld, cur)
 			}

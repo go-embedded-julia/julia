@@ -107,7 +107,7 @@ func TestIR(t *testing.T) {
 		{"globaldecl of a symbol", []any{expr.New("globaldecl", expr.Symbol("x"))}, nil, true, "!not ported"},
 		{"globaldecl without arguments", []any{expr.New("globaldecl")}, nil, true, "!not ported"},
 		{"globaldecl of type Any", []any{expr.New("globaldecl", gr("L", "g"), gr("Core", "Any")), expr.New("latestworld"), ret(gr("L", "g"))}, nil, true, "!UndefVarError(:g,"},
-		{"globaldecl of another type", []any{expr.New("globaldecl", gr("L", "g"), gr("Core", "Int"))}, nil, true, "!a global declared with the type Int64"},
+		{"globaldecl of another type", []any{expr.New("globaldecl", gr("L", "g"), gr("Core", "Int")), ret(nil)}, nil, true, "nothing"},
 		{"globaldecl value error", []any{expr.New("globaldecl", gr("L", "g"), ssa(9))}, nil, true, "!access to invalid SSAValue"},
 		{"globaldecl of an unknown module", []any{expr.New("globaldecl", gr("Nope", "g"))}, nil, true, "!not ported"},
 		{"const without a value", []any{expr.New("const", gr("L", "c"))}, nil, true, "!not ported"},

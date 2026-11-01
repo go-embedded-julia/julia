@@ -43,9 +43,6 @@ func (vm *VM) bootShims() {
 			m.istopmod = true
 			if primary, _ := a[1].(bool); primary {
 				vm.topModule = m
-				if m.Name == "Base" && m != vm.Base {
-					vm.replaceBase(m)
-				}
 			}
 			return nil, nil
 		},
@@ -54,6 +51,13 @@ func (vm *VM) bootShims() {
 		"jl_prepend_cwd": func(vm *VM, a []any) (any, error) { return a[0], nil },
 		// jl_uv_flush (jl_uv.c): output is written through as it comes
 		"jl_uv_flush": func(vm *VM, a []any) (any, error) { return nil, nil },
+		// output to VM.Stdout / VM.Stderr and pointers to String bytes
+		// (vptr.go)
+		"jl_string_ptr":  func(vm *VM, a []any) (any, error) { return vm.stringPtr(a) },
+		"jl_uv_puts":     func(vm *VM, a []any) (any, error) { return vm.uvPuts(a) },
+		"jl_uv_putb":     func(vm *VM, a []any) (any, error) { return vm.uvPutb(a) },
+		"jl_uv_putc":     func(vm *VM, a []any) (any, error) { return vm.uvPutc(a) },
+		"jl_static_show": func(vm *VM, a []any) (any, error) { return vm.staticShow(a) },
 		// jl_module_parent (module.c)
 		"jl_module_parent": func(vm *VM, a []any) (any, error) {
 			m, ok := a[0].(*Module)

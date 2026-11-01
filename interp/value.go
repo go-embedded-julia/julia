@@ -83,6 +83,13 @@ type Binding struct {
 	Exports bool
 	// Alias is the binding an import refers to.
 	Alias *Binding
+	// Type is a global's declared type (`global x::T`, the partition's
+	// restriction), nil for Any.
+	Type any
+	// implicit marks a binding only export or public made: julia's
+	// implicit kind, which a read resolves through the module's usings
+	// until the name is assigned or declared.
+	implicit bool
 }
 
 // resolve follows an import to the binding it names.
@@ -107,7 +114,7 @@ func (m *Module) own(name expr.Symbol) *Binding {
 // lookup returns the binding a global read of name in m finds in world w:
 // m's own, else an exported one of a module m uses.
 func (m *Module) lookup(name expr.Symbol, w uint64) *Binding {
-	if b := m.own(name); b != nil && b.World <= w {
+	if b := m.own(name); b != nil && b.World <= w && !(b.implicit && b.Value == undef) {
 		return b.resolve()
 	}
 	m.mu.RLock()

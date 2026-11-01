@@ -32,6 +32,7 @@ func (vm *VM) bootBuiltins() {
 		"setfield!":        biSetfield,
 		"invokelatest":     biInvokelatest,
 		"invoke_in_world":  biInvokeInWorld,
+		"sizeof":           biSizeof,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
 		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})
@@ -90,11 +91,15 @@ func (vm *VM) egal(a, b any) bool {
 		// immutable: the same memory at the same element
 		y, ok := b.(*MemoryRef)
 		return ok && x.Type == y.Type && x.Mem == y.Mem && x.Off == y.Off
+	case *Pointer:
+		// bits: the same target at the same offset
+		y, ok := b.(*Pointer)
+		return ok && x.Type == y.Type && x.Target == y.Target && x.Off == y.Off
 	case *Function, *Builtin, *Intrinsic, *Module, *Memory:
 		return a == b
 	}
 	switch b.(type) {
-	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef:
+	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, *Pointer:
 		return false
 	}
 	return core.Egal(a, b)
@@ -118,7 +123,7 @@ func biTypeof(vm *VM, args []any) (any, error) {
 // type, with core.Isa for what core models itself.
 func (vm *VM) isa(v, t any) bool {
 	switch v.(type) {
-	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, nil, string,
+	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, *Pointer, nil, string,
 		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char,
 		*expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
 		return core.Subtype(vm.typeOf(v), t)
@@ -561,8 +566,12 @@ func biGetBindingType(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("get_binding_type", args, 2, 2); err != nil {
 		return nil, err
 	}
-	if _, _, err := vm.moduleSymbol("get_binding_type", args); err != nil {
+	m, name, err := vm.moduleSymbol("get_binding_type", args)
+	if err != nil {
 		return nil, err
+	}
+	if b := m.own(name); b != nil && b.Type != nil {
+		return b.Type, nil
 	}
 	return core.AnyType, nil
 }

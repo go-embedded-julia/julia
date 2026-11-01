@@ -288,6 +288,18 @@ func TestWhiteboxShowAndTypes(t *testing.T) {
 	if TypeOf(Int64Type.Name) != any(TypeNameType) {
 		t.Error("TypeOf of a TypeName")
 	}
+	if ft, ok := TypeVarType.FieldTypes(); !ok || len(ft) != 3 || len(TypeNameType.Name.FieldNames) != 18 {
+		t.Error("the kinds' layouts")
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("layout of mismatched names and types did not panic")
+			}
+		}()
+		d, _ := NewType("Main", "L1", nil, false, true, nil, nil)
+		layout(d, []Symbol{"a"})
+	}()
 	if TypeOf(CoreModule) != any(ModuleType) || Show(CoreModule) != "Core" || CoreModule.ModuleName() != "Core" {
 		t.Error("CoreModule")
 	}

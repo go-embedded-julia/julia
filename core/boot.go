@@ -104,6 +104,15 @@ func mustApply(tc any, params ...any) any {
 	return t
 }
 
+// layout gives a built-in type its field names and types; a mismatch is a
+// bug in this file.
+func layout(d *DataType, names []Symbol, types ...any) {
+	d.Name.FieldNames = names
+	if err := d.SetFieldTypes(types); err != nil {
+		panic(err)
+	}
+}
+
 func init() {
 	anyTN := &TypeName{Name: "Any", Module: "Core", Abstract: true}
 	AnyType = &DataType{Name: anyTN, HasConcreteSubtype: true}
@@ -213,4 +222,19 @@ func init() {
 		vars: []*TypeVar{tv("K"), tv("V")}}).(*UnionAll)
 	DictType = define(spec{module: "Base", name: "Dict", mutable: true, vars: []*TypeVar{tv("K"), tv("V")},
 		super: func(v []any) any { return mustApply(AbstractDictType, v...) }}).(*UnionAll)
+
+	// the kinds' layouts, which refer to one another: DataType
+	// (jltypes.c:2979-2996), TypeName (:3008-3030, its MethodCache field
+	// typed Any here, that type being made after core), TypeVar (:3081-3084),
+	// UnionAll (:3096-3099), Union (:3104-3107)
+	layout(DataTypeType, []Symbol{"name", "super", "parameters", "types", "instance", "layout", "hash", "flags"},
+		TypeNameType, DataTypeType, SimpleVectorType, SimpleVectorType, AnyType, AnyType, AnyType, AnyType)
+	layout(TypeNameType, []Symbol{"name", "module", "singletonname", "names", "atomicfields", "constfields",
+		"wrapper", "Typeofwrapper", "cache", "linearcache", "partial", "hash", "max_args", "n_uninitialized",
+		"flags", "cache_entry_count", "max_methods", "constprop_heuristic"},
+		SymbolType, AnyType, SymbolType, SimpleVectorType, AnyType, AnyType, typeTypePrimary.Name.Wrapper,
+		SimpleVectorType, SimpleVectorType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType)
+	layout(TypeVarType, []Symbol{"name", "lb", "ub"}, SymbolType, AnyType, AnyType)
+	layout(UnionAllType, []Symbol{"var", "body"}, TypeVarType, AnyType)
+	layout(UnionType, []Symbol{"a", "b"}, AnyType, AnyType)
 }
