@@ -111,11 +111,11 @@ func eqMsp(a, b, a0, b0 any, env *typeEnv) bool {
 		baKnown = true
 	}
 	a, b = rewrapEnv(a, env, false), rewrapEnv(b, env, false)
-	if !abKnown && !(&stenv{}).forallExistsSubtype(a, b, 0) {
+	if !abKnown && !freshForallExists(a, b, nil) {
 		return false
 	}
 	if !baKnown {
-		ba = (&stenv{}).forallExistsSubtype(b, a, 0)
+		ba = freshForallExists(b, a, nil)
 	}
 	return ba
 }
@@ -135,7 +135,7 @@ func subMsp(x, y, y0 any, env *typeEnv) bool {
 		return sub
 	}
 	x, y = rewrapEnv(x, env, true), rewrapEnv(y, env, true)
-	return (&stenv{}).forallExistsSubtype(x, y, 0)
+	return freshForallExists(x, y, nil)
 }
 
 // nthTupleElt is nth_tuple_elt (subtype.c:5100-5117); nil when the tuple

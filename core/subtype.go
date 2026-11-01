@@ -1,5 +1,7 @@
 package core
 
+import "sync"
+
 // Subtyping: a statement-by-statement port of the subtype path of
 // src/subtype.c (julia 1.12.6, lines 43-2529). Intersection
 // (subtype.c:2533-4700) is not ported yet, so every branch that julia takes
@@ -44,6 +46,10 @@ type stenv struct {
 	invdepth         int
 	loffset          int64
 	calls            int
+
+	// free lists of the query (see newVarBinding, newSavedEnv)
+	vbFree []*varBinding
+	seFree []*savedEnv
 }
 
 // maxSubtypeCalls bounds the work of one subtyping query. julia has no
@@ -164,7 +170,8 @@ func popUnionState(dst *unionState, s savedUnionState) {
 
 // savedEnv is jl_savedenv_t (subtype.c:256-262).
 type savedEnv struct {
-	roots  []any
+	roots  []any // lb, ub of each binding
+	inner  [][]*TypeVar
 	buf    []int8
 	rdepth int
 }
@@ -172,21 +179,76 @@ type savedEnv struct {
 // saveEnv is save_env and re_save_env (subtype.c:264-332).
 func (e *stenv) saveEnv(se *savedEnv) {
 	se.roots = se.roots[:0]
+	se.inner = se.inner[:0]
 	se.buf = se.buf[:0]
 	for v := e.vars; v != nil; v = v.prev {
-		se.roots = append(se.roots, v.lb, v.ub, v.innervars)
+		se.roots = append(se.roots, v.lb, v.ub)
+		se.inner = append(se.inner, v.innervars)
 		se.buf = append(se.buf, v.occursInv, v.occursCov, v.maxOffset)
 	}
 	se.rdepth = e.runions.depth
 }
 
+// newSavedEnv and freeSavedEnv recycle saved environments within a query,
+// as julia keeps them on the C stack.
+func (e *stenv) newSavedEnv() *savedEnv {
+	if n := len(e.seFree); n > 0 {
+		se := e.seFree[n-1]
+		e.seFree = e.seFree[:n-1]
+		return se
+	}
+	return &savedEnv{}
+}
+
+func (e *stenv) freeSavedEnv(se *savedEnv) { e.seFree = append(e.seFree, se) }
+
+// newVarBinding and freeVarBinding recycle the bindings subtype_unionall
+// pushes, which julia allocates on the C stack (subtype.c:958).
+func (e *stenv) newVarBinding() *varBinding {
+	if n := len(e.vbFree); n > 0 {
+		vb := e.vbFree[n-1]
+		e.vbFree = e.vbFree[:n-1]
+		*vb = varBinding{}
+		return vb
+	}
+	return &varBinding{}
+}
+
+func (e *stenv) freeVarBinding(vb *varBinding) { e.vbFree = append(e.vbFree, vb) }
+
+// stenvPool reuses query environments, with their free lists and union
+// stacks, across queries.
+var stenvPool = sync.Pool{New: func() any { return &stenv{} }}
+
+// getStenv returns a reset environment writing variable values to envout.
+func getStenv(envout []any) *stenv {
+	e := stenvPool.Get().(*stenv)
+	e.vars, e.envout, e.envidx, e.invdepth, e.loffset, e.calls = nil, envout, 0, 0, 0, 0
+	e.lunions = unionState{stack: e.lunions.stack[:0]}
+	e.runions = unionState{stack: e.runions.stack[:0]}
+	return e
+}
+
+func putStenv(e *stenv) {
+	e.vars, e.envout = nil, nil
+	stenvPool.Put(e)
+}
+
+// freshForallExists is forall_exists_subtype in a new environment
+// (init_stenv, subtype.c:1830-1851), the shape of every entry point.
+func freshForallExists(x, y any, envout []any) bool {
+	e := getStenv(envout)
+	defer putStenv(e)
+	return e.forallExistsSubtype(x, y, 0)
+}
+
 // restoreEnv is restore_env (subtype.c:357-390).
 func (e *stenv) restoreEnv(se *savedEnv) {
-	i, j := 0, 0
+	i, j, k := 0, 0, 0
 	for v := e.vars; v != nil; v = v.prev {
 		v.lb, v.ub = se.roots[i], se.roots[i+1]
-		v.innervars, _ = se.roots[i+2].([]*TypeVar)
-		i += 3
+		v.innervars = se.inner[k]
+		i, k = i+2, k+1
 		v.occursInv, v.occursCov, v.maxOffset = se.buf[j], se.buf[j+1], se.buf[j+2]
 		j += 3
 	}
@@ -771,7 +833,9 @@ func (e *stenv) unaliasUnionAll(u *UnionAll) *UnionAll {
 // subtypeUnionAll is subtype_unionall (subtype.c:955-1048).
 func (e *stenv) subtypeUnionAll(t any, u *UnionAll, R bool, param int) bool {
 	u = e.unaliasUnionAll(u)
-	vb := &varBinding{v: u.Var, lb: u.Var.LB, ub: u.Var.UB, right: R, depth0: e.invdepth, prev: e.vars}
+	vb := e.newVarBinding()
+	defer e.freeVarBinding(vb)
+	vb.v, vb.lb, vb.ub, vb.right, vb.depth0, vb.prev = u.Var, u.Var.LB, u.Var.UB, R, e.invdepth, e.vars
 	e.vars = vb
 	var ans bool
 	if R {
@@ -1398,8 +1462,9 @@ func (e *stenv) localForallExistsSubtype(x, y any, param, limitSlow int) bool {
 			limitSlow = 0
 		}
 	}
-	var se savedEnv
-	e.saveEnv(&se)
+	se := e.newSavedEnv()
+	defer e.freeSavedEnv(se)
+	e.saveEnv(se)
 	count, iniCount := 0, 0
 	limited := false
 	var latest savedUnionState
@@ -1425,7 +1490,7 @@ func (e *stenv) localForallExistsSubtype(x, y any, param, limitSlow int) bool {
 			if limited || e.runions.more == oldRmore {
 				iniCount = count
 				latest = pushUnionState(&e.lunions)
-				e.saveEnv(&se)
+				e.saveEnv(se)
 				e.runions.more = oldRmore
 			}
 		}
@@ -1433,7 +1498,7 @@ func (e *stenv) localForallExistsSubtype(x, y any, param, limitSlow int) bool {
 			break
 		}
 		e.nextUnionState(true)
-		e.restoreEnv(&se)
+		e.restoreEnv(se)
 		e.runions.more = oldRmore
 	}
 	if sub && limited {
@@ -1534,16 +1599,17 @@ func (e *stenv) existsSubtype(x, y any, se *savedEnv, param int) bool {
 
 // forallExistsSubtype is forall_exists_subtype (subtype.c:1807-1828).
 func (e *stenv) forallExistsSubtype(x, y any, param int) bool {
-	var se savedEnv
-	e.saveEnv(&se)
+	se := e.newSavedEnv()
+	defer e.freeSavedEnv(se)
+	e.saveEnv(se)
 	e.lunions.used = 0
 	var sub bool
 	for {
-		sub = e.existsSubtype(x, y, &se, param)
+		sub = e.existsSubtype(x, y, se, param)
 		if !sub || !e.nextUnionState(false) {
 			break
 		}
-		e.saveEnv(&se)
+		e.saveEnv(se)
 	}
 	return sub
 }
@@ -1956,8 +2022,7 @@ func subtypeEnv(x, y any, env []any) bool {
 	for i := range env {
 		env[i] = nil
 	}
-	e := &stenv{envout: env}
-	sub := e.forallExistsSubtype(x, y, 0)
+	sub := freshForallExists(x, y, env)
 	// julia's `if (env)` loop runs envsz times; an empty env must not look
 	// at y, which need not be a UnionAll then
 	t := y
@@ -2031,15 +2096,11 @@ func TypesEqual(a, b any) bool {
 		}
 		baKnown = true
 	}
-	if !abKnown {
-		e := &stenv{}
-		if !e.forallExistsSubtype(a, b, 0) {
-			return false
-		}
+	if !abKnown && !freshForallExists(a, b, nil) {
+		return false
 	}
 	if !baKnown {
-		e := &stenv{}
-		ba = e.forallExistsSubtype(b, a, 0)
+		ba = freshForallExists(b, a, nil)
 	}
 	return ba
 }
