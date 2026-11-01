@@ -12,7 +12,9 @@ package interp
 import (
 	"fmt"
 	"io/fs"
+	"sync"
 	"sync/atomic"
+	"weak"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/core/dispatch"
@@ -69,6 +71,10 @@ type VM struct {
 	MaxMemoryElems int
 	emptyMemory    map[*core.DataType]*Memory
 
+	// argVectors is each Expr's args vector (exprargs.go).
+	argMu      sync.Mutex
+	argVectors map[weak.Pointer[expr.Expr]]*Struct
+
 	builtinType, intrinsicType  *core.DataType
 	tError, tUndefVar           *core.DataType
 	tTypeError, tMethodError    *core.DataType
@@ -95,7 +101,8 @@ func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
 		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources,
-		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{}}
+		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{},
+		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	vm.Base = vm.addModule("Base", nil)

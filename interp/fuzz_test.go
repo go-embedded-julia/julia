@@ -31,8 +31,8 @@ func TestEvalRecoversPanics(t *testing.T) {
 	if _, err := s.Eval("boom()"); !errors.Is(err, ErrInternal) {
 		t.Errorf("a panicking builtin: %v", err)
 	}
-	if _, err := s.Eval("getfield(:(a + 1), :args)"); !errors.Is(err, ErrUnsupported) {
-		t.Errorf("getfield of an Expr's args: %v", err)
+	if _, err := s.Eval("import Core: memoryrefswap!\nmemoryrefswap!()"); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("an atomic memory builtin: %v", err)
 	}
 }
 
