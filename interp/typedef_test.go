@@ -104,15 +104,15 @@ func TestTypedefBuiltins(t *testing.T) {
 		v, err := vm.toplevelEval(m, c.e)
 		check(t, c.name, v, err, c.want)
 	}
-	// a constructor method for a type whose constructors are not defined here
+	// a constructor method for a type defined in Go
 	body := codeInfo([]any{ret(int64(1))}, "#self#")
 	tyInt, _ := core.Apply(core.TypeType, core.Int64Type)
-	_, err = runIR(s, codeInfo([]any{
+	v, err := runIR(s, codeInfo([]any{
 		call(gr("Core", "svec"), call(gr("Core", "svec"), expr.QuoteNode{Value: tyInt}), call(gr("Core", "svec"))),
 		expr.New("method", gr("Core", "Int"), expr.SSAValue(1), body),
 		ret(nil),
 	}), true)
-	check(t, "a constructor of Int", nil, err, "!not ported")
+	check(t, "a constructor of Int", v, err, "nothing")
 	// a TypeVar shown with its bounds, as base/show.jl shows it
 	vec1 := core.TypeUnionAll(core.ArrayType.Var, core.ArrayType.Body.(*core.UnionAll).Body)
 	for tv, want := range map[*core.TypeVar]string{

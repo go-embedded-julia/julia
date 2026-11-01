@@ -231,6 +231,8 @@ func TypeOf(v any) any {
 		return SymbolType
 	case *Instance:
 		return x.Type
+	case ModuleValue:
+		return ModuleType
 	}
 	return nil
 }

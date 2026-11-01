@@ -49,6 +49,9 @@ type VM struct {
 	// ctors are the constructors of each type this VM created: the methods
 	// julia defines for Type{T}.
 	ctors map[*core.TypeName]*dispatch.Table
+	// others holds the methods of every other callee (Union{}, callable
+	// structs), the callee's type first in each signature.
+	others *dispatch.Table
 
 	// shims are the Go functions ccalls reach (ccall.go); sessions the
 	// lowering state of each module code is evaluated in.
@@ -62,6 +65,11 @@ type VM struct {
 	tBounds, tUndefRef          *core.DataType
 	tDivide                     *core.DataType
 	tExpr, tQuoteNode           *core.DataType
+	tSSAValue, tSlotNumber      *core.DataType
+	tArgument, tGotoNode        *core.DataType
+	tGotoIfNot, tEnterNode      *core.DataType
+	tReturnNode, tNewvarNode    *core.DataType
+	tCodeInfo                   *core.DataType
 	tLineNumberNode, tGlobalRef *core.DataType
 	typeofFn                    *Function
 }
@@ -74,7 +82,7 @@ const DefaultMaxDepth = 4000
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
-		sessions: map[*Module]*Session{}}
+		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	vm.Base = vm.addModule("Base", nil)
@@ -158,6 +166,10 @@ func (vm *VM) bootCore() {
 		"Integer": core.IntegerType, "Signed": core.SignedType, "Unsigned": core.UnsignedType,
 		"AbstractString": core.AbstractStringType, "String": core.StringType, "Char": core.CharType,
 		"AbstractChar": core.AbstractCharType, "Exception": core.ExceptionType,
+		// builtins.c:2530-2538
+		"AddrSpace": core.AddrSpaceType, "CPU": core.CPU, "Ref": core.RefType, "Ptr": core.PtrType,
+		"AbstractArray": core.AbstractArrayType, "DenseArray": core.DenseArrayType, "Array": core.ArrayType,
+		"GenericMemory": core.GenericMemoryType, "GenericMemoryRef": core.GenericMemoryRefType,
 		"Core": vm.Core, "Base": vm.Base, "Main": vm.Main,
 	} {
 		vm.setCore(name, t)
@@ -202,6 +214,7 @@ func (vm *VM) bootCore() {
 		vm.setCore(name, t)
 	}
 
+	vm.bootCTypes()
 	vm.bootBuiltins()
 	vm.bootTypedefs()
 	vm.bootIntrinsics()
@@ -299,6 +312,24 @@ func (vm *VM) typeOf(v any) any {
 		return vm.tLineNumberNode
 	case expr.GlobalRef:
 		return vm.tGlobalRef
+	case expr.SSAValue:
+		return vm.tSSAValue
+	case expr.SlotNumber:
+		return vm.tSlotNumber
+	case expr.Argument:
+		return vm.tArgument
+	case expr.GotoNode:
+		return vm.tGotoNode
+	case expr.GotoIfNot:
+		return vm.tGotoIfNot
+	case expr.EnterNode:
+		return vm.tEnterNode
+	case expr.ReturnNode, expr.Unreachable:
+		return vm.tReturnNode
+	case expr.NewvarNode:
+		return vm.tNewvarNode
+	case *expr.CodeInfo:
+		return vm.tCodeInfo
 	}
 	if t := core.TypeOf(v); t != nil {
 		return t

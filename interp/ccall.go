@@ -34,9 +34,14 @@ func (vm *VM) bootShims() {
 		// the top module of each session's lowering is fixed when the
 		// session is made
 		"jl_set_istopmod": func(vm *VM, a []any) (any, error) { return nil, nil },
-		// jl_type_unionall (jltypes.c:907-948)
+		// jl_type_unionall (jltypes.c:907-948); boot.jl's UnionAll asserts
+		// v::TypeVar before the call
 		"jl_type_unionall": func(vm *VM, a []any) (any, error) {
-			return vm.apply(vm.Core.own("UnionAll").Value, a)
+			v, ok := a[0].(*core.TypeVar)
+			if !ok {
+				return nil, vm.typeError("typeassert", "", core.TypeVarType, a[0])
+			}
+			return vm.typeUnionAll(v, a[1])
 		},
 		// jl_has_free_typevars (jltypes.c)
 		"jl_has_free_typevars": func(vm *VM, a []any) (any, error) { return core.HasFreeTypeVars(a[0]), nil },

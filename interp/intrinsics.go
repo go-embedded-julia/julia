@@ -1,8 +1,10 @@
 package interp
 
 import (
+	"fmt"
 	"math"
 
+	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
 
@@ -48,6 +50,26 @@ func (vm *VM) bootIntrinsics() {
 	} {
 		add(name, 2, vm.intCompare(name, cmp))
 	}
+	// runtime_intrinsics.c:1569-1574, each op on a's C type
+	add("shl_int", 2, vm.intShift("shl_int", func(a, b uint64, w uint) uint64 {
+		if b >= uint64(w) {
+			return 0
+		}
+		return a << b
+	}))
+	add("lshr_int", 2, vm.intShift("lshr_int", func(a, b uint64, w uint) uint64 {
+		if b >= uint64(w) {
+			return 0
+		}
+		return a >> b
+	}))
+	add("ashr_int", 2, vm.intShift("ashr_int", func(a, b uint64, w uint) uint64 {
+		x, s := signExtend(a, w), signExtend(b, w)
+		if s < 0 || s >= int64(w) {
+			return uint64(x >> (w - 1))
+		}
+		return uint64(x >> s)
+	}))
 	add("neg_int", 1, vm.intUnary("neg_int", func(a uint64) uint64 { return -a }))
 	add("not_int", 1, vm.intUnary("not_int", func(a uint64) uint64 { return ^a }))
 	for name, div := range map[expr.Symbol]func(a, b uint64, w uint) (uint64, bool){
@@ -99,6 +121,18 @@ func (vm *VM) bootIntrinsics() {
 	} {
 		add(name, 2, vm.floatCompare(name, cmp))
 	}
+	mask := func(bits uint64, w uint) uint64 {
+		if w >= 64 {
+			return bits
+		}
+		return bits & (1<<w - 1)
+	}
+	add("trunc_int", 2, vm.intCvt("trunc_int", func(b uint64, from, to uint) uint64 { return mask(b, to) }))
+	add("zext_int", 2, vm.intCvt("zext_int", func(b uint64, from, to uint) uint64 { return mask(b, from) }))
+	add("sext_int", 2, vm.intCvt("sext_int", func(b uint64, from, to uint) uint64 {
+		return mask(uint64(signExtend(b, from)), to)
+	}))
+	add("bitcast", 2, biBitcast)
 	// jl_fintrinsic_1 (runtime_intrinsics.c:1068-1092), reached through
 	// un_fintrinsic's jl_neg_float_withtype, whose name the messages carry
 	// (:1059-1064)
@@ -159,6 +193,107 @@ func (vm *VM) bootIntrinsics() {
 // traps and julia raises DivideError, arm64 does not trap. The reference
 // julia of the goldens runs on arm64, so these follow arm64's sdiv, udiv and
 // msub: x/0 is 0, x%0 is x, MIN/-1 is MIN and MIN%-1 is 0.
+
+// primBits returns the bits of any primitive value this VM represents and
+// its width: the integers, Bool, Char, and the floats' bit patterns.
+func primBits(v any) (uint64, uint, bool) {
+	switch x := v.(type) {
+	case float64:
+		return math.Float64bits(x), 64, true
+	case float32:
+		return uint64(math.Float32bits(x)), 32, true
+	}
+	return intBits(v)
+}
+
+// bitsValue is jl_new_bits: the value of primitive type t with these bits
+// (truncated to t's width), false for a primitive type without a Go
+// representation here (Int128, Float16, a user's primitive type).
+func bitsValue(t *core.DataType, bits uint64) (any, bool) {
+	switch t {
+	case core.Int8Type:
+		return int8(bits), true
+	case core.Int16Type:
+		return int16(bits), true
+	case core.Int32Type:
+		return int32(bits), true
+	case core.Int64Type:
+		return int64(bits), true
+	case core.UInt8Type:
+		return uint8(bits), true
+	case core.UInt16Type:
+		return uint16(bits), true
+	case core.UInt32Type:
+		return uint32(bits), true
+	case core.UInt64Type:
+		return bits, true
+	case core.BoolType:
+		return bits&1 == 1, true
+	case core.CharType:
+		return expr.Char(bits), true
+	case core.Float32Type:
+		return math.Float32frombits(uint32(bits)), true
+	case core.Float64Type:
+		return math.Float64frombits(bits), true
+	}
+	return nil, false
+}
+
+// cvtTarget is the target check of jl_intrinsic_cvt and jl_bitcast
+// (runtime_intrinsics.c:397-399, 1034-1036).
+func (vm *VM) cvtTarget(name expr.Symbol, ty any) (*core.DataType, error) {
+	t, ok := ty.(*core.DataType)
+	if !ok {
+		return nil, vm.typeError(name, "", core.DataTypeType, ty)
+	}
+	if !t.IsConcrete || t.Name.Bits == 0 {
+		return nil, vm.errorf("%s: target type not a leaf primitive type", name)
+	}
+	return t, nil
+}
+
+// intCvt is jl_intrinsic_cvt (runtime_intrinsics.c:1032-1045) for trunc_int,
+// sext_int and zext_int: the value's bits resized to the target's width.
+func (vm *VM) intCvt(name expr.Symbol, op func(bits uint64, from, to uint) uint64) func(*VM, []any) (any, error) {
+	return func(vm *VM, a []any) (any, error) {
+		t, err := vm.cvtTarget(name, a[0])
+		if err != nil {
+			return nil, err
+		}
+		x, w, ok := primBits(a[1])
+		if !ok {
+			return nil, vm.errorf("%s: value is not a primitive type", name)
+		}
+		v, ok := bitsValue(t, op(x, w, uint(t.Name.Bits)))
+		if !ok {
+			return nil, fmt.Errorf("%w: %s to %s", ErrUnsupported, name, t.Name.Name)
+		}
+		return v, nil
+	}
+}
+
+// biBitcast is jl_bitcast (runtime_intrinsics.c:395-409).
+func biBitcast(vm *VM, a []any) (any, error) {
+	t, err := vm.cvtTarget("bitcast", a[0])
+	if err != nil {
+		return nil, err
+	}
+	x, w, ok := primBits(a[1])
+	if !ok {
+		return nil, vm.errorf("bitcast: value not a primitive type")
+	}
+	if int(w) != t.Name.Bits {
+		return nil, vm.errorf("bitcast: argument size does not match size of target type")
+	}
+	if vm.typeOf(a[1]) == any(t) {
+		return a[1], nil
+	}
+	v, ok := bitsValue(t, x)
+	if !ok {
+		return nil, fmt.Errorf("%w: bitcast to %s", ErrUnsupported, t.Name.Name)
+	}
+	return v, nil
+}
 
 // intBits returns the bits of an integer-like primitive value and its width.
 func intBits(v any) (uint64, uint, bool) {
@@ -236,6 +371,26 @@ func (vm *VM) intBinary(name expr.Symbol, op func(a, b uint64, w uint) uint64) f
 		x, y, w, err := vm.sameIntTypes(name, a[0], a[1])
 		if err != nil {
 			return nil, err
+		}
+		return fromBits(a[0], op(x, y, w)), nil
+	}
+}
+
+// intShift is jl_iintrinsic_2 with cvtb set (runtime_intrinsics.c:1174-1211):
+// b may be of another primitive type, zero-extended or truncated to a's
+// width before the op sees it.
+func (vm *VM) intShift(name expr.Symbol, op func(a, b uint64, w uint) uint64) func(*VM, []any) (any, error) {
+	return func(vm *VM, a []any) (any, error) {
+		y, wb, okb := intBits(a[1])
+		if vm.typeOf(a[0]) != vm.typeOf(a[1]) && !okb {
+			return nil, vm.errorf("%s: b is not a primitive type", name)
+		}
+		x, w, ok := intBits(a[0])
+		if !ok {
+			return nil, vm.errorf("%s: a is not a primitive type", name)
+		}
+		if wb > w {
+			y &= 1<<w - 1
 		}
 		return fromBits(a[0], op(x, y, w)), nil
 	}

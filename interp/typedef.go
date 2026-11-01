@@ -88,15 +88,20 @@ func (vm *VM) bootTypeCtors() {
 		if !ok {
 			return nil, vm.typeError("typeassert", "", core.TypeVarType, a[0])
 		}
-		// jl_type_unionall (jltypes.c:907-948)
-		if _, isVar := a[1].(*core.TypeVar); !core.IsType(a[1]) && !isVar {
-			if _, ok := a[1].(*core.Vararg); ok {
-				return nil, fmt.Errorf("%w: UnionAll over a bare Vararg (deprecated)", ErrUnsupported)
-			}
-			return nil, vm.typeError("UnionAll", "", core.TypeType, a[1])
-		}
-		return core.TypeUnionAll(v, a[1]), nil
+		return vm.typeUnionAll(v, a[1])
 	})
+}
+
+// typeUnionAll is jl_type_unionall (jltypes.c:907-948), the C function the
+// UnionAll constructor ccalls.
+func (vm *VM) typeUnionAll(v *core.TypeVar, body any) (any, error) {
+	if _, isVar := body.(*core.TypeVar); !core.IsType(body) && !isVar {
+		if _, ok := body.(*core.Vararg); ok {
+			return nil, fmt.Errorf("%w: UnionAll over a bare Vararg (deprecated)", ErrUnsupported)
+		}
+		return nil, vm.typeError("UnionAll", "", core.TypeType, body)
+	}
+	return core.TypeUnionAll(v, body), nil
 }
 
 // biApplyIterate is jl_f__apply_iterate (builtins.c:661-830) for the

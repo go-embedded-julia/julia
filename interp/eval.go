@@ -427,9 +427,10 @@ func (f *frame) methodDef(s sMethodDef) error {
 		tab = vm.funcs[ft].Table
 	} else if name := ctorTypeName(argtypes[0]); name != nil && vm.ctors[name] != nil {
 		tab, params = vm.ctors[name], argtypes
-	}
-	if tab == nil {
-		return fmt.Errorf("%w: a method of %s, which is not a generic function of this VM", ErrUnsupported, core.Show(argtypes[0]))
+	} else {
+		// any other callee — Union{}, a callable struct — keeps its type
+		// first, in the one table julia would put it in with the rest
+		tab, params = vm.others, argtypes
 	}
 	src, ok := mv.(*expr.CodeInfo)
 	if !ok {
@@ -476,7 +477,7 @@ func (vm *VM) apply(fv any, args []any) (any, error) {
 			return vm.callTable(vm.ctors[d.Name], fn, args, true)
 		}
 	}
-	return nil, vm.methodErrorFor(fv, args)
+	return vm.callTable(vm.others, fv, args, true)
 }
 
 // ctorTypeName is the type a constructor signature's first parameter

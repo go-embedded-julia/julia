@@ -197,12 +197,14 @@ func (vm *VM) tupleTypeOf(vals []any) *core.DataType {
 
 // argTupleType is jl_inst_arg_tuple_type with leaf set (jltypes.c:
 // 2477-2502), the tuple a call dispatches on: each argument's type, or
-// Type{a} for an argument a that is a type. Neither step can fail on the
-// values of a call.
+// Type{a} for an argument a that is a type. A type with free type
+// variables would make Type{a} no dispatch type at all (the TODO of
+// jltypes.c:2487-2490); it dispatches on its kind, typeof(a), instead.
+// Neither step can fail on the values of a call.
 func (vm *VM) argTupleType(args []any) *core.DataType {
 	types := make([]any, len(args))
 	for i, a := range args {
-		if core.IsType(a) {
+		if core.IsType(a) && !core.HasFreeTypeVars(a) {
 			types[i], _ = core.Apply(core.TypeType, a)
 		} else {
 			types[i] = vm.typeOf(a)

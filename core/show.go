@@ -104,6 +104,8 @@ func show(b *strings.Builder, v any) {
 		b.WriteByte(')')
 	case *Instance:
 		b.WriteString(x.Bits)
+	case ModuleValue:
+		b.WriteString(x.ModuleName())
 	default:
 		b.WriteString("#unknown")
 	}

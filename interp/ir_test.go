@@ -113,7 +113,7 @@ func TestIR(t *testing.T) {
 		{"const without a value", []any{expr.New("const", gr("L", "c"))}, nil, true, "!not ported"},
 		{"const value error", []any{expr.New("const", gr("L", "c"), ssa(9))}, nil, true, "!access to invalid SSAValue"},
 		{"const of an unknown module", []any{expr.New("const", gr("Nope", "c"), int64(1))}, nil, true, "!not ported"},
-		{"module form", []any{expr.New("module", true, expr.Symbol("M"), expr.New("block"))}, nil, true, "!not ported"},
+		{"module form", []any{expr.New("module", true, expr.Symbol("M"), expr.New("block")), ret(nil)}, nil, true, "nothing"},
 		{"export", []any{expr.New("export", expr.Symbol("q")), ret(nil)}, nil, true, "nothing"},
 		{"export of a non-symbol", []any{expr.New("export", int64(1))}, nil, true, "!syntax: malformed"},
 		{"public", []any{expr.New("public", expr.Symbol("q")), ret(nil)}, nil, true, "nothing"},

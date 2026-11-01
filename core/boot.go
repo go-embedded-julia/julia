@@ -31,8 +31,11 @@ var (
 	AbstractStringType, StringType, FunctionType, ModuleType, ExceptionType        *DataType
 
 	AbstractArrayType, DenseArrayType, ArrayType, RefType, PtrType, PairType *UnionAll
-	ValType, SomeType, AbstractDictType, DictType                            *UnionAll
-	MissingType                                                              *DataType
+	AddrSpaceType, GenericMemoryType, GenericMemoryRefType                   *UnionAll
+	// CPU is the CPU address space, AddrSpace{Core}(0) (jltypes.c:3297-3298)
+	CPU                                           *Instance
+	ValType, SomeType, AbstractDictType, DictType *UnionAll
+	MissingType                                   *DataType
 )
 
 // spec describes one built-in type.
@@ -171,12 +174,34 @@ func init() {
 	DenseArrayType = define(spec{module: "Core", name: "DenseArray", abstract: true,
 		vars:  []*TypeVar{tv("T"), tv("N")},
 		super: func(v []any) any { return mustApply(AbstractArrayType, v...) }}).(*UnionAll)
-	ArrayType = define(spec{module: "Core", name: "Array", mutable: true,
-		vars:  []*TypeVar{tv("T"), tv("N")},
-		super: func(v []any) any { return mustApply(DenseArrayType, v...) }}).(*UnionAll)
 	RefType = define(spec{module: "Core", name: "Ref", abstract: true, vars: []*TypeVar{tv("T")}}).(*UnionAll)
 	PtrType = define(spec{module: "Core", name: "Ptr", isbits: true, vars: []*TypeVar{tv("T")},
 		super: func(v []any) any { return mustApply(RefType, v...) }}).(*UnionAll)
+	PtrType.Body.(*DataType).Name.Bits = 64 // sizeof(void*)*8 of the 64-bit julia this is
+
+	// jltypes.c:3293-3365: the address space, memory and arrays over it
+	AddrSpaceType = define(spec{module: "Core", name: "AddrSpace", isbits: true, vars: []*TypeVar{tv("Backend")}}).(*UnionAll)
+	AddrSpaceType.Body.(*DataType).Name.Bits = 8
+	CPU = &Instance{Type: mustApply(AddrSpaceType, CoreModule).(*DataType), Bits: "Core.CPU"}
+	voidPtr := mustApply(PtrType, NothingType)
+	GenericMemoryType = define(spec{module: "Core", name: "GenericMemory", mutable: true,
+		vars:   []*TypeVar{tv("isatomic"), tv("T"), tv("addrspace")},
+		super:  func(v []any) any { return mustApply(DenseArrayType, v[1], int64(1)) },
+		fields: func(v []any) []any { return []any{Int64Type, voidPtr} }}).(*UnionAll)
+	GenericMemoryType.Body.(*UnionAll).Body.(*UnionAll).Body.(*DataType).Name.FieldNames = []Symbol{"length", "ptr"}
+	GenericMemoryRefType = define(spec{module: "Core", name: "GenericMemoryRef",
+		vars:   []*TypeVar{tv("isatomic"), tv("T"), tv("addrspace")},
+		super:  func(v []any) any { return mustApply(RefType, v[1]) },
+		fields: func(v []any) []any { return []any{voidPtr, mustApply(GenericMemoryType, v...)} }}).(*UnionAll)
+	GenericMemoryRefType.Body.(*UnionAll).Body.(*UnionAll).Body.(*DataType).Name.FieldNames = []Symbol{"ptr_or_offset", "mem"}
+	ArrayType = define(spec{module: "Core", name: "Array", mutable: true,
+		vars:  []*TypeVar{tv("T"), tv("N")},
+		super: func(v []any) any { return mustApply(DenseArrayType, v...) },
+		fields: func(v []any) []any {
+			return []any{mustApply(GenericMemoryRefType, Symbol("not_atomic"), v[0], CPU),
+				mustApply(AnyTupleType, &Vararg{T: Int64Type, N: v[1]})}
+		}}).(*UnionAll)
+	ArrayType.Body.(*UnionAll).Body.(*DataType).Name.FieldNames = []Symbol{"ref", "size"}
 	PairType = define(spec{module: "Core", name: "Pair", vars: []*TypeVar{tv("A"), tv("B")},
 		fields: func(v []any) []any { return v }}).(*UnionAll)
 
