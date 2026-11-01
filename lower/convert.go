@@ -152,11 +152,7 @@ func (c *converter) fromList(e []any) any {
 		}
 		return expr.GlobalRef{Mod: m.Path[len(m.Path)-1], Name: c.fromSx(args[1]).(sym)}
 	case hd == sTop:
-		top := c.top
-		if top == "" {
-			top = "Base"
-		}
-		return expr.GlobalRef{Mod: top, Name: c.fromSx(args[0]).(sym)}
+		return expr.GlobalRef{Mod: c.top, Name: c.fromSx(args[0]).(sym)}
 	case hd == sCore:
 		return expr.GlobalRef{Mod: "Core", Name: c.fromSx(args[0]).(sym)}
 	case hd == "thismodule":
