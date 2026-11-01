@@ -167,7 +167,7 @@ func (vm *VM) newWorld() uint64 { return vm.world.Add(1) }
 // version defines; ifelse, svec, Typeof and the rest stay qualified.
 var coreExports = map[expr.Symbol]bool{
 	"Core": true, // every module exports its own name (jl_add_default_names)
-	"Any": true, "DataType": true, "Vararg": true, "Tuple": true, "Type": true, "UnionAll": true,
+	"Any":  true, "DataType": true, "Vararg": true, "Tuple": true, "Type": true, "UnionAll": true,
 	"TypeVar": true, "Union": true, "Nothing": true, "Cvoid": true, "Function": true, "Module": true,
 	"Symbol": true, "Number": true, "Real": true, "Integer": true, "Bool": true, "AbstractFloat": true,
 	"Float16": true, "Float32": true, "Float64": true, "Signed": true, "Int": true, "Int8": true,
