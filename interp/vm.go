@@ -68,7 +68,7 @@ type VM struct {
 	tTypeError, tMethodError    *core.DataType
 	tStackOverflow, tArgError   *core.DataType
 	tBounds, tUndefRef          *core.DataType
-	tDivide                     *core.DataType
+	tDivide, tLoadError         *core.DataType
 	tExpr, tQuoteNode           *core.DataType
 	tSSAValue, tSlotNumber      *core.DataType
 	tArgument, tGotoNode        *core.DataType

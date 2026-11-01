@@ -294,6 +294,95 @@ func (vm *VM) astField(v, arg any) (any, error) {
 		names = []expr.Symbol{"mod", "name", "binding"}
 		get = func(i int) (any, bool) { return x.Name, i == 1 }
 	}
+	return vm.goField(v, t, names, get, arg)
+}
+
+// kindField is getfield of the type-system values core holds, with the
+// layouts jltypes.c gives them: DataType :2979-2995, TypeName :3008-3025,
+// TypeVar :3081-3084, UnionAll :3096-3099, Union :3104-3107, and Vararg
+// (T, N). The fields of runtime bookkeeping (layout, hash, flags, caches)
+// have no value here.
+func (vm *VM) kindField(v, arg any) (any, error) {
+	t := vm.typeOf(v).(*core.DataType)
+	var names []expr.Symbol
+	var get func(i int) (any, bool)
+	svec := func(xs []any) SVec {
+		if xs == nil {
+			return SVec{}
+		}
+		return SVec(xs)
+	}
+	switch x := v.(type) {
+	case *core.DataType:
+		names = []expr.Symbol{"name", "super", "parameters", "types", "instance", "layout", "hash", "flags"}
+		get = func(i int) (any, bool) {
+			switch i {
+			case 0:
+				return x.Name, true
+			case 1:
+				if x.Super == nil {
+					return core.AnyType, true // Any.super === Any
+				}
+				return x.Super, true
+			case 2:
+				return svec(x.Parameters), true
+			case 3:
+				// empty for abstract and primitive types; undefined for a
+				// struct before _typebody! sets it
+				if ft, ok := x.FieldTypes(); ok {
+					return svec(ft), true
+				}
+				if x.Name.Abstract || x.Name.Bits > 0 {
+					return SVec{}, true
+				}
+				return nil, true
+			}
+			return nil, false
+		}
+	case *core.TypeName:
+		names = []expr.Symbol{"name", "module", "singletonname", "names", "atomicfields", "constfields",
+			"wrapper", "Typeofwrapper", "cache", "linearcache", "partial", "hash", "max_args",
+			"n_uninitialized", "flags", "cache_entry_count", "max_methods", "constprop_heuristic"}
+		get = func(i int) (any, bool) {
+			switch i {
+			case 0:
+				return expr.Symbol(x.Name), true
+			case 3:
+				fs := make(SVec, len(x.FieldNames))
+				for j, n := range x.FieldNames {
+					fs[j] = n
+				}
+				return fs, true
+			case 6:
+				return x.Wrapper, true
+			}
+			return nil, false
+		}
+	case *core.TypeVar:
+		names = []expr.Symbol{"name", "lb", "ub"}
+		get = func(i int) (any, bool) { return []any{expr.Symbol(x.Name), x.LB, x.UB}[i], true }
+	case *core.UnionAll:
+		names = []expr.Symbol{"var", "body"}
+		get = func(i int) (any, bool) { return []any{x.Var, x.Body}[i], true }
+	case *core.Union:
+		names = []expr.Symbol{"a", "b"}
+		get = func(i int) (any, bool) { return []any{x.A, x.B}[i], true }
+	case *core.Vararg:
+		// an absent T or N is undefined, as jl_vararg_t leaves it NULL
+		names = []expr.Symbol{"T", "N"}
+		get = func(i int) (any, bool) { return []any{x.T, x.N}[i], true }
+	}
+	f, err := vm.goField(v, t, names, get, arg)
+	if err == nil && f == nil {
+		return nil, vm.exception(vm.tUndefRef)
+	}
+	return f, err
+}
+
+// goField is getfield of a value package core or expr holds as a Go value:
+// the field found by index or name, or ErrUnsupported for a field the
+// interpreter keeps no value for.
+func (vm *VM) goField(v any, t *core.DataType, names []expr.Symbol, get func(int) (any, bool), arg any) (any, error) {
 	i, err := vm.fieldIndex("getfield", t, names, len(names), v, arg)
 	if err != nil {
 		return nil, err
@@ -329,6 +418,8 @@ func biGetfield(vm *VM, args []any) (any, error) {
 		return v.Fields[i], nil
 	case *expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
 		return vm.astField(v, args[1])
+	case *core.DataType, *core.TypeName, *core.TypeVar, *core.UnionAll, *core.Union, *core.Vararg:
+		return vm.kindField(v, args[1])
 	}
 	// a value without fields (an Int, a Symbol …): every index is out of
 	// bounds, every name unknown

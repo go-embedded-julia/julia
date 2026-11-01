@@ -219,6 +219,8 @@ func TypeOf(v any) any {
 		return UnionAllType
 	case *TypeVar:
 		return TypeVarType
+	case *TypeName:
+		return TypeNameType
 	case *Vararg:
 		return TypeofVarargType
 	case *bottomType:

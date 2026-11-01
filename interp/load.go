@@ -43,19 +43,25 @@ func (vm *VM) jlLoad(a []any) (any, error) {
 	}
 	vm.depth++
 	defer func() { vm.depth-- }()
-	// jl_parse_eval_all (toplevel.c:1101-1172). The error is rethrown as is:
-	// jl_loaderror_type is set by post_boot_hooks, after boot.jl.
+	// jl_parse_eval_all (toplevel.c:1101-1172)
 	top := syntax.ParseAll(src, name).(*expr.Expr)
 	if top.Head != "toplevel" {
 		return nil, vm.syntaxError(top)
 	}
 	s := vm.sessionFor(m)
 	var v any
+	line := 0
 	for _, form := range top.Args {
-		if _, ok := form.(expr.LineNumberNode); ok {
+		if l, ok := form.(expr.LineNumberNode); ok {
+			line = l.Line
 			continue
 		}
 		if v, err = s.evalForm(form); err != nil {
+			// a Julia exception comes out as LoadError(file, line, error)
+			// once post_boot_hooks has found LoadError; before that, as is
+			if t, ok := err.(*Thrown); ok && vm.tLoadError != nil {
+				return nil, vm.exception(vm.tLoadError, name, int64(line), t.Value)
+			}
 			return nil, err
 		}
 	}
