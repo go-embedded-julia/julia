@@ -59,6 +59,7 @@ func toSx(v any) any {
 // runs in, (thismodule).
 type converter struct {
 	mod      expr.Module
+	top      expr.Symbol  // (top x) resolves here: Base, or Core inside Core
 	notImage map[sym]bool // modules of GlobalRefs known not to be in the image
 }
 
@@ -151,7 +152,7 @@ func (c *converter) fromList(e []any) any {
 		}
 		return expr.GlobalRef{Mod: m.Path[len(m.Path)-1], Name: c.fromSx(args[1]).(sym)}
 	case hd == sTop:
-		return expr.GlobalRef{Mod: "Base", Name: c.fromSx(args[0]).(sym)}
+		return expr.GlobalRef{Mod: c.top, Name: c.fromSx(args[0]).(sym)}
 	case hd == sCore:
 		return expr.GlobalRef{Mod: "Core", Name: c.fromSx(args[0]).(sym)}
 	case hd == "thismodule":

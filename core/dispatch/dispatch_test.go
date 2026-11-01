@@ -116,8 +116,8 @@ func TestBadInputs(t *testing.T) {
 	if _, _, err := tab.Lookup(core.RealType, 0); err == nil {
 		t.Error("a non-tuple call was accepted")
 	}
-	if _, _, err := tab.Lookup(mustApply(t, core.AnyTupleType, core.RealType), 0); err == nil {
-		t.Error("an abstract call tuple was accepted")
+	if _, _, err := tab.Lookup(mustApply(t, core.AnyTupleType, core.DataTypeType), 0); !errors.Is(err, ErrNoMethod) {
+		t.Errorf("a call tuple holding a kind: %v; want no method in an empty table", err)
 	}
 	if _, _, err := tab.Lookup(core.Int64Type, 0); err == nil {
 		t.Error("a concrete non-tuple was accepted")

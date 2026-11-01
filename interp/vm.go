@@ -11,6 +11,7 @@ package interp
 
 import (
 	"fmt"
+	"io/fs"
 	"sync/atomic"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -49,14 +50,31 @@ type VM struct {
 	// ctors are the constructors of each type this VM created: the methods
 	// julia defines for Type{T}.
 	ctors map[*core.TypeName]*dispatch.Table
+	// others holds the methods of every other callee (Union{}, callable
+	// structs), the callee's type first in each signature.
+	others *dispatch.Table
+
+	// shims are the Go functions ccalls reach (ccall.go); sessions the
+	// lowering state of each module code is evaluated in.
+	shims    map[expr.Symbol]shim
+	sessions map[*Module]*Session
+
+	// Sources holds the files include reads (load.go): julia's own sources
+	// by default, rooted as julia's base/ is.
+	Sources fs.FS
 
 	builtinType, intrinsicType  *core.DataType
 	tError, tUndefVar           *core.DataType
 	tTypeError, tMethodError    *core.DataType
 	tStackOverflow, tArgError   *core.DataType
 	tBounds, tUndefRef          *core.DataType
-	tDivide                     *core.DataType
+	tDivide, tLoadError         *core.DataType
 	tExpr, tQuoteNode           *core.DataType
+	tSSAValue, tSlotNumber      *core.DataType
+	tArgument, tGotoNode        *core.DataType
+	tGotoIfNot, tEnterNode      *core.DataType
+	tReturnNode, tNewvarNode    *core.DataType
+	tCodeInfo                   *core.DataType
 	tLineNumberNode, tGlobalRef *core.DataType
 	typeofFn                    *Function
 }
@@ -68,7 +86,8 @@ const DefaultMaxDepth = 4000
 // Main in which Eval runs (L, as the oracle names its scratch module).
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
-		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{}}
+		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
+		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	vm.Base = vm.addModule("Base", nil)
@@ -124,7 +143,7 @@ var coreExports = map[expr.Symbol]bool{
 	"getglobal": true, "setglobal!": true, "isdefinedglobal": true, "<:": true, "typeof": true,
 	"isa": true, "typeassert": true, "nothing": true, "Main": true,
 	"Expr": true, "QuoteNode": true, "LineNumberNode": true, "GlobalRef": true,
-	"fieldtype": true,
+	"fieldtype": true, "setfield!": true,
 }
 
 // setCore binds name in Core in world 0, exported when Core exports it.
@@ -152,6 +171,10 @@ func (vm *VM) bootCore() {
 		"Integer": core.IntegerType, "Signed": core.SignedType, "Unsigned": core.UnsignedType,
 		"AbstractString": core.AbstractStringType, "String": core.StringType, "Char": core.CharType,
 		"AbstractChar": core.AbstractCharType, "Exception": core.ExceptionType,
+		// builtins.c:2530-2538
+		"AddrSpace": core.AddrSpaceType, "CPU": core.CPU, "Ref": core.RefType, "Ptr": core.PtrType,
+		"AbstractArray": core.AbstractArrayType, "DenseArray": core.DenseArrayType, "Array": core.ArrayType,
+		"GenericMemory": core.GenericMemoryType, "GenericMemoryRef": core.GenericMemoryRefType,
 		"Core": vm.Core, "Base": vm.Base, "Main": vm.Main,
 	} {
 		vm.setCore(name, t)
@@ -196,9 +219,11 @@ func (vm *VM) bootCore() {
 		vm.setCore(name, t)
 	}
 
+	vm.bootCTypes()
 	vm.bootBuiltins()
 	vm.bootTypedefs()
 	vm.bootIntrinsics()
+	vm.bootShims()
 
 	// Base.iterate, the iterate lowering passes to Core._apply_iterate for
 	// every splat: declared with no methods, so that spreading a tuple
@@ -238,7 +263,9 @@ func mustType(module, name string, super *core.DataType, abstract bool, fields [
 // named #f under Function (jl_declare_const_gf, jl_new_generic_function).
 func (vm *VM) newFunction(m *Module, name expr.Symbol) *Function {
 	t := mustType(string(m.Name), "#"+string(name), core.FunctionType, false, nil, nil)
-	return &Function{Name: name, Type: t, Table: &dispatch.Table{Name: string(name)}}
+	fn := &Function{Name: name, Type: t, Table: &dispatch.Table{Name: string(name)}}
+	vm.funcs[t] = fn
+	return fn
 }
 
 // typeOf is jl_typeof.
@@ -290,6 +317,24 @@ func (vm *VM) typeOf(v any) any {
 		return vm.tLineNumberNode
 	case expr.GlobalRef:
 		return vm.tGlobalRef
+	case expr.SSAValue:
+		return vm.tSSAValue
+	case expr.SlotNumber:
+		return vm.tSlotNumber
+	case expr.Argument:
+		return vm.tArgument
+	case expr.GotoNode:
+		return vm.tGotoNode
+	case expr.GotoIfNot:
+		return vm.tGotoIfNot
+	case expr.EnterNode:
+		return vm.tEnterNode
+	case expr.ReturnNode, expr.Unreachable:
+		return vm.tReturnNode
+	case expr.NewvarNode:
+		return vm.tNewvarNode
+	case *expr.CodeInfo:
+		return vm.tCodeInfo
 	}
 	if t := core.TypeOf(v); t != nil {
 		return t

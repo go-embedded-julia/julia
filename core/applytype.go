@@ -22,13 +22,29 @@ func isNestableTypeParam(t any) bool {
 	return true
 }
 
+// ModuleValue is a Julia module as a value core can hold: a module may be a
+// type parameter (jl_valid_type_param, builtins.c:1543-1544), as in
+// AddrSpace{Core}. The interpreter's modules implement it.
+type ModuleValue interface{ ModuleName() string }
+
+// coreModule is Core as a type parameter. core's types are shared by every
+// VM of the process while each VM has its own Core module, so the types
+// that name Core in their parameters (AddrSpace{Core}, the CPU address
+// space and the memory and array types over it) name this one token.
+type coreModule struct{}
+
+func (coreModule) ModuleName() string { return "Core" }
+
+// CoreModule is the Core of the built-in types' parameters.
+var CoreModule ModuleValue = coreModule{}
+
 // ValidTypeParam is jl_valid_type_param (builtins.c:1536-1545): v may be a
 // parameter of a type.
 func ValidTypeParam(v any) bool {
 	switch x := v.(type) {
 	case *Vararg:
 		return false
-	case *DataType, *Union, *UnionAll, *bottomType, *TypeVar, Symbol:
+	case *DataType, *Union, *UnionAll, *bottomType, *TypeVar, Symbol, ModuleValue:
 		return true
 	case *Instance:
 		return x.Type.isbits() || isNestableTypeParam(x.Type)

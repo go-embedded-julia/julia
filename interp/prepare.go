@@ -361,7 +361,7 @@ func (c *code) prepExpr(x *expr.Expr) op {
 			}
 		}
 	case "foreigncall":
-		return oRaise{"`ccall` requires the compiler"}
+		return c.prepForeign(x)
 	case "cfunction":
 		return oRaise{"`cfunction` requires the compiler"}
 	case "invoke", "splatnew", "new_opaque_closure":

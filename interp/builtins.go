@@ -29,6 +29,9 @@ func (vm *VM) bootBuiltins() {
 		"get_binding_type": biGetBindingType,
 		"apply_type":       biApplyType,
 		"_expr":            biExpr,
+		"setfield!":        biSetfield,
+		"invokelatest":     biInvokelatest,
+		"invoke_in_world":  biInvokeInWorld,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
 		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})
@@ -161,6 +164,34 @@ func biThrow(vm *VM, args []any) (any, error) {
 	return nil, &Thrown{Value: args[0]}
 }
 
+// biInvokelatest is jl_f_invokelatest (builtins.c:874-884): the call runs
+// in the latest world, and the task's age is restored after it.
+func biInvokelatest(vm *VM, args []any) (any, error) {
+	if err := vm.nargs("invokelatest", args, 1, -1); err != nil {
+		return nil, err
+	}
+	last := vm.taskWorld
+	defer func() { vm.taskWorld = last }()
+	vm.taskWorld = vm.World()
+	return vm.apply(args[0], args[1:])
+}
+
+// biInvokeInWorld is jl_f_invoke_in_world (builtins.c:888-903): as
+// invokelatest, capped at the given world.
+func biInvokeInWorld(vm *VM, args []any) (any, error) {
+	if err := vm.nargs("invoke_in_world", args, 2, -1); err != nil {
+		return nil, err
+	}
+	w, ok := args[0].(uint64)
+	if err := vm.typechk("invoke_in_world", core.UInt64Type, args[0], ok); err != nil {
+		return nil, err
+	}
+	last := vm.taskWorld
+	defer func() { vm.taskWorld = last }()
+	vm.taskWorld = min(vm.World(), w)
+	return vm.apply(args[1], args[2:])
+}
+
 func biIfelse(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("ifelse", args, 3, 3); err != nil {
 		return nil, err
@@ -196,12 +227,14 @@ func (vm *VM) tupleTypeOf(vals []any) *core.DataType {
 
 // argTupleType is jl_inst_arg_tuple_type with leaf set (jltypes.c:
 // 2477-2502), the tuple a call dispatches on: each argument's type, or
-// Type{a} for an argument a that is a type. Neither step can fail on the
-// values of a call.
+// Type{a} for an argument a that is a type. A type with free type
+// variables would make Type{a} no dispatch type at all (the TODO of
+// jltypes.c:2487-2490); it dispatches on its kind, typeof(a), instead.
+// Neither step can fail on the values of a call.
 func (vm *VM) argTupleType(args []any) *core.DataType {
 	types := make([]any, len(args))
 	for i, a := range args {
-		if core.IsType(a) {
+		if core.IsType(a) && !core.HasFreeTypeVars(a) {
 			types[i], _ = core.Apply(core.TypeType, a)
 		} else {
 			types[i] = vm.typeOf(a)
@@ -233,6 +266,125 @@ func (vm *VM) fieldIndex(fname expr.Symbol, st *core.DataType, names []expr.Symb
 	return 0, vm.typeError(fname, "", core.TypeUnion(core.Int64Type, core.SymbolType), arg)
 }
 
+// astField is getfield of the AST nodes held as package expr's values, with
+// the layouts jltypes.c gives them: Expr(head, args) :3388-3392,
+// LineNumberNode(line, file) :3395-3398, QuoteNode(value) :3455-3458,
+// GlobalRef(mod, name, binding) :3284-3287. Expr's args (a Vector{Any}) and
+// GlobalRef's module and binding have no value here yet.
+func (vm *VM) astField(v, arg any) (any, error) {
+	t := vm.typeOf(v).(*core.DataType)
+	var names []expr.Symbol
+	var get func(i int) (any, bool)
+	switch x := v.(type) {
+	case *expr.Expr:
+		names = []expr.Symbol{"head", "args"}
+		get = func(i int) (any, bool) { return x.Head, i == 0 }
+	case expr.QuoteNode:
+		names = []expr.Symbol{"value"}
+		get = func(i int) (any, bool) { return x.Value, true }
+	case expr.LineNumberNode:
+		names = []expr.Symbol{"line", "file"}
+		get = func(i int) (any, bool) {
+			if i == 0 {
+				return int64(x.Line), true
+			}
+			return x.File, true
+		}
+	case expr.GlobalRef:
+		names = []expr.Symbol{"mod", "name", "binding"}
+		get = func(i int) (any, bool) { return x.Name, i == 1 }
+	}
+	return vm.goField(v, t, names, get, arg)
+}
+
+// kindField is getfield of the type-system values core holds, with the
+// layouts jltypes.c gives them: DataType :2979-2995, TypeName :3008-3025,
+// TypeVar :3081-3084, UnionAll :3096-3099, Union :3104-3107, and Vararg
+// (T, N). The fields of runtime bookkeeping (layout, hash, flags, caches)
+// have no value here.
+func (vm *VM) kindField(v, arg any) (any, error) {
+	t := vm.typeOf(v).(*core.DataType)
+	var names []expr.Symbol
+	var get func(i int) (any, bool)
+	switch x := v.(type) {
+	case *core.DataType:
+		names = []expr.Symbol{"name", "super", "parameters", "types", "instance", "layout", "hash", "flags"}
+		get = func(i int) (any, bool) {
+			switch i {
+			case 0:
+				return x.Name, true
+			case 1:
+				return x.Super, true // Any.super === Any, as core sets it
+			case 2:
+				return SVec(x.Parameters), true
+			case 3:
+				// empty for abstract and primitive types; undefined for a
+				// struct before _typebody! sets it
+				if ft, ok := x.FieldTypes(); ok {
+					return SVec(ft), true
+				}
+				if x.Name.Abstract || x.Name.Bits > 0 {
+					return SVec{}, true
+				}
+				return nil, true
+			}
+			return nil, false
+		}
+	case *core.TypeName:
+		names = []expr.Symbol{"name", "module", "singletonname", "names", "atomicfields", "constfields",
+			"wrapper", "Typeofwrapper", "cache", "linearcache", "partial", "hash", "max_args",
+			"n_uninitialized", "flags", "cache_entry_count", "max_methods", "constprop_heuristic"}
+		get = func(i int) (any, bool) {
+			switch i {
+			case 0:
+				return expr.Symbol(x.Name), true
+			case 3:
+				fs := make(SVec, len(x.FieldNames))
+				for j, n := range x.FieldNames {
+					fs[j] = n
+				}
+				return fs, true
+			case 6:
+				return x.Wrapper, true
+			}
+			return nil, false
+		}
+	case *core.TypeVar:
+		names = []expr.Symbol{"name", "lb", "ub"}
+		get = func(i int) (any, bool) { return []any{expr.Symbol(x.Name), x.LB, x.UB}[i], true }
+	case *core.UnionAll:
+		names = []expr.Symbol{"var", "body"}
+		get = func(i int) (any, bool) { return []any{x.Var, x.Body}[i], true }
+	case *core.Union:
+		names = []expr.Symbol{"a", "b"}
+		get = func(i int) (any, bool) { return []any{x.A, x.B}[i], true }
+	case *core.Vararg:
+		// an absent T or N is undefined, as jl_vararg_t leaves it NULL
+		names = []expr.Symbol{"T", "N"}
+		get = func(i int) (any, bool) { return []any{x.T, x.N}[i], true }
+	}
+	f, err := vm.goField(v, t, names, get, arg)
+	if err == nil && f == nil {
+		return nil, vm.exception(vm.tUndefRef)
+	}
+	return f, err
+}
+
+// goField is getfield of a value package core or expr holds as a Go value:
+// the field found by index or name, or ErrUnsupported for a field the
+// interpreter keeps no value for.
+func (vm *VM) goField(v any, t *core.DataType, names []expr.Symbol, get func(int) (any, bool), arg any) (any, error) {
+	i, err := vm.fieldIndex("getfield", t, names, len(names), v, arg)
+	if err != nil {
+		return nil, err
+	}
+	f, ok := get(i)
+	if !ok {
+		return nil, fmt.Errorf("%w: the field %s of a %s", ErrUnsupported, names[i], t.Name.Name)
+	}
+	return f, nil
+}
+
 func biGetfield(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("getfield", args, 2, 4); err != nil {
 		return nil, err
@@ -256,13 +408,51 @@ func biGetfield(vm *VM, args []any) (any, error) {
 		}
 		return v.Fields[i], nil
 	case *expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
-		// their fields need Vector{Any} and Core.Binding, not built yet
-		return nil, fmt.Errorf("%w: getfield of a %s", ErrUnsupported, core.Show(vm.typeOf(v)))
+		return vm.astField(v, args[1])
+	case *core.DataType, *core.TypeName, *core.TypeVar, *core.UnionAll, *core.Union, *core.Vararg:
+		return vm.kindField(v, args[1])
 	}
 	// a value without fields (an Int, a Symbol …): every index is out of
 	// bounds, every name unknown
 	_, err := vm.fieldIndex("getfield", vm.typeOf(args[0]).(*core.DataType), nil, 0, args[0], args[1])
 	return nil, err
+}
+
+// biSetfield is jl_f_setfield (builtins.c:1057-1079) over
+// get_checked_fieldindex with mutabl set (:994-1021). No field is atomic
+// yet, so only the non-atomic order is accepted.
+func biSetfield(vm *VM, args []any) (any, error) {
+	if err := vm.nargs("setfield!", args, 3, 4); err != nil {
+		return nil, err
+	}
+	if len(args) == 4 {
+		order, ok := args[3].(expr.Symbol)
+		if err := vm.typechk("setfield!", core.SymbolType, args[3], ok); err != nil {
+			return nil, err
+		}
+		if order != "not_atomic" {
+			return nil, fmt.Errorf("%w: setfield! with the atomic order %s", ErrUnsupported, order)
+		}
+	}
+	switch v := args[0].(type) {
+	case *Module:
+		return nil, vm.errorf("cannot assign variables in other modules")
+	case *Struct:
+		if !v.Type.Name.Mutable {
+			return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", v.Type.Name.Name)
+		}
+		i, err := vm.fieldIndex("setfield!", v.Type, v.Type.Name.FieldNames, len(v.Fields), v, args[1])
+		if err != nil {
+			return nil, err
+		}
+		if ft, _ := v.Type.FieldTypes(); ft != nil && !vm.isa(args[2], ft[i]) {
+			return nil, vm.typeError("setfield!", "", ft[i], args[2])
+		}
+		v.Fields[i] = args[2]
+		return args[2], nil
+	}
+	t := vm.typeOf(args[0]).(*core.DataType)
+	return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", t.Name.Name)
 }
 
 func biNfields(vm *VM, args []any) (any, error) {

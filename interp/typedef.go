@@ -25,6 +25,7 @@ func (vm *VM) bootTypedefs() {
 		"fieldtype":      biFieldtype,
 		"_typevar":       biTypevar,
 		"_apply_iterate": biApplyIterate,
+		"_primitivetype": biPrimitivetype,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
 		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})
@@ -87,15 +88,20 @@ func (vm *VM) bootTypeCtors() {
 		if !ok {
 			return nil, vm.typeError("typeassert", "", core.TypeVarType, a[0])
 		}
-		// jl_type_unionall (jltypes.c:907-948)
-		if _, isVar := a[1].(*core.TypeVar); !core.IsType(a[1]) && !isVar {
-			if _, ok := a[1].(*core.Vararg); ok {
-				return nil, fmt.Errorf("%w: UnionAll over a bare Vararg (deprecated)", ErrUnsupported)
-			}
-			return nil, vm.typeError("UnionAll", "", core.TypeType, a[1])
-		}
-		return core.TypeUnionAll(v, a[1]), nil
+		return vm.typeUnionAll(v, a[1])
 	})
+}
+
+// typeUnionAll is jl_type_unionall (jltypes.c:907-948), the C function the
+// UnionAll constructor ccalls.
+func (vm *VM) typeUnionAll(v *core.TypeVar, body any) (any, error) {
+	if _, isVar := body.(*core.TypeVar); !core.IsType(body) && !isVar {
+		if _, ok := body.(*core.Vararg); ok {
+			return nil, fmt.Errorf("%w: UnionAll over a bare Vararg (deprecated)", ErrUnsupported)
+		}
+		return nil, vm.typeError("UnionAll", "", core.TypeType, body)
+	}
+	return core.TypeUnionAll(v, body), nil
 }
 
 // biApplyIterate is jl_f__apply_iterate (builtins.c:661-830) for the
@@ -178,6 +184,26 @@ func biAbstracttype(vm *VM, args []any) (any, error) {
 		return nil, err
 	}
 	return core.NewIncompleteType(string(m.Name), string(name), params, true, false, nil).Name.Wrapper, nil
+}
+
+// biPrimitivetype is jl_f__primitivetype (builtins.c:2007-2024): the bit
+// count must be a positive multiple of 8 below 2^23.
+func biPrimitivetype(vm *VM, args []any) (any, error) {
+	if err := vm.nargs("_primitivetype", args, 4, 4); err != nil {
+		return nil, err
+	}
+	m, name, params, err := vm.typeArgs("_primitivetype", args)
+	if err != nil {
+		return nil, err
+	}
+	nb, ok := args[3].(int64)
+	if !ok {
+		return nil, vm.errorf("invalid declaration of primitive type %s", name)
+	}
+	if nb < 1 || nb >= 1<<23 || nb&7 != 0 {
+		return nil, vm.errorf("invalid number of bits in primitive type %s", name)
+	}
+	return core.NewIncompletePrimitive(string(m.Name), string(name), params, int(nb)).Name.Wrapper, nil
 }
 
 // biStructtype is jl_f__structtype (builtins.c:1978-1995). Field attributes
@@ -296,6 +322,7 @@ func biEquivTypedef(vm *VM, args []any) (any, error) {
 		return false, nil
 	}
 	if a.Name.Name != b.Name.Name || a.Name.Abstract != b.Name.Abstract || a.Name.Mutable != b.Name.Mutable ||
+		a.Name.Bits != b.Name.Bits ||
 		len(a.Name.FieldNames) != len(b.Name.FieldNames) || len(a.Parameters) != len(b.Parameters) {
 		return false, nil
 	}

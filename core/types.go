@@ -44,6 +44,8 @@ type TypeName struct {
 	// FieldNames are the names of the fields (jl_typename_t.names), for
 	// the types the runtime creates.
 	FieldNames []Symbol
+	// Bits is the size of a primitive type in bits, 0 for any other type.
+	Bits int
 
 	// typeofWrapper is Type{Wrapper}, cached on the name
 	// (jltypes.c:1115-1120).
@@ -217,6 +219,8 @@ func TypeOf(v any) any {
 		return UnionAllType
 	case *TypeVar:
 		return TypeVarType
+	case *TypeName:
+		return TypeNameType
 	case *Vararg:
 		return TypeofVarargType
 	case *bottomType:
@@ -229,6 +233,8 @@ func TypeOf(v any) any {
 		return SymbolType
 	case *Instance:
 		return x.Type
+	case ModuleValue:
+		return ModuleType
 	}
 	return nil
 }

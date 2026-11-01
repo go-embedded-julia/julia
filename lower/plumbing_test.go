@@ -50,7 +50,7 @@ func TestTypevarNamesUnsupported(t *testing.T) {
 }
 
 func TestInvariantChecks(t *testing.T) {
-	c := &converter{mod: NewState().mod}
+	c := NewState().converter()
 	if _, ok := panicOf(func() { c.fromSx(true) }).(internalError); !ok {
 		t.Error("boolean in lowered output accepted")
 	}

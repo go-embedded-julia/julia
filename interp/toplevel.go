@@ -24,6 +24,10 @@ func (vm *VM) NewSession() *Session {
 	return &Session{VM: vm, Mod: vm.NewModule("L"), low: lower.NewState()}
 }
 
+// CoreSession returns a session in Core itself, whose top module is Core,
+// as boot.jl is evaluated.
+func (vm *VM) CoreSession() *Session { return vm.sessionFor(vm.Core) }
+
 // Eval parses src as a file of top-level statements and evaluates them in
 // order, returning the value of the last one (include_string). Macro
 // expansion is not ported: a statement holding a macro call is an
@@ -168,6 +172,8 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 			}
 		}
 		return nil, nil
+	case "module":
+		return vm.evalModule(m, e)
 	case "toplevel":
 		var res any
 		for _, a := range e.Args {
@@ -180,6 +186,49 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 		return res, nil
 	}
 	return nil, fmt.Errorf("%w: the top-level form %s", ErrUnsupported, e.Head)
+}
+
+// evalModule is jl_eval_module_expr (toplevel.c:114-198) for
+// (module std_imports name (block forms…)): a submodule of parent bound in
+// it as a constant, whose forms are expanded and evaluated in order. Every
+// module uses Core; one with the standard imports also uses Base.
+func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
+	if len(e.Args) != 3 {
+		return nil, vm.errorf("syntax: malformed module expression")
+	}
+	body, ok := e.Args[2].(*expr.Expr)
+	if !ok {
+		return nil, vm.errorf("syntax: malformed module expression")
+	}
+	if body.Head != "block" {
+		return nil, vm.errorf("syntax: module expression third argument must be a block")
+	}
+	name, ok := e.Args[1].(expr.Symbol)
+	if !ok {
+		return nil, vm.typeError("module", "", core.SymbolType, e.Args[1])
+	}
+	newm := vm.addModule(name, parent)
+	newm.usings = []*Module{vm.Core}
+	if e.Args[0] == true {
+		newm.usings = append(newm.usings, vm.Base)
+		for _, std := range []*Module{vm.Core, vm.Base} {
+			b := newm.declare(std.Name, 0)
+			b.Value, b.Const = std, true
+		}
+	}
+	b := parent.declare(name, vm.newWorld())
+	b.Value, b.Const = newm, true
+	s := vm.sessionFor(newm)
+	for _, form := range body.Args {
+		if _, ok := form.(expr.LineNumberNode); ok {
+			continue
+		}
+		vm.taskWorld = vm.World()
+		if _, err := s.evalForm(form); err != nil {
+			return nil, err
+		}
+	}
+	return newm, nil
 }
 
 // evalImport handles `import A.B`, `import A.B: x, y`, `using A.B` and
@@ -241,13 +290,32 @@ func (vm *VM) importPath(m *Module, v any, verb string) (*Module, error) {
 		return nil, vm.errorf("syntax: malformed \"%s\" statement", verb)
 	}
 	var cur *Module
-	for i, a := range path.Args {
+	args := path.Args
+	if args[0] == any(expr.Symbol(".")) {
+		// `.A.B`: the first dot is this module, each further one its
+		// parent (toplevel.c:537-550)
+		cur = m
+		args = args[1:]
+		for len(args) > 0 && args[0] == any(expr.Symbol(".")) {
+			if cur.Parent != nil {
+				cur = cur.Parent
+			}
+			args = args[1:]
+		}
+		if len(args) == 0 {
+			return nil, vm.errorf("invalid module path")
+		}
+	}
+	for i, a := range args {
 		name, ok := a.(expr.Symbol)
-		if !ok || name == "." {
-			return nil, fmt.Errorf("%w: a relative %s path", ErrUnsupported, verb)
+		if !ok {
+			return nil, vm.typeError(expr.Symbol(verb), "", core.SymbolType, a)
+		}
+		if name == "." {
+			return nil, vm.errorf("invalid %s path: \".\" in identifier path", verb)
 		}
 		var v any
-		if i == 0 {
+		if i == 0 && cur == nil {
 			if mod := vm.modules[name]; mod != nil && mod.Parent == nil {
 				cur = mod
 				continue

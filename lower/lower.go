@@ -88,13 +88,23 @@ type State struct {
 	gensyms       gensyms
 	ssaCounter    int
 	mod           expr.Module
+	top           expr.Symbol
 }
 
 // NewState returns the state of a fresh module, Main.L as the oracle
 // creates it.
 func NewState() *State {
-	return &State{bindings: map[string]bool{}, mod: expr.Module{Path: []expr.Symbol{"Main", "L"}}}
+	return NewStateIn(expr.Module{Path: []expr.Symbol{"Main", "L"}}, "Base")
 }
+
+// NewStateIn returns the state of a fresh module mod whose top module
+// (jl_base_relative_to, what `(top x)` names) is top: Base for a module
+// made with the standard imports, Core for Core itself, as boot.jl runs.
+func NewStateIn(mod expr.Module, top expr.Symbol) *State {
+	return &State{bindings: map[string]bool{}, mod: mod, top: top}
+}
+
+func (st *State) converter() *converter { return &converter{mod: st.mod, top: st.top} }
 
 // lowerer holds what one lowering reads and writes.
 type lowerer struct {
@@ -128,7 +138,7 @@ func (st *State) Lower(ex any) (out any, err error) {
 	lw := &lowerer{st: st}
 	st.gensyms.passInput(ex)
 	res := lw.errorWrap(func() any { return lw.expandToplevelExpr(toSxChecked(ex), sym("none"), 0) })
-	c := &converter{mod: st.mod}
+	c := st.converter()
 	return c.fromSx(res), nil
 }
 

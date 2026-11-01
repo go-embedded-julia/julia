@@ -31,8 +31,8 @@ func TestEvalRecoversPanics(t *testing.T) {
 	if _, err := s.Eval("boom()"); !errors.Is(err, ErrInternal) {
 		t.Errorf("a panicking builtin: %v", err)
 	}
-	if _, err := s.Eval("getfield(:(a + 1), :head)"); !errors.Is(err, ErrUnsupported) {
-		t.Errorf("getfield of an Expr: %v", err)
+	if _, err := s.Eval("getfield(:(a + 1), :args)"); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("getfield of an Expr's args: %v", err)
 	}
 }
 
@@ -46,6 +46,10 @@ func FuzzEval(f *testing.F) {
 	f.Add("f(x) = f(x)\nf(1)")
 	f.Add("macro r()\n    :(@r())\nend\n@r()")
 	f.Add("macro m(x)\n    :(($x, $x))\nend\n@m(@m(1))")
+	f.Add("Core.Intrinsics.ashr_int(Int8(-3), 70)")
+	f.Add("getfield(:(a + 1), :head), getfield(QuoteNode(1), 1)")
+	f.Add("module M\nusing ..L\nend\nimport .M")
+	f.Add("Core.invokelatest(Core.tuple, 1)")
 	f.Fuzz(func(t *testing.T, src string) {
 		if len(src) > 1<<12 {
 			return

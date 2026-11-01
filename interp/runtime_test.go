@@ -32,6 +32,8 @@ func TestBuiltins(t *testing.T) {
 	ex, _ := vm.newStruct(vm.tError, []any{"m"})
 	mut, _ := core.NewType("Main", "Mut", nil, false, true, []expr.Symbol{"x"}, []any{core.AnyType})
 	m1, m2 := &Struct{Type: mut, Fields: []any{int64(1)}}, &Struct{Type: mut, Fields: []any{int64(1)}}
+	mutInt, _ := core.NewType("Main", "MutInt", nil, false, true, []expr.Symbol{"x"}, []any{core.Int64Type})
+	mi := &Struct{Type: mutInt, Fields: []any{int64(1)}}
 	partial, _ := vm.newStruct(vm.tBounds, []any{int64(1)})
 	cases := []struct {
 		name string
@@ -67,6 +69,11 @@ func TestBuiltins(t *testing.T) {
 		{"throw arity", "throw", nil, "!throw: too few arguments"},
 		{"ifelse arity", "ifelse", []any{true}, "!ifelse: too few arguments"},
 		{"ifelse true", "ifelse", []any{true, int64(1), int64(2)}, "1"},
+		{"invokelatest arity", "invokelatest", nil, "!invokelatest: too few arguments"},
+		{"invokelatest of a builtin", "invokelatest", []any{vm.Core.own("tuple").Value, int64(1)}, "(1,)"},
+		{"invoke_in_world arity", "invoke_in_world", []any{uint64(1)}, "!invoke_in_world: too few arguments"},
+		{"invoke_in_world of a non-UInt", "invoke_in_world", []any{int64(1), int64(1)}, "!TypeError(:invoke_in_world, \"\", UInt64, 1)"},
+		{"invoke_in_world error", "invoke_in_world", []any{uint64(1), vm.Core.own("throw").Value, int64(1)}, "!1"},
 		{"ifelse false", "ifelse", []any{false, int64(1), int64(2)}, "2"},
 		{"ifelse of a non-Bool", "ifelse", []any{int64(1), int64(1), int64(2)}, "!TypeError(:ifelse, \"\", Bool, 1)"},
 		{"getfield arity", "getfield", []any{tup}, "!getfield: too few arguments"},
@@ -77,6 +84,14 @@ func TestBuiltins(t *testing.T) {
 		{"getfield of an index out of range", "getfield", []any{ex, int64(2)}, "!BoundsError"},
 		{"getfield of an undefined field", "getfield", []any{partial, int64(2)}, "!UndefRefError()"},
 		{"getfield of an Int", "getfield", []any{int64(1), int64(1)}, "!BoundsError(1, 1)"},
+		{"getfield of an Expr's head", "getfield", []any{expr.New("call", expr.Symbol("f")), expr.Symbol("head")}, ":call"},
+		{"getfield of an Expr's args", "getfield", []any{expr.New("call"), int64(2)}, "!not ported yet: the field args of a Expr"},
+		{"getfield of a QuoteNode", "getfield", []any{expr.QuoteNode{Value: int64(3)}, expr.Symbol("value")}, "3"},
+		{"getfield of a line", "getfield", []any{expr.LineNumberNode{Line: 3, File: expr.Symbol("f")}, int64(1)}, "3"},
+		{"getfield of a file", "getfield", []any{expr.LineNumberNode{Line: 3, File: expr.Symbol("f")}, expr.Symbol("file")}, ":f"},
+		{"getfield of a GlobalRef's name", "getfield", []any{gr("Core", "Int"), expr.Symbol("name")}, ":Int"},
+		{"getfield of a GlobalRef's module", "getfield", []any{gr("Core", "Int"), expr.Symbol("mod")}, "!not ported yet: the field mod"},
+		{"getfield of an AST node's unknown field", "getfield", []any{gr("Core", "Int"), expr.Symbol("nope")}, "!type GlobalRef has no field nope"},
 		{"nfields arity", "nfields", nil, "!nfields: too few arguments"},
 		{"nfields of a struct", "nfields", []any{ex}, "1"},
 		{"nfields of an Int", "nfields", []any{int64(1)}, "0"},
@@ -98,6 +113,21 @@ func TestBuiltins(t *testing.T) {
 		{"apply_type", "apply_type", []any{core.ValType, int64(1)}, ""},
 		{"apply_type arity", "apply_type", nil, "!apply_type: too few arguments"},
 		{"apply_type of a non-type", "apply_type", []any{int64(1), int64(2)}, "!ErrorException("},
+		{"setfield! arity", "setfield!", []any{m1, int64(1)}, "!setfield!: too few arguments"},
+		{"setfield! of a non-symbol order", "setfield!", []any{m1, int64(1), int64(2), int64(1)}, "!TypeError(:setfield!, \"\", Symbol, 1)"},
+		{"setfield! atomic", "setfield!", []any{m1, int64(1), int64(2), expr.Symbol("sequentially_consistent")}, "!not ported yet: setfield! with the atomic order"},
+		{"setfield! not atomic", "setfield!", []any{m1, expr.Symbol("x"), int64(2), expr.Symbol("not_atomic")}, "2"},
+		{"setfield! of a module", "setfield!", []any{vm.Core, expr.Symbol("x"), int64(1)}, "!cannot assign variables in other modules"},
+		{"setfield! of an immutable", "setfield!", []any{ex, int64(1), "n"}, "!setfield!: immutable struct of type ErrorException cannot be changed"},
+		{"setfield! of an Int", "setfield!", []any{int64(1), int64(1), int64(1)}, "!setfield!: immutable struct of type Int64 cannot be changed"},
+		{"setfield! of an unknown field", "setfield!", []any{m1, expr.Symbol("y"), int64(1)}, "!type Mut has no field y"},
+		{"setfield! of the wrong type", "setfield!", []any{mi, int64(1), "s"}, "!TypeError(:setfield!, \"\", Int64, \"s\")"},
+		{"_primitivetype arity", "_primitivetype", []any{s.Mod}, "!_primitivetype: too few arguments"},
+		{"_primitivetype of a bad module", "_primitivetype", []any{int64(1), expr.Symbol("P"), SVec{}, int64(8)}, "!TypeError("},
+		{"_primitivetype of a non-Int size", "_primitivetype", []any{s.Mod, expr.Symbol("P"), SVec{}, "8"}, "!invalid declaration of primitive type P"},
+		{"_primitivetype of 12 bits", "_primitivetype", []any{s.Mod, expr.Symbol("P"), SVec{}, int64(12)}, "!invalid number of bits in primitive type P"},
+		{"_primitivetype of 0 bits", "_primitivetype", []any{s.Mod, expr.Symbol("P"), SVec{}, int64(0)}, "!invalid number of bits in primitive type P"},
+		{"_primitivetype", "_primitivetype", []any{s.Mod, expr.Symbol("P"), SVec{}, int64(16)}, "Main.L.P"},
 	}
 	for _, c := range cases {
 		v, err := vm.apply(coreValue(t, vm, c.f), c.args)
@@ -140,6 +170,47 @@ func TestIntrinsicsWidths(t *testing.T) {
 		{"add_float", []any{float32(1), float64(1)}, "!add_float: types of a and b must match"},
 		{"add_float", []any{expr.Symbol("a"), expr.Symbol("b")}, "!add_float: values are not primitive types"},
 		{"lt_float", []any{float32(1), float64(1)}, "!lt_float: types of a and b must match"},
+		{"shl_int", []any{int8(1), int8(7)}, "-128"},
+		{"shl_int", []any{int8(1), int8(8)}, "0"},
+		{"shl_int", []any{int8(1), int64(257)}, "2"},
+		{"shl_int", []any{uint8(1), int64(-1)}, "0x00"},
+		{"lshr_int", []any{int8(-128), int8(1)}, "64"},
+		{"lshr_int", []any{int8(-128), uint32(8)}, "0"},
+		{"lshr_int", []any{int64(1), "s"}, "!lshr_int: b is not a primitive type"},
+		{"ashr_int", []any{int8(-128), int8(1)}, "-64"},
+		{"ashr_int", []any{int8(-128), int8(-1)}, "-1"},
+		{"ashr_int", []any{int8(64), uint8(200)}, "0"},
+		{"ashr_int", []any{int64(-8), int8(-1)}, "-1"},
+		{"ashr_int", []any{"s", "t"}, "!ashr_int: a is not a primitive type"},
+		// conversions and bitcast, each answer julia 1.12.6's
+		{"trunc_int", []any{core.Int8Type, int64(511)}, "-1"},
+		{"sext_int", []any{core.Int64Type, int8(-1)}, "-1"},
+		{"zext_int", []any{core.Int64Type, int8(-1)}, "255"},
+		{"zext_int", []any{core.UInt16Type, true}, "0x0001"},
+		{"zext_int", []any{core.UInt64Type, expr.Char(0x61000000)}, "0x0000000061000000"},
+		{"sext_int", []any{core.Int32Type, int16(-2)}, "-2"},
+		{"trunc_int", []any{int64(1), int64(1)}, "!TypeError(:trunc_int, \"\", DataType, 1)"},
+		{"trunc_int", []any{core.IntegerType, int64(1)}, "!trunc_int: target type not a leaf primitive type"},
+		{"trunc_int", []any{core.Int8Type, expr.Symbol("a")}, "!trunc_int: value is not a primitive type"},
+		{"zext_int", []any{core.Int128Type, int64(1)}, "!not ported yet: zext_int to Int128"},
+		{"bitcast", []any{core.Float64Type, int64(0)}, "0.0"},
+		{"bitcast", []any{core.Float32Type, uint32(0x3f800000)}, "1.0f0"},
+		{"bitcast", []any{core.CharType, uint32(0x61000000)}, "'a'"},
+		{"bitcast", []any{core.BoolType, uint8(1)}, "true"},
+		{"bitcast", []any{core.UInt8Type, int8(-1)}, "0xff"},
+		{"bitcast", []any{core.Int8Type, uint8(0xff)}, "-1"},
+		{"bitcast", []any{core.UInt16Type, int16(-1)}, "0xffff"},
+		{"bitcast", []any{core.Int16Type, uint16(0xffff)}, "-1"},
+		{"bitcast", []any{core.UInt32Type, float32(1)}, "0x3f800000"},
+		{"bitcast", []any{core.Int32Type, uint32(0xffffffff)}, "-1"},
+		{"bitcast", []any{core.UInt64Type, float64(1)}, "0x3ff0000000000000"},
+		{"bitcast", []any{core.Int64Type, float64(1)}, "4607182418800017408"},
+		{"bitcast", []any{core.Int64Type, int64(5)}, "5"},
+		{"bitcast", []any{int64(1), int64(1)}, "!TypeError(:bitcast, \"\", DataType, 1)"},
+		{"bitcast", []any{core.IntegerType, int64(1)}, "!bitcast: target type not a leaf primitive type"},
+		{"bitcast", []any{core.Int64Type, expr.Symbol("a")}, "!bitcast: value not a primitive type"},
+		{"bitcast", []any{core.Int32Type, int64(1)}, "!bitcast: argument size does not match size of target type"},
+		{"bitcast", []any{core.Float16Type, int16(1)}, "!not ported yet: bitcast to Float16"},
 		{"neg_float", []any{float32(1)}, ""},
 		{"neg_float", []any{expr.Symbol("a")}, "!neg_float_withtype: value is not a primitive type"},
 	}
@@ -152,6 +223,30 @@ func TestIntrinsicsWidths(t *testing.T) {
 	}
 	if fromBits(float64(0), 7) != uint64(7) {
 		t.Error("fromBits of a non-integer kept the bits")
+	}
+}
+
+// Float32 and Char values are shown as julia 1.12.6's repr shows them
+// (each want is its output).
+func TestShowFloat32Char(t *testing.T) {
+	for _, c := range []struct {
+		v    any
+		want string
+	}{
+		{float32(1), "1.0f0"}, {float32(1.5), "1.5f0"}, {float32(0.1), "0.1f0"}, {float32(1e5), "100000.0f0"},
+		{float32(1e6), "1.0f6"}, {float32(1e-4), "0.0001f0"}, {float32(1e-5), "1.0f-5"}, {float32(-2.5e-7), "-2.5f-7"},
+		{float32(math.NaN()), "NaN32"}, {float32(math.Inf(1)), "Inf32"}, {float32(math.Inf(-1)), "-Inf32"},
+		{float32(math.MaxFloat32), "3.4028235f38"},
+		{expr.Char(0x61000000), "'a'"}, {expr.Char(0x27000000), `'\''`}, {expr.Char(0x5c000000), `'\\'`},
+		{expr.Char(0x22000000), `'"'`}, {expr.Char(0x0a000000), `'\n'`}, {expr.Char(0x09000000), `'\t'`},
+		{expr.Char(0), `'\0'`}, {expr.Char(0x01000000), `'\x01'`}, {expr.Char(0x7f000000), `'\x7f'`},
+		{expr.Char(0xc2800000), `'\u80'`}, {expr.Char(0xc3a90000), "'é'"}, {expr.Char(0xe280a800), "'\\u2028'"},
+		{expr.Char(0xf09f9880), "'\U0001f600'"}, {expr.Char(0xff000000), `'\xff'`}, {expr.Char(0xc0800000), `'\xc0\x80'`},
+		{expr.Char(0x1b000000), `'\e'`}, {expr.Char(0x24000000), "'$'"},
+	} {
+		if got := Repr(c.v); got != c.want {
+			t.Errorf("%#v: got %s, want %s", c.v, got, c.want)
+		}
 	}
 }
 
@@ -234,7 +329,7 @@ func TestMethodDefinition(t *testing.T) {
 		{"atypes too short", def(svec(), body), "!method: invalid declaration"},
 		{"argtypes not an svec", def(svec(int64(1), svec()), body), "!method: invalid declaration"},
 		{"no argtypes", def(svec(svec(), svec()), body), "!method: invalid declaration"},
-		{"not a function", def(svec(svec(gr("Core", "Int")), svec()), body), "!not ported"},
+		{"a method of a callable Int", def(svec(svec(gr("Core", "Int")), svec()), body), "nothing"},
 		{"body not a CodeInfo", def(svec(svec(expr.SSAValue(3)), svec()), int64(1)), "!method: invalid declaration"},
 		{"Vararg not last", def(svec(svec(expr.SSAValue(3), gr("Core", "Vararg"), gr("Core", "Int")), svec()), body), "!ErrorException("},
 		{"tvar not a TypeVar", def(svec(svec(expr.SSAValue(3)), svec(int64(1))), body), "!TypeError(:method signature"},
@@ -342,7 +437,8 @@ func TestToplevel(t *testing.T) {
 		{"import Core.Nope", "!UndefVarError(:Nope,"},
 		{"import Core.Int", "!invalid import path: \\\"Int\\\" does not name a module"},
 		{"import Pkg", "!not ported yet: loading the package Pkg"},
-		{"import .Rel", "!not ported yet: a relative import path"},
+		{"import .Rel", "!UndefVarError(:Rel,"},
+		{"import .Core.Rel", "!UndefVarError(:Rel,"},
 		{"import Core.Intrinsics: add_int as plus", "!not ported yet: the import item"},
 		{"import Core.Intrinsics as CI", "!not ported yet: the import form"},
 		{"export q\nq", "!UndefVarError(:q,"},
@@ -378,6 +474,18 @@ func TestToplevel(t *testing.T) {
 		{"import of a non-symbol", expr.New("import", expr.New(":", expr.New(".", expr.Symbol("Core")), expr.New(".", int64(1)))), "!syntax: malformed"},
 		{"import of an empty path", expr.New("import", expr.New(".")), "!syntax: malformed"},
 		{"import from a bad first path", expr.New("import", expr.New(".", expr.Symbol("Core")), expr.New(".", expr.Symbol("Nope"))), "!not ported"},
+		// relative paths (toplevel.c:537-570)
+		{"import of dots only", expr.New("import", expr.New(".", expr.Symbol("."), expr.Symbol("."))), "!invalid module path"},
+		{"import of a relative non-symbol", expr.New("import", expr.New(".", expr.Symbol("."), int64(1))), "!TypeError(:import, \"\", Symbol, 1)"},
+		{"import of a dot inside a path", expr.New("import", expr.New(".", expr.Symbol("Core"), expr.Symbol("."))), "!invalid import path: \\\".\\\" in identifier path"},
+		{"import past the top module", expr.New("import", expr.New(".", expr.Symbol("."), expr.Symbol("."), expr.Symbol("."), expr.Symbol("."), expr.Symbol("Nope"))), "!UndefVarError(:Nope,"},
+		// module expressions (toplevel.c:114-198)
+		{"module of two arguments", expr.New("module", true, expr.Symbol("M")), "!syntax: malformed module expression"},
+		{"module of a non-Expr body", expr.New("module", true, expr.Symbol("M"), int64(1)), "!syntax: malformed module expression"},
+		{"module of a non-block body", expr.New("module", true, expr.Symbol("M"), expr.New("call")), "!syntax: module expression third argument must be a block"},
+		{"module of a non-symbol name", expr.New("module", true, int64(1), expr.New("block")), "!TypeError(:module, \"\", Symbol, 1)"},
+		{"module whose form fails", expr.New("module", false, expr.Symbol("M"), expr.New("block", expr.LineNumberNode{Line: 1}, gr("Nope", "x"))), "!not ported"},
+		{"bare module", expr.New("module", false, expr.Symbol("B"), expr.New("block", expr.LineNumberNode{Line: 1}, int64(1))), "Main.L.B"},
 	} {
 		v, err := vm.toplevelEval(s.Mod, c.e)
 		check(t, c.name, v, err, c.want)
@@ -391,6 +499,8 @@ func TestToplevel(t *testing.T) {
 	if _, err := s.evalForm(expr.New("incomplete", "eof")); err == nil {
 		t.Error("an incomplete form was evaluated")
 	}
+	_, err := vm.toplevelOnly(s.Mod, expr.New("weird"))
+	check(t, "an unknown top-level form", nil, err, "!not ported yet: the top-level form weird")
 	if firstArg(expr.New("thunk")) != nil {
 		t.Error("firstArg of no arguments")
 	}
@@ -402,7 +512,10 @@ func TestVMRefuses(t *testing.T) {
 	for name, v := range map[string]any{"int8": int8(1), "int16": int16(1), "int32": int32(1), "uint16": uint16(1),
 		"uint32": uint32(1), "uint64": uint64(1), "float32": float32(1), "char": expr.Char(1),
 		"svec": SVec{}, "intrinsic": intrinsic(t, vm, "add_int"),
-		"line": expr.LineNumberNode{Line: 1}, "globalref": gr("Core", "Int")} {
+		"line": expr.LineNumberNode{Line: 1}, "globalref": gr("Core", "Int"),
+		"ssa": expr.SSAValue(1), "slot": expr.SlotNumber(1), "argument": expr.Argument(1), "goto": expr.GotoNode(1),
+		"gotoifnot": expr.GotoIfNot{}, "enter": expr.EnterNode{}, "return": expr.ReturnNode{}, "unreachable": expr.Unreachable{},
+		"newvar": expr.NewvarNode{}, "codeinfo": &expr.CodeInfo{}, "typename": core.Int64Type.Name} {
 		if vm.typeOf(v) == nil {
 			t.Errorf("typeOf(%s)", name)
 		}

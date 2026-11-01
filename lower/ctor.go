@@ -79,7 +79,7 @@ func (st *State) Backquote(ex any) (any, error) {
 	return guarded(func() any {
 		lw := &lowerer{st: st}
 		res := lw.errorWrap(func() any { return lw.bqMacro(toSx(ex)) })
-		return (&converter{mod: st.mod}).fromSx(res)
+		return st.converter().fromSx(res)
 	})
 }
 
@@ -100,7 +100,7 @@ func (st *State) lowerBuilt(build func(lw *lowerer) any, file string, line int64
 	v, err := guarded(func() any {
 		lw := &lowerer{st: st}
 		res := lw.errorWrap(func() any { return lw.expandToplevelExpr(build(lw), sym(file), line) })
-		return (&converter{mod: st.mod}).fromSx(res)
+		return st.converter().fromSx(res)
 	})
 	if err != nil {
 		return nil, err
