@@ -50,6 +50,11 @@ type VM struct {
 	// julia defines for Type{T}.
 	ctors map[*core.TypeName]*dispatch.Table
 
+	// shims are the Go functions ccalls reach (ccall.go); sessions the
+	// lowering state of each module code is evaluated in.
+	shims    map[expr.Symbol]shim
+	sessions map[*Module]*Session
+
 	builtinType, intrinsicType  *core.DataType
 	tError, tUndefVar           *core.DataType
 	tTypeError, tMethodError    *core.DataType
@@ -68,7 +73,8 @@ const DefaultMaxDepth = 4000
 // Main in which Eval runs (L, as the oracle names its scratch module).
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
-		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{}}
+		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
+		sessions: map[*Module]*Session{}}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	vm.Base = vm.addModule("Base", nil)
@@ -124,7 +130,7 @@ var coreExports = map[expr.Symbol]bool{
 	"getglobal": true, "setglobal!": true, "isdefinedglobal": true, "<:": true, "typeof": true,
 	"isa": true, "typeassert": true, "nothing": true, "Main": true,
 	"Expr": true, "QuoteNode": true, "LineNumberNode": true, "GlobalRef": true,
-	"fieldtype": true,
+	"fieldtype": true, "setfield!": true,
 }
 
 // setCore binds name in Core in world 0, exported when Core exports it.
@@ -199,6 +205,7 @@ func (vm *VM) bootCore() {
 	vm.bootBuiltins()
 	vm.bootTypedefs()
 	vm.bootIntrinsics()
+	vm.bootShims()
 
 	// Base.iterate, the iterate lowering passes to Core._apply_iterate for
 	// every splat: declared with no methods, so that spreading a tuple
@@ -238,7 +245,9 @@ func mustType(module, name string, super *core.DataType, abstract bool, fields [
 // named #f under Function (jl_declare_const_gf, jl_new_generic_function).
 func (vm *VM) newFunction(m *Module, name expr.Symbol) *Function {
 	t := mustType(string(m.Name), "#"+string(name), core.FunctionType, false, nil, nil)
-	return &Function{Name: name, Type: t, Table: &dispatch.Table{Name: string(name)}}
+	fn := &Function{Name: name, Type: t, Table: &dispatch.Table{Name: string(name)}}
+	vm.funcs[t] = fn
+	return fn
 }
 
 // typeOf is jl_typeof.

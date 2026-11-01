@@ -44,6 +44,8 @@ type TypeName struct {
 	// FieldNames are the names of the fields (jl_typename_t.names), for
 	// the types the runtime creates.
 	FieldNames []Symbol
+	// Bits is the size of a primitive type in bits, 0 for any other type.
+	Bits int
 
 	// typeofWrapper is Type{Wrapper}, cached on the name
 	// (jltypes.c:1115-1120).

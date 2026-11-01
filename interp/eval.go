@@ -264,6 +264,8 @@ func (f *frame) evalValue(o op) (any, error) {
 			return nil, vm.errorf("method: invalid declaration")
 		}
 		return vm.declareFunction(m, name)
+	case oForeign:
+		return f.evalForeign(x)
 	case oRaise:
 		return nil, vm.errorf("%s", x.msg)
 	case oUnsupported:
@@ -375,7 +377,6 @@ func (vm *VM) declareFunction(m *Module, name expr.Symbol) (any, error) {
 		}
 	}
 	fn := vm.newFunction(m, name)
-	vm.funcs[fn.Type] = fn
 	b := m.declare(name, vm.newWorld())
 	b.Const, b.Value = true, fn
 	return fn, nil

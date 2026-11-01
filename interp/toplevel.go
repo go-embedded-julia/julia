@@ -24,6 +24,10 @@ func (vm *VM) NewSession() *Session {
 	return &Session{VM: vm, Mod: vm.NewModule("L"), low: lower.NewState()}
 }
 
+// CoreSession returns a session in Core itself, whose top module is Core,
+// as boot.jl is evaluated.
+func (vm *VM) CoreSession() *Session { return vm.sessionFor(vm.Core) }
+
 // Eval parses src as a file of top-level statements and evaluates them in
 // order, returning the value of the last one (include_string). Macro
 // expansion is not ported: a statement holding a macro call is an

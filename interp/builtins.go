@@ -29,6 +29,7 @@ func (vm *VM) bootBuiltins() {
 		"get_binding_type": biGetBindingType,
 		"apply_type":       biApplyType,
 		"_expr":            biExpr,
+		"setfield!":        biSetfield,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
 		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})
@@ -263,6 +264,43 @@ func biGetfield(vm *VM, args []any) (any, error) {
 	// bounds, every name unknown
 	_, err := vm.fieldIndex("getfield", vm.typeOf(args[0]).(*core.DataType), nil, 0, args[0], args[1])
 	return nil, err
+}
+
+// biSetfield is jl_f_setfield (builtins.c:1057-1079) over
+// get_checked_fieldindex with mutabl set (:994-1021). No field is atomic
+// yet, so only the non-atomic order is accepted.
+func biSetfield(vm *VM, args []any) (any, error) {
+	if err := vm.nargs("setfield!", args, 3, 4); err != nil {
+		return nil, err
+	}
+	if len(args) == 4 {
+		order, ok := args[3].(expr.Symbol)
+		if err := vm.typechk("setfield!", core.SymbolType, args[3], ok); err != nil {
+			return nil, err
+		}
+		if order != "not_atomic" {
+			return nil, fmt.Errorf("%w: setfield! with the atomic order %s", ErrUnsupported, order)
+		}
+	}
+	switch v := args[0].(type) {
+	case *Module:
+		return nil, vm.errorf("cannot assign variables in other modules")
+	case *Struct:
+		if !v.Type.Name.Mutable {
+			return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", v.Type.Name.Name)
+		}
+		i, err := vm.fieldIndex("setfield!", v.Type, v.Type.Name.FieldNames, len(v.Fields), v, args[1])
+		if err != nil {
+			return nil, err
+		}
+		if ft, _ := v.Type.FieldTypes(); ft != nil && !vm.isa(args[2], ft[i]) {
+			return nil, vm.typeError("setfield!", "", ft[i], args[2])
+		}
+		v.Fields[i] = args[2]
+		return args[2], nil
+	}
+	t := vm.typeOf(args[0]).(*core.DataType)
+	return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", t.Name.Name)
 }
 
 func biNfields(vm *VM, args []any) (any, error) {

@@ -80,7 +80,17 @@ func core0(name string, super *DataType, abstract bool) *DataType {
 }
 
 func primitive(name string, super *DataType) *DataType {
-	return define(spec{module: "Core", name: name, isbits: true, super: func([]any) any { return super }}).(*DataType)
+	d := define(spec{module: "Core", name: name, isbits: true, super: func([]any) any { return super }}).(*DataType)
+	d.Name.Bits = primitiveBits[name]
+	return d
+}
+
+// primitiveBits are the sizes boot.jl:255-274 and jl_init_types
+// (jltypes.c:3146-3183) give the primitive types.
+var primitiveBits = map[string]int{
+	"Float16": 16, "Float32": 32, "Float64": 64, "BFloat16": 16, "Bool": 8, "Char": 32,
+	"Int8": 8, "UInt8": 8, "Int16": 16, "UInt16": 16, "Int32": 32, "UInt32": 32,
+	"Int64": 64, "UInt64": 64, "Int128": 128, "UInt128": 128,
 }
 
 func mustApply(tc any, params ...any) any {

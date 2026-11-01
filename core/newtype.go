@@ -30,6 +30,17 @@ func NewIncompleteType(module, name string, params []*TypeVar, abstract, mutable
 	return dt
 }
 
+// NewIncompletePrimitive is jl_new_primitivetype as jl_f__primitivetype
+// calls it (builtins.c:2007-2024): a primitive type of bits bits over the
+// type variables params, isbits and without fields, its supertype to come.
+// Its Fields stay nil: a primitive type's bits are not fields, and an empty
+// field list would make it a singleton.
+func NewIncompletePrimitive(module, name string, params []*TypeVar, bits int) *DataType {
+	d := NewIncompleteType(module, name, params, false, false, nil)
+	d.Name.Isbits, d.Name.Bits = true, bits
+	return d
+}
+
 // FieldTypes is jl_get_fieldtypes for a struct or tuple type: the field
 // types of this instance (Q{Int64}'s in terms of Int64), false when d
 // records none.
