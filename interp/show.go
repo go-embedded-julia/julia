@@ -216,6 +216,20 @@ func writeValue(b *strings.Builder, v any) {
 			b.WriteByte(',')
 		}
 		b.WriteByte(')')
+	case *expr.Expr:
+		// julia shows the quoted source (show_unquoted, not ported): this is
+		// the constructor call, which reads back as the same Expr
+		b.WriteString("Expr(:" + string(x.Head))
+		for _, a := range x.Args {
+			b.WriteString(", ")
+			writeValue(b, a)
+		}
+		b.WriteByte(')')
+	case expr.QuoteNode:
+		// likewise the constructor call (julia: :(:x))
+		b.WriteString("QuoteNode(")
+		writeValue(b, x.Value)
+		b.WriteByte(')')
 	case *Memory:
 		writeIn(b, x, nil)
 	case *MemoryRef:

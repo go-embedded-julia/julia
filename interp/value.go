@@ -2,6 +2,7 @@ package interp
 
 import (
 	"sync"
+	"weak"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/core/dispatch"
@@ -27,6 +28,10 @@ type Tuple struct {
 type Struct struct {
 	Type   *core.DataType
 	Fields []any
+	// exprOwner is the Expr whose args this Vector{Any} is (exprargs.go):
+	// setting its ref or size points the Expr at the new elements. Weak, so
+	// that the table of vectors does not keep the Expr alive.
+	exprOwner weak.Pointer[expr.Expr]
 }
 
 // Function is a generic function: the single instance of its type, and the
