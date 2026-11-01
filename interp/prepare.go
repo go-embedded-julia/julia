@@ -18,6 +18,9 @@ var ErrInternal = errors.New("interp: internal error")
 // ErrStepLimit is the error of an evaluation that exceeded VM.MaxSteps.
 var ErrStepLimit = errors.New("interp: step limit exceeded")
 
+// ErrMemoryLimit is the error of a memorynew larger than VM.MaxMemoryElems.
+var ErrMemoryLimit = errors.New("interp: memory limit exceeded")
+
 // code is a CodeInfo prepared for the interpreter: statements as a Go sum
 // type, with every SSAValue, slot and label checked against the counts once,
 // so that the loop of eval.go does not check them again
