@@ -86,11 +86,15 @@ func (vm *VM) egal(a, b any) bool {
 			}
 		}
 		return true
-	case *Function, *Builtin, *Intrinsic, *Module:
+	case *MemoryRef:
+		// immutable: the same memory at the same element
+		y, ok := b.(*MemoryRef)
+		return ok && x.Type == y.Type && x.Mem == y.Mem && x.Off == y.Off
+	case *Function, *Builtin, *Intrinsic, *Module, *Memory:
 		return a == b
 	}
 	switch b.(type) {
-	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module:
+	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef:
 		return false
 	}
 	return core.Egal(a, b)
@@ -411,6 +415,16 @@ func biGetfield(vm *VM, args []any) (any, error) {
 		return vm.astField(v, args[1])
 	case *core.DataType, *core.TypeName, *core.TypeVar, *core.UnionAll, *core.Union, *core.Vararg:
 		return vm.kindField(v, args[1])
+	case *Memory:
+		// (length, ptr) (jltypes.c:3328-3329); a pointer has no value here
+		return vm.goField(v, v.Type, []expr.Symbol{"length", "ptr"}, func(i int) (any, bool) {
+			return int64(len(v.Elems)), i == 0
+		}, args[1])
+	case *MemoryRef:
+		// (ptr_or_offset, mem) (jltypes.c:3340-3341)
+		return vm.goField(v, v.Type, []expr.Symbol{"ptr_or_offset", "mem"}, func(i int) (any, bool) {
+			return v.Mem, i == 1
+		}, args[1])
 	}
 	// a value without fields (an Int, a Symbol …): every index is out of
 	// bounds, every name unknown

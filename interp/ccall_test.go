@@ -61,8 +61,8 @@ func TestBootFailures(t *testing.T) {
 		name, src, want string
 	}{
 		{"a form that raises", "x = 1\nthrow(x)\n", "boot.jl:2:"},
-		{"no LoadError", "x = 1\n", "post_boot_hooks: Core.LoadError is not defined"},
-		{"a LoadError that is not a type", "LoadError = 1\n", "post_boot_hooks: Core.LoadError is not a DataType"},
+		{"no ConcurrencyViolationError", "x = 1\n", "post_boot_hooks: Core.ConcurrencyViolationError is not defined"},
+		{"a ConcurrencyViolationError that is not a type", "ConcurrencyViolationError = 1\n", "post_boot_hooks: Core.ConcurrencyViolationError is not a DataType"},
 	} {
 		vm := New()
 		vm.Sources = fstest.MapFS{"boot.jl": {Data: []byte(c.src)}}

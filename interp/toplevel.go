@@ -175,9 +175,13 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 	case "module":
 		return vm.evalModule(m, e)
 	case "toplevel":
+		// each form expanded and lowered in turn, in the latest world
+		// (toplevel.c:965-975)
 		var res any
+		s := vm.sessionFor(m)
 		for _, a := range e.Args {
-			v, err := vm.toplevelEval(m, a)
+			vm.taskWorld = vm.World()
+			v, err := s.evalForm(a)
 			if err != nil {
 				return nil, err
 			}
