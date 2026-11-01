@@ -285,6 +285,15 @@ func TestWhiteboxShowAndTypes(t *testing.T) {
 	if unwrapVararg(&Vararg{}) != any(AnyType) {
 		t.Error("unwrapVararg")
 	}
+	if TypeOf(Int64Type.Name) != any(TypeNameType) {
+		t.Error("TypeOf of a TypeName")
+	}
+	if TypeOf(CoreModule) != any(ModuleType) || Show(CoreModule) != "Core" || CoreModule.ModuleName() != "Core" {
+		t.Error("CoreModule")
+	}
+	if p := NewIncompletePrimitive("Main", "P24", nil, 24); p.Name.Bits != 24 || !p.Name.Isbits {
+		t.Errorf("NewIncompletePrimitive: %+v", p.Name)
+	}
 	if TypeOf(&Instance{Type: Int64Type}) != any(Int64Type) || TypeOf(3.5) != nil {
 		t.Error("TypeOf")
 	}

@@ -306,12 +306,6 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 	t := vm.typeOf(v).(*core.DataType)
 	var names []expr.Symbol
 	var get func(i int) (any, bool)
-	svec := func(xs []any) SVec {
-		if xs == nil {
-			return SVec{}
-		}
-		return SVec(xs)
-	}
 	switch x := v.(type) {
 	case *core.DataType:
 		names = []expr.Symbol{"name", "super", "parameters", "types", "instance", "layout", "hash", "flags"}
@@ -320,17 +314,14 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 			case 0:
 				return x.Name, true
 			case 1:
-				if x.Super == nil {
-					return core.AnyType, true // Any.super === Any
-				}
-				return x.Super, true
+				return x.Super, true // Any.super === Any, as core sets it
 			case 2:
-				return svec(x.Parameters), true
+				return SVec(x.Parameters), true
 			case 3:
 				// empty for abstract and primitive types; undefined for a
 				// struct before _typebody! sets it
 				if ft, ok := x.FieldTypes(); ok {
-					return svec(ft), true
+					return SVec(ft), true
 				}
 				if x.Name.Abstract || x.Name.Bits > 0 {
 					return SVec{}, true

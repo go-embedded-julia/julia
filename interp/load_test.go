@@ -2,6 +2,7 @@ package interp
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -16,6 +17,7 @@ func TestLoad(t *testing.T) {
 		"bad.jl":  {Data: []byte("x = (\n")},
 		"self.jl": {Data: []byte("ccall(:jl_load_, Any, (Any, Any), Core, \"self.jl\")\n")},
 		"none.jl": {Data: []byte("# nothing\n")},
+		"deep.jl": {Data: []byte(strings.Repeat("(", 5000) + "1" + strings.Repeat(")", 5000))},
 	}
 	m := vm.modules["Main"]
 	cases := []struct {
@@ -28,6 +30,7 @@ func TestLoad(t *testing.T) {
 		{"a missing file", []any{m, "nope.jl"}, "!File \\\"nope.jl\\\" not found"},
 		{"a host path", []any{m, "/etc/passwd"}, "!not found"},
 		{"a syntax error", []any{m, "bad.jl"}, "!syntax:"},
+		{"a file over the parser's limits", []any{m, "deep.jl"}, "!syntax:"},
 		{"a non-module", []any{int64(1), "two.jl"}, "!TypeError(:include, \"\", Module, 1)"},
 		{"a non-string", []any{m, int64(1)}, "!TypeError(:include, \"\", String, 1)"},
 	}

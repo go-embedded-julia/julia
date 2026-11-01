@@ -3,11 +3,14 @@ package interp
 import (
 	"fmt"
 	"math"
+	"math/bits"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
+	"github.com/go-embedded-julia/julia/internal/unitab"
 )
 
 // showValue is what julia's repr prints for the values this version makes,
@@ -24,28 +27,96 @@ func showValue(v any) string {
 // showFloat64 is julia's shortest round-trip form of a Float64: the digits
 // Go's 'g' with precision -1 chooses, at the same exponent thresholds (below
 // -4 or from 6 on), spelled as julia spells them: 1.0e6, 2.0, 1.0e-5.
-func showFloat64(x float64) string {
+func showFloat64(x float64) string { return showFloat(x, 64) }
+
+// showFloat is showFloat64 for a float of the given width: a Float32 has
+// the digits of its own shortest form, an f exponent always (1.0f0, 1.0f6)
+// and the specials NaN32, Inf32, -Inf32.
+func showFloat(x float64, bits int) string {
+	suffix, e := "", "e"
+	if bits == 32 {
+		suffix, e = "32", "f"
+	}
 	switch {
 	case math.IsNaN(x):
-		return "NaN"
+		return "NaN" + suffix
 	case math.IsInf(x, 1):
-		return "Inf"
+		return "Inf" + suffix
 	case math.IsInf(x, -1):
-		return "-Inf"
+		return "-Inf" + suffix
 	}
-	s := strconv.FormatFloat(x, 'g', -1, 64)
+	s := strconv.FormatFloat(x, 'g', -1, bits)
 	mant, exp, hasExp := strings.Cut(s, "e")
 	if !strings.Contains(mant, ".") {
 		mant += ".0"
 	}
 	if !hasExp {
+		if bits == 32 {
+			return mant + "f0"
+		}
 		return mant
 	}
 	sign := ""
 	if exp[0] == '-' {
 		sign = "-"
 	}
-	return mant + "e" + sign + strings.TrimLeft(exp[1:], "0")
+	return mant + e + sign + strings.TrimLeft(exp[1:], "0")
+}
+
+// showChar is show(io, c::AbstractChar) (base/char.jl:293-327): the
+// backslash escapes, a malformed or overlong character byte by byte
+// (show_invalid, :270-280), a printable one as itself, any other as \x,
+// \u or \U and its code point in hex.
+func showChar(c expr.Char) string {
+	u := uint32(c)
+	if u <= 0x5c000000 { // c <= '\\'
+		if esc, ok := map[uint32]byte{0: '0', 0x07000000: 'a', 0x08000000: 'b', 0x09000000: 't',
+			0x0a000000: 'n', 0x0b000000: 'v', 0x0c000000: 'f', 0x0d000000: 'r', 0x1b000000: 'e',
+			0x27000000: '\'', 0x5c000000: '\\'}[u]; ok {
+			return "'\\" + string(esc) + "'"
+		}
+	}
+	cp, ok := charCodepoint(u)
+	if !ok {
+		var b strings.Builder
+		b.WriteByte('\'')
+		for {
+			fmt.Fprintf(&b, "\\x%02x", u>>24)
+			if u <<= 8; u == 0 {
+				break
+			}
+		}
+		b.WriteByte('\'')
+		return b.String()
+	}
+	// isprint (base/strings/unicode.jl:604): categories Lu to Zs
+	if cat := unitab.Category(cp); cat >= 1 && cat <= 23 {
+		return "'" + string(utf8.AppendRune(nil, rune(cp))) + "'"
+	}
+	letter, d := byte('x'), max(2, 8-bits.LeadingZeros32(cp)>>2)
+	if cp > 0xffff {
+		letter = 'U'
+	} else if cp > 0x7f {
+		letter = 'u'
+	}
+	return fmt.Sprintf("'\\%c%0*x'", letter, d, cp)
+}
+
+// charCodepoint is codepoint(c::Char) (base/char.jl:63-75), false where
+// that throws: a malformed or overlong encoding.
+func charCodepoint(u uint32) (uint32, bool) {
+	if u < 0x80000000 {
+		return u >> 24, true
+	}
+	l1 := bits.LeadingZeros32(^u)
+	t0 := bits.TrailingZeros32(u) & 56
+	overlong := u>>24 == 0xc0 || u>>24 == 0xc1 || u>>21 == 0x0704 || u>>20 == 0x0f08
+	if l1 == 1 || 8*l1+t0 > 32 || ((u&0x00c0c0c0)^0x00808080)>>t0 != 0 || overlong {
+		return 0, false
+	}
+	u &= 0xffffffff >> l1
+	u >>= t0
+	return u&0x7f | (u&0x7f00)>>2 | (u&0x7f0000)>>4 | (u&0x7f000000)>>6, true
 }
 
 // modulePrefix is how julia qualifies a type defined in a module of a
@@ -125,6 +196,10 @@ func writeValue(b *strings.Builder, v any) {
 		fmt.Fprintf(b, "0x%016x", x)
 	case float64:
 		b.WriteString(showFloat64(x))
+	case float32:
+		b.WriteString(showFloat(float64(x), 32))
+	case expr.Char:
+		b.WriteString(showChar(x))
 	case string:
 		b.WriteString(strconv.Quote(x))
 	case expr.Symbol:
@@ -163,10 +238,10 @@ func writeValue(b *strings.Builder, v any) {
 	case *Intrinsic:
 		b.WriteString("Core.Intrinsics." + string(x.Name))
 	case *Module:
-		if x.Parent != nil && x.Parent.Name != "Core" {
-			b.WriteString(string(x.Parent.Name) + ".")
-		} else if x.Parent != nil {
-			b.WriteString("Core.")
+		// fullname: every enclosing module, outermost first
+		if x.Parent != nil {
+			writeValue(b, x.Parent)
+			b.WriteByte('.')
 		}
 		b.WriteString(string(x.Name))
 	case SVec:
