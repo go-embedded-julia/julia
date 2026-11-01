@@ -3,6 +3,7 @@ package interp
 import (
 	"fmt"
 	"math"
+	"math/bits"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -49,6 +50,40 @@ func (vm *VM) bootIntrinsics() {
 		"sle_int": func(a, b uint64, w uint) bool { return signExtend(a, w) <= signExtend(b, w) },
 	} {
 		add(name, 2, vm.intCompare(name, cmp))
+	}
+	// the overflow-checked arithmetic: (result, overflowed)
+	for name, op := range map[expr.Symbol]func(a, b uint64, w uint) (uint64, bool){
+		"checked_sadd_int": func(a, b uint64, w uint) (uint64, bool) {
+			x, y := signExtend(a, w), signExtend(b, w)
+			r := x + y
+			return uint64(r), signedOut(r, w) || (w == 64 && (x >= 0) == (y >= 0) && (r >= 0) != (x >= 0))
+		},
+		"checked_ssub_int": func(a, b uint64, w uint) (uint64, bool) {
+			x, y := signExtend(a, w), signExtend(b, w)
+			r := x - y
+			return uint64(r), signedOut(r, w) || (w == 64 && (x >= 0) != (y >= 0) && (r >= 0) != (x >= 0))
+		},
+		"checked_smul_int": func(a, b uint64, w uint) (uint64, bool) {
+			x, y := signExtend(a, w), signExtend(b, w)
+			r := x * y
+			if w < 64 {
+				return uint64(r), signedOut(r, w)
+			}
+			return uint64(r), x != 0 && (r/x != y || (x == -1 && y == math.MinInt64))
+		},
+		"checked_uadd_int": func(a, b uint64, w uint) (uint64, bool) {
+			r, carry := bits.Add64(a, b, 0)
+			return r, carry != 0 || (w < 64 && r>>w != 0)
+		},
+		"checked_usub_int": func(a, b uint64, w uint) (uint64, bool) {
+			return a - b, a < b
+		},
+		"checked_umul_int": func(a, b uint64, w uint) (uint64, bool) {
+			hi, lo := bits.Mul64(a, b)
+			return lo, hi != 0 || (w < 64 && lo>>w != 0)
+		},
+	} {
+		add(name, 2, vm.intChecked(name, op))
 	}
 	// runtime_intrinsics.c:1569-1574, each op on a's C type
 	add("shl_int", 2, vm.intShift("shl_int", func(a, b uint64, w uint) uint64 {
@@ -374,6 +409,26 @@ func (vm *VM) intBinary(name expr.Symbol, op func(a, b uint64, w uint) uint64) f
 		}
 		return fromBits(a[0], op(x, y, w)), nil
 	}
+}
+
+// intChecked is jl_iintrinsic_2 over jl_intrinsiclambda_checked
+// (runtime_intrinsics.c:1228-1244): the wrapped result and whether it
+// overflowed, as a Tuple{T, Bool}.
+func (vm *VM) intChecked(name expr.Symbol, op func(a, b uint64, w uint) (uint64, bool)) func(*VM, []any) (any, error) {
+	return func(vm *VM, a []any) (any, error) {
+		x, y, w, err := vm.sameIntTypes(name, a[0], a[1])
+		if err != nil {
+			return nil, err
+		}
+		r, ovf := op(x, y, w)
+		return vm.newTuple([]any{fromBits(a[0], r), ovf}), nil
+	}
+}
+
+// signedOut reports that r, exact in int64, is outside the range of a
+// w-bit signed integer (never for w = 64, whose callers check themselves).
+func signedOut(r int64, w uint) bool {
+	return w < 64 && (r < -1<<(w-1) || r >= 1<<(w-1))
 }
 
 // intShift is jl_iintrinsic_2 with cvtb set (runtime_intrinsics.c:1174-1211):

@@ -118,7 +118,7 @@ func biTypeof(vm *VM, args []any) (any, error) {
 // type, with core.Isa for what core models itself.
 func (vm *VM) isa(v, t any) bool {
 	switch v.(type) {
-	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, nil, string,
+	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, nil, string,
 		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char,
 		*expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
 		return core.Subtype(vm.typeOf(v), t)

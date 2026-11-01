@@ -216,9 +216,22 @@ func writeValue(b *strings.Builder, v any) {
 			b.WriteByte(',')
 		}
 		b.WriteByte(')')
+	case *Memory:
+		writeIn(b, x, nil)
+	case *MemoryRef:
+		// julia shows the element's address, which has no value here: the
+		// element's index takes its place
+		writeType(b, x.Type)
+		fmt.Fprintf(b, "(%d, ", x.Off+1)
+		writeIn(b, x.Mem, nil)
+		b.WriteByte(')')
 	case *Struct:
+		if _, _, _, ok := arrayOf(x); ok {
+			writeIn(b, x, nil)
+			return
+		}
 		// the instance's whole type, parameters included: Q{Int64}(1)
-		b.WriteString(modulePrefix(x.Type) + core.Show(x.Type))
+		writeType(b, x.Type)
 		b.WriteByte('(')
 		for i, f := range x.Fields {
 			if i > 0 {
@@ -255,18 +268,8 @@ func writeValue(b *strings.Builder, v any) {
 		b.WriteByte(')')
 	case *core.TypeVar:
 		writeTypeVar(b, x)
-	case *core.UnionAll:
-		// julia shows a type's wrapper by its name: Type, Array
-		if d, ok := core.UnwrapUnionAll(x).(*core.DataType); ok && d.Name.Wrapper == any(x) {
-			b.WriteString(d.Name.Name)
-			return
-		}
-		b.WriteString(core.Show(x))
-	case *core.DataType:
-		if q := modulePrefix(x); q != "" {
-			b.WriteString(q)
-		}
-		b.WriteString(core.Show(x))
+	case *core.UnionAll, *core.DataType, *core.Union, *core.Vararg:
+		writeType(b, x)
 	default:
 		if core.IsType(v) || core.TypeOf(v) != nil {
 			b.WriteString(core.Show(v))
