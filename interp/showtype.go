@@ -132,7 +132,19 @@ func writeDataType(b *strings.Builder, d *core.DataType, elide *[]*core.TypeVar,
 		d.Name.Name == "TypeofBottom" || d.Name.Name == "TypeofVararg" || d.Name.Name == "BFloat16") {
 		name += "Core."
 	}
-	if a := aliasOf(d); a != nil {
+	// as the body of a where clause, an alias whose shown parameter is a type
+	// over the clause's variables does not match back (make_typealias's
+	// applied === x fails): Array{Vector{T}, 1} where T
+	a := aliasOf(d)
+	if a != nil && elide != nil {
+		for _, j := range a.params {
+			if _, isVar := params[j].(*core.TypeVar); !isVar && core.HasFreeTypeVars(params[j]) {
+				a = nil
+				break
+			}
+		}
+	}
+	if a != nil {
 		name = a.name
 		shown := make([]any, len(a.params))
 		for i, j := range a.params {

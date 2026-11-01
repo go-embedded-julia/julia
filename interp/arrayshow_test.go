@@ -3,6 +3,8 @@ package interp
 import (
 	"strings"
 	"testing"
+
+	"github.com/go-embedded-julia/julia/core"
 )
 
 // Arrays are shown as julia 1.12.6 shows them: each want is its repr of the
@@ -54,6 +56,11 @@ v(T, xs...) = fillv!(Array{T,1}(undef, Core.nfields(xs)), 1, xs)
 		{"fillv!(Array{Int64,0}(undef, ()), 1, (7,))", "fill(7)"},
 		{"Array{Any,0}(undef, ())", "Array{Any, 0}(UndefInitializer())"},
 		{"v(Array{Int8,1}, v(Int8, Int8(1)))", "Vector{Int8}[[1]]"},
+		{"v(Tuple{Int8}, (Int8(1),))", "Tuple{Int8}[(1,)]"},
+		{"v(Memory{Int64}, fillm!(Memory{Int64}(undef, 2), 1, (1, 2)))", "Memory{Int64}[[1, 2]]"},
+		// a size set past the memory reads what the memory holds, never
+		// beyond it (julia would read past the allocation)
+		{"a = v(Int64, 1, 2); setfield!(a, :size, (5,)); a", "[1, 2]"},
 	} {
 		v, err := s.Eval(c.src)
 		check(t, c.src, v, err, c.want)
@@ -66,5 +73,10 @@ v(T, xs...) = fillv!(Array{T,1}(undef, Core.nfields(xs)), 1, xs)
 	check(t, "Float32 specials", v, err, "Float32[1.0f32, NaN, Inf]")
 	if !strings.HasPrefix(Repr(SVec{}), "svec") {
 		t.Error("svec")
+	}
+	// an Array whose fields are not set yet is shown as a struct
+	vt, _ := s.Eval("Array{Int64,1}")
+	if got := Repr(&Struct{Type: vt.(*core.DataType), Fields: []any{undef, undef}}); got != "Vector{Int64}(#undef, #undef)" {
+		t.Errorf("an Array without fields: %s", got)
 	}
 }
