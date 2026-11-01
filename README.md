@@ -104,7 +104,7 @@ core — Julia's type objects, apply_type, and subtyping (a port of jltypes.c an
 
 core/dispatch — method tables with world ages, and the method a call with concrete argument types runs (the most specific applicable one, or an ambiguity), with its static parameters: identical to julia's `which` and dispatch environment on 1 500 random method tables and 9 000 calls (4 675 method choices, 1 968 of them with static parameters, 87 ambiguities). Not yet ported: the interference sets julia 1.12 computes at method insertion, which need type intersection.
 
-Speed: subtyping is **1.49× slower** than julia's `jl_subtype` on one core (3.63 ms against 2.44 ms for the 20 000 pairs), an open defect; the time goes to allocation.
+Speed: subtyping is **1.37× slower** than julia's `jl_subtype` on one core (3.26 ms against 2.39 ms for the 20 000 pairs, best of 7 interleaved rounds, load 4.4–6.6, 2026-11-01), an open defect: [#20](https://github.com/go-embedded-julia/julia/issues/20). It was 1.43× before the query environments were pooled, which halved the allocations (−51%, −66% of bytes); the time gain of the pooling alone is not confirmed at low load.
 
 ### Interpreter (interp)
 
