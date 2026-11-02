@@ -76,8 +76,8 @@ func showChar(c expr.Char) string {
 			return "'\\" + string(esc) + "'"
 		}
 	}
-	cp, ok := charCodepoint(u)
-	if !ok {
+	cp, _ := charCodepoint(u)
+	if charOverlong(u) || charMalformed(u) {
 		var b strings.Builder
 		b.WriteByte('\'')
 		for {
@@ -100,6 +100,18 @@ func showChar(c expr.Char) string {
 		letter = 'u'
 	}
 	return fmt.Sprintf("'\\%c%0*x'", letter, d, cp)
+}
+
+// charMalformed and charOverlong are ismalformed and isoverlong
+// (base/char.jl:98-111), which decide that show prints a Char's bytes.
+func charMalformed(u uint32) bool {
+	l1 := bits.LeadingZeros32(^u) << 3
+	t0 := bits.TrailingZeros32(u) & 56
+	return l1 == 8 || l1+t0 > 32 || ((u&0x00c0c0c0)^0x00808080)>>t0 != 0
+}
+
+func charOverlong(u uint32) bool {
+	return u>>24 == 0xc0 || u>>24 == 0xc1 || u>>21 == 0x0704 || u>>20 == 0x0f08
 }
 
 // charCodepoint is codepoint(c::Char) (base/char.jl:63-75), false where
@@ -202,6 +214,12 @@ func writeValue(b *strings.Builder, v any) {
 		b.WriteString(showFloat64(x))
 	case float32:
 		b.WriteString(showFloat(float64(x), 32))
+	case Float16:
+		b.WriteString(showHalf(uint16(x), true))
+	case BFloat16:
+		// Base has no show method for it: the default show of a primitive
+		// value, its bits (julia 1.12.6: Core.BFloat16(0x3fc0))
+		fmt.Fprintf(b, "Core.BFloat16(0x%04x)", uint16(x))
 	case expr.Char:
 		b.WriteString(showChar(x))
 	case string:

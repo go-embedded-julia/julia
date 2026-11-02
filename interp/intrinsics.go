@@ -10,10 +10,11 @@ import (
 )
 
 // The intrinsics of src/runtime_intrinsics.c over the primitive types that
-// have a Go counterpart: the integers up to 128 bits, Bool, Char, Float32
-// and Float64. An integer is handled as its bits (a u128) and its width, so
-// that one implementation serves every width, as julia's does
-// (jl_iintrinsic_2, runtime_intrinsics.c:1174-1211).
+// have a Go counterpart: the integers up to 128 bits, Bool, Char and the four
+// floats (the float ones are floatintrinsics.go). An integer intrinsic takes
+// any primitive value as its bits (a u128) and its width, so that one
+// implementation serves every width, as julia's does (jl_iintrinsic_2,
+// runtime_intrinsics.c:1174-1211).
 
 func (vm *VM) bootIntrinsics() {
 	im := newModule("Intrinsics", vm.Core)
@@ -184,47 +185,43 @@ func (vm *VM) bootIntrinsics() {
 	} {
 		add(name, 2, vm.intCheckedDiv(name, div))
 	}
-	for name, op := range map[expr.Symbol]func(a, b float64) float64{
-		"add_float": func(a, b float64) float64 { return a + b },
-		"sub_float": func(a, b float64) float64 { return a - b },
-		"mul_float": func(a, b float64) float64 { return a * b },
-		"div_float": func(a, b float64) float64 { return a / b },
-	} {
-		add(name, 2, vm.floatBinary(name, op))
-	}
-	for name, cmp := range map[expr.Symbol]func(a, b float64) bool{
-		"eq_float": func(a, b float64) bool { return a == b },
-		"ne_float": func(a, b float64) bool { return a != b },
-		"lt_float": func(a, b float64) bool { return a < b },
-		"le_float": func(a, b float64) bool { return a <= b },
-	} {
-		add(name, 2, vm.floatCompare(name, cmp))
-	}
-	add("trunc_int", 2, vm.intCvt("trunc_int", func(b u128, from, to uint) u128 { return b.mask(to) }))
-	add("zext_int", 2, vm.intCvt("zext_int", func(b u128, from, to uint) u128 { return b.mask(from) }))
-	add("sext_int", 2, vm.intCvt("sext_int", func(b u128, from, to uint) u128 { return b.sext(from).mask(to) }))
+	vm.bootFloatIntrinsics(add)
+	add("trunc_int", 2, vm.intCvt("trunc_int", "Trunc", -1, func(b u128, from, to uint) u128 { return b.mask(to) }))
+	add("zext_int", 2, vm.intCvt("zext_int", "ZExt", 1, func(b u128, from, to uint) u128 { return b.mask(from) }))
+	add("sext_int", 2, vm.intCvt("sext_int", "SExt", 1, func(b u128, from, to uint) u128 { return b.sext(from).mask(to) }))
+	// LLVMByteSwap, LLVMPopcount, LLVMCountl_zero and LLVMCountr_zero
+	// (APInt-C.cpp), over the value's width; a count is stored in the
+	// value's own type (jl_intrinsiclambda_u1, runtime_intrinsics.c:1005-1020)
+	add("bswap_int", 1, vm.intUnaryW("bswap_int", func(a u128, w uint) u128 {
+		return u128{bits.ReverseBytes64(a.lo), bits.ReverseBytes64(a.hi)}.lshr(128 - w)
+	}))
+	add("ctpop_int", 1, vm.intUnaryW("ctpop_int", func(a u128, w uint) u128 {
+		return from64(uint64(bits.OnesCount64(a.hi) + bits.OnesCount64(a.lo)))
+	}))
+	add("ctlz_int", 1, vm.intUnaryW("ctlz_int", func(a u128, w uint) u128 {
+		return from64(uint64(a.leadingZeros() - int(128-w)))
+	}))
+	add("cttz_int", 1, vm.intUnaryW("cttz_int", func(a u128, w uint) u128 {
+		n := uint64(bits.TrailingZeros64(a.lo))
+		if a.lo == 0 {
+			n = 64 + uint64(bits.TrailingZeros64(a.hi))
+		}
+		return from64(min(n, uint64(w)))
+	}))
 	add("bitcast", 2, biBitcast)
 	add("cglobal", 2, biCglobal)
 	add("pointerref", 3, biPointerref)
 	add("pointerset", 4, biPointerset)
 	add("add_ptr", 2, ptrArith("add_ptr", 1))
 	add("sub_ptr", 2, ptrArith("sub_ptr", -1))
-	// jl_fintrinsic_1 (runtime_intrinsics.c:1068-1092), reached through
-	// un_fintrinsic's jl_neg_float_withtype, whose name the messages carry
-	// (:1059-1064)
-	add("neg_float", 1, func(vm *VM, a []any) (any, error) {
-		switch x := a[0].(type) {
-		case float64:
-			return -x, nil
-		case float32:
-			return -x, nil
-		}
-		if _, _, ok := intBits(a[0]); !ok {
-			return nil, vm.errorf("neg_float_withtype: value is not a primitive type")
-		}
-		return nil, vm.errorf("neg_float_withtype%s", floatTypesMsg)
-	})
 	for name, op := range map[expr.Symbol]func(a, b u128, w uint) u128{
+		// flipsign (runtime_intrinsics.c:1710-1712): (b >= 0) ? a : -a
+		"flipsign_int": func(a, b u128, w uint) u128 {
+			if b.sext(w).neg128() {
+				return a.neg()
+			}
+			return a
+		},
 		"sdiv_int": func(a, b u128, w uint) u128 {
 			x, y := a.sext(w), b.sext(w)
 			if y.isZero() {
@@ -278,13 +275,21 @@ func (vm *VM) bootIntrinsics() {
 // primBits returns the bits of any primitive value this VM represents and
 // its width: the integers, Bool, Char, and the floats' bit patterns.
 func primBits(v any) (u128, uint, bool) {
+	// the integers first: they are what the integer intrinsics are given
+	if b, w, ok := intBits(v); ok {
+		return b, w, true
+	}
 	switch x := v.(type) {
 	case float64:
 		return from64(math.Float64bits(x)), 64, true
 	case float32:
 		return from64(uint64(math.Float32bits(x))), 32, true
+	case Float16:
+		return from64(uint64(x)), 16, true
+	case BFloat16:
+		return from64(uint64(x)), 16, true
 	}
-	return intBits(v)
+	return u128{}, 0, false
 }
 
 // bitsValue is jl_new_bits: the value of primitive type t with these bits
@@ -320,6 +325,10 @@ func bitsValue(t *core.DataType, bits u128) (any, bool) {
 		return math.Float32frombits(uint32(bits.lo)), true
 	case core.Float64Type:
 		return math.Float64frombits(bits.lo), true
+	case core.Float16Type:
+		return Float16(bits.lo), true
+	case core.BFloat16Type:
+		return BFloat16(bits.lo), true
 	}
 	return nil, false
 }
@@ -338,8 +347,10 @@ func (vm *VM) cvtTarget(name expr.Symbol, ty any) (*core.DataType, error) {
 }
 
 // intCvt is jl_intrinsic_cvt (runtime_intrinsics.c:1032-1045) for trunc_int,
-// sext_int and zext_int: the value's bits resized to the target's width.
-func (vm *VM) intCvt(name expr.Symbol, op func(bits u128, from, to uint) u128) func(*VM, []any) (any, error) {
+// sext_int and zext_int: the value's bits resized to the target's width,
+// which LLVMTrunc wants narrower (grow -1) and LLVMSExt and LLVMZExt wider
+// (grow 1) (APInt-C.cpp:431-476).
+func (vm *VM) intCvt(name expr.Symbol, llvm string, grow int, op func(bits u128, from, to uint) u128) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
 		t, err := vm.cvtTarget(name, a[0])
 		if err != nil {
@@ -348,6 +359,11 @@ func (vm *VM) intCvt(name expr.Symbol, op func(bits u128, from, to uint) u128) f
 		x, w, ok := primBits(a[1])
 		if !ok {
 			return nil, vm.errorf("%s: value is not a primitive type", name)
+		}
+		if to := uint(t.Name.Bits); grow > 0 && to <= w {
+			return nil, vm.errorf("%s: output bitsize must be > input bitsize", llvm)
+		} else if grow < 0 && to >= w {
+			return nil, vm.errorf("%s: output bitsize must be < input bitsize", llvm)
 		}
 		v, ok := bitsValue(t, op(x, w, uint(t.Name.Bits)))
 		if !ok {
@@ -449,6 +465,9 @@ func intBits(v any) (u128, uint, bool) {
 // fromBits is jl_new_bits for the type of like: the bits truncated to its
 // width; a Bool keeps the low bit (jl_new_bits returns jl_true or jl_false).
 func fromBits(like any, bits u128) any {
+	if _, ok := like.(int64); ok {
+		return int64(bits.lo)
+	}
 	switch like.(type) {
 	case int8:
 		return int8(bits.lo)
@@ -472,20 +491,40 @@ func fromBits(like any, bits u128) any {
 		return bits.lo&1 == 1
 	case expr.Char:
 		return expr.Char(bits.lo)
+	case float32:
+		return math.Float32frombits(uint32(bits.lo))
+	case float64:
+		return math.Float64frombits(bits.lo)
+	case Float16:
+		return Float16(bits.lo)
+	case BFloat16:
+		return BFloat16(bits.lo)
 	}
 	return bits.lo
 }
 
 // sameIntTypes is the check of jl_iintrinsic_2 without cvtb.
 func (vm *VM) sameIntTypes(name expr.Symbol, a, b any) (u128, u128, uint, error) {
+	// two Int64s, the common case, without typeOf's search of its cases
+	if x, ok := a.(int64); ok {
+		if y, ok := b.(int64); ok {
+			return from64(uint64(x)), from64(uint64(y)), 64, nil
+		}
+	}
 	if vm.typeOf(a) != vm.typeOf(b) {
 		return u128{}, u128{}, 0, vm.errorf("%s: types of a and b must match", name)
 	}
+	// intBits first, without primBits' call, on the hot path of integers
 	x, w, ok := intBits(a)
 	if !ok {
-		return u128{}, u128{}, 0, vm.errorf("%s: a is not a primitive type", name)
+		if x, w, ok = primBits(a); !ok {
+			return u128{}, u128{}, 0, vm.errorf("%s: a is not a primitive type", name)
+		}
 	}
-	y, _, _ := intBits(b)
+	y, _, ok := intBits(b)
+	if !ok {
+		y, _, _ = primBits(b)
+	}
 	return x, y, w, nil
 }
 
@@ -518,11 +557,11 @@ func (vm *VM) intChecked(name expr.Symbol, op func(a, b u128, w uint) (u128, boo
 // width before the op sees it.
 func (vm *VM) intShift(name expr.Symbol, op func(a, b u128, w uint) u128) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
-		y, wb, okb := intBits(a[1])
+		y, wb, okb := primBits(a[1])
 		if vm.typeOf(a[0]) != vm.typeOf(a[1]) && !okb {
 			return nil, vm.errorf("%s: b is not a primitive type", name)
 		}
-		x, w, ok := intBits(a[0])
+		x, w, ok := primBits(a[0])
 		if !ok {
 			return nil, vm.errorf("%s: a is not a primitive type", name)
 		}
@@ -544,12 +583,18 @@ func (vm *VM) intCompare(name expr.Symbol, cmp func(a, b u128, w uint) bool) fun
 }
 
 func (vm *VM) intUnary(name expr.Symbol, op func(a u128) u128) func(*VM, []any) (any, error) {
+	return vm.intUnaryW(name, func(a u128, _ uint) u128 { return op(a) })
+}
+
+// intUnaryW is jl_iintrinsic_1 (runtime_intrinsics.c:966-995) over any
+// primitive value, the op told its width.
+func (vm *VM) intUnaryW(name expr.Symbol, op func(a u128, w uint) u128) func(*VM, []any) (any, error) {
 	return func(vm *VM, a []any) (any, error) {
-		x, w, ok := intBits(a[0])
+		x, w, ok := primBits(a[0])
 		if !ok {
 			return nil, vm.errorf("%s: value is not a primitive type", name)
 		}
-		return fromBits(a[0], op(x).mask(w)), nil
+		return fromBits(a[0], op(x, w).mask(w)), nil
 	}
 }
 
@@ -566,48 +611,5 @@ func (vm *VM) intCheckedDiv(name expr.Symbol, div func(a, b u128, w uint) (u128,
 			return nil, vm.exception(vm.tDivide)
 		}
 		return fromBits(a[0], r.mask(w)), nil
-	}
-}
-
-const floatTypesMsg = ": runtime floating point intrinsics require both arguments to be Float16, BFloat16, Float32, or Float64"
-
-// floatArgs is the check of bi_fintrinsic (runtime_intrinsics.c:1262-1284).
-func (vm *VM) floatArgs(name expr.Symbol, a, b any) (float64, float64, bool, error) {
-	if vm.typeOf(a) != vm.typeOf(b) {
-		return 0, 0, false, vm.errorf("%s: types of a and b must match", name)
-	}
-	switch x := a.(type) {
-	case float64:
-		return x, b.(float64), false, nil
-	case float32:
-		return float64(x), float64(b.(float32)), true, nil
-	}
-	if _, _, ok := intBits(a); !ok {
-		return 0, 0, false, vm.errorf("%s: values are not primitive types", name)
-	}
-	return 0, 0, false, vm.errorf("%s%s", name, floatTypesMsg)
-}
-
-func (vm *VM) floatBinary(name expr.Symbol, op func(a, b float64) float64) func(*VM, []any) (any, error) {
-	return func(vm *VM, a []any) (any, error) {
-		x, y, is32, err := vm.floatArgs(name, a[0], a[1])
-		if err != nil {
-			return nil, err
-		}
-		if is32 {
-			// a Float32 operation rounds once, in single precision
-			return float32(op(float64(float32(x)), float64(float32(y)))), nil
-		}
-		return op(x, y), nil
-	}
-}
-
-func (vm *VM) floatCompare(name expr.Symbol, cmp func(a, b float64) bool) func(*VM, []any) (any, error) {
-	return func(vm *VM, a []any) (any, error) {
-		x, y, _, err := vm.floatArgs(name, a[0], a[1])
-		if err != nil {
-			return nil, err
-		}
-		return cmp(x, y), nil
 	}
 }

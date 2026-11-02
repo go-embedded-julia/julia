@@ -180,6 +180,11 @@ func writeElem(b *strings.Builder, e any, ctx any) {
 // Bool); a nested array uses the context for its prefix.
 func writeIn(b *strings.Builder, v any, ctx any) {
 	switch x := v.(type) {
+	case Float16:
+		if ctx == any(core.Float16Type) {
+			b.WriteString(showHalf(uint16(x), false))
+			return
+		}
 	case float32:
 		if ctx == any(core.Float32Type) {
 			// without the f0 suffix and the specials' 32; an exponent other

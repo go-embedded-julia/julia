@@ -222,7 +222,6 @@ func TestIntrinsicsWidths(t *testing.T) {
 		{"trunc_int", []any{core.IntegerType, int64(1)}, "!trunc_int: target type not a leaf primitive type"},
 		{"trunc_int", []any{core.Int8Type, expr.Symbol("a")}, "!trunc_int: value is not a primitive type"},
 		{"zext_int", []any{core.Int128Type, int64(1)}, "1"},
-		{"trunc_int", []any{core.Float16Type, int64(1)}, "!not ported yet: trunc_int to Float16"},
 		{"bitcast", []any{core.Float64Type, int64(0)}, "0.0"},
 		{"bitcast", []any{core.Float32Type, uint32(0x3f800000)}, "1.0f0"},
 		{"bitcast", []any{core.CharType, uint32(0x61000000)}, "'a'"},
@@ -240,7 +239,6 @@ func TestIntrinsicsWidths(t *testing.T) {
 		{"bitcast", []any{core.IntegerType, int64(1)}, "!bitcast: target type not a leaf primitive type"},
 		{"bitcast", []any{core.Int64Type, expr.Symbol("a")}, "!bitcast: value not a primitive type"},
 		{"bitcast", []any{core.Int32Type, int64(1)}, "!bitcast: argument size does not match size of target type"},
-		{"bitcast", []any{core.Float16Type, int16(1)}, "!not ported yet: bitcast to Float16"},
 		{"neg_float", []any{float32(1)}, ""},
 		{"neg_float", []any{expr.Symbol("a")}, "!neg_float_withtype: value is not a primitive type"},
 	}
@@ -251,7 +249,7 @@ func TestIntrinsicsWidths(t *testing.T) {
 	if v, _ := vm.apply(intrinsic(t, vm, "add_float"), []any{float32(1.5), float32(2.25)}); v != float32(3.75) {
 		t.Errorf("Float32 add: %v", v)
 	}
-	if fromBits(float64(0), from64(7)) != uint64(7) {
+	if fromBits("s", from64(7)) != uint64(7) {
 		t.Error("fromBits of a non-integer kept the bits")
 	}
 }

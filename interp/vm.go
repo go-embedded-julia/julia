@@ -346,6 +346,10 @@ func (vm *VM) typeOf(v any) any {
 		return core.Float32Type
 	case float64:
 		return core.Float64Type
+	case Float16:
+		return core.Float16Type
+	case BFloat16:
+		return core.BFloat16Type
 	case string:
 		return core.StringType
 	case expr.Char:
