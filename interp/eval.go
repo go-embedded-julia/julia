@@ -500,6 +500,11 @@ func (f *frame) methodDef(s sMethodDef) error {
 		tab, params = vm.others, argtypes
 	}
 	src, ok := mv.(*expr.CodeInfo)
+	if lam, isLam := mv.(*expr.Expr); isLam && lam.Head == "lambda" {
+		// a closure's method added to a global function: its captured
+		// values are in the lambda (method.c:1246-1251)
+		src, ok = lambdaCodeInfo(lam)
+	}
 	if !ok {
 		return vm.errorf("method: invalid declaration")
 	}
@@ -648,6 +653,12 @@ func (vm *VM) newStruct(tv any, fields []any) (any, error) {
 	}
 	if v, ok := vm.astNode(t, fields); ok {
 		return v, nil
+	}
+	// a singleton type's instance (datatype.c:1641-1642)
+	if !t.Name.Mutable {
+		if v := vm.typeInstance(t); v != undef {
+			return v, nil
+		}
 	}
 	vals := make([]any, n)
 	for i := range vals {

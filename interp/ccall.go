@@ -181,6 +181,7 @@ func (vm *VM) bootShims() {
 		// jl_get_tls_world_age (task.c): the task's world, a UInt
 		"jl_get_tls_world_age": func(vm *VM, a []any) (any, error) { return vm.taskWorld, nil },
 	}
+	vm.bootEqtableShims()
 }
 
 // sessionFor is the session that evaluates code in module m: its lowering

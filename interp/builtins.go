@@ -40,7 +40,9 @@ func (vm *VM) bootBuiltins() {
 		"sizeof":           biSizeof,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
-		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})
+		b := &Builtin{Name: name, Type: t, Fn: fn}
+		vm.singletons[t] = b // typeof(b).instance
+		vm.setCore(name, b)
 	}
 }
 
@@ -356,7 +358,9 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 				if x.Name.Abstract || x.Name.Bits > 0 {
 					return SVec{}, true
 				}
-				return nil, true
+				return undef, true
+			case 4:
+				return vm.typeInstance(x), true
 			case 5:
 				return vm.typeLayoutPtr(x), true
 			case 7:
@@ -397,10 +401,15 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 	case *core.Vararg:
 		// an absent T or N is undefined, as jl_vararg_t leaves it NULL
 		names = []expr.Symbol{"T", "N"}
-		get = func(i int) (any, bool) { return []any{x.T, x.N}[i], true }
+		get = func(i int) (any, bool) {
+			if f := []any{x.T, x.N}[i]; f != nil {
+				return f, true
+			}
+			return undef, true
+		}
 	}
 	f, err := vm.goField(v, t, names, get, arg)
-	if err == nil && f == nil {
+	if err == nil && f == undef {
 		return nil, vm.exception(vm.tUndefRef)
 	}
 	return f, err

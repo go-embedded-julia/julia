@@ -85,6 +85,8 @@ type VM struct {
 	// emptyMemory holds each memory type's zero-length instance.
 	MaxMemoryElems int
 	emptyMemory    map[*core.DataType]*Memory
+	// singletons are the instances of singleton types (singleton.go).
+	singletons map[*core.DataType]any
 
 	// Stdout and Stderr receive what Julia code prints (Core.println,
 	// print): io.Discard unless the embedder sets them. cglobals are the C
@@ -129,7 +131,7 @@ func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
 		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources,
-		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{},
+		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{}, singletons: map[*core.DataType]any{},
 		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard,
 		addrs: addrSpace{byTarget: map[any]uint64{}, byID: map[uint64]any{}}}
 	vm.world.Store(1)
