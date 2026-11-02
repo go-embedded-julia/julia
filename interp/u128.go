@@ -48,6 +48,10 @@ func (a u128) mulFull(b u128) (u128, u128) {
 }
 
 func (a u128) mul(b u128) u128 {
+	if a.hi == 0 && b.hi == 0 {
+		hi, lo := bits.Mul64(a.lo, b.lo)
+		return u128{hi, lo}
+	}
 	_, lo := a.mulFull(b)
 	return lo
 }
@@ -97,14 +101,23 @@ func (a u128) ashr(n uint) u128 {
 
 // mask keeps the low w bits.
 func (a u128) mask(w uint) u128 {
-	if w >= 128 {
-		return a
+	switch {
+	case w == 64:
+		return u128{lo: a.lo}
+	case w < 64:
+		return u128{lo: a.lo & (1<<w - 1)}
 	}
-	return a.and(u128{^uint64(0), ^uint64(0)}.lshr(128 - w))
+	return a // the only width above 64 the intrinsics meet is 128
 }
 
 // sext is the w-bit pattern a sign-extended to 128 bits.
-func (a u128) sext(w uint) u128 { return a.shl(128 - w).ashr(128 - w) }
+func (a u128) sext(w uint) u128 {
+	if w <= 64 {
+		lo := uint64(int64(a.lo<<(64-w)) >> (64 - w))
+		return u128{uint64(int64(lo) >> 63), lo}
+	}
+	return a.shl(128 - w).ashr(128 - w)
+}
 
 func (a u128) neg128() bool { return a.hi>>63 == 1 }
 

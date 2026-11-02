@@ -3,6 +3,7 @@ package interp
 import (
 	"fmt"
 	"math"
+	"math/bits"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -72,11 +73,22 @@ func (vm *VM) bootIntrinsics() {
 			return r, x.neg128() != y.neg128() && r.neg128() != x.neg128()
 		},
 		"checked_smul_int": func(a, b u128, w uint) (u128, bool) {
-			x, y := a.sext(w), b.sext(w)
-			r := x.mul(y)
 			if w <= 64 {
+				// exact in 128 bits: the signed product of the low halves
+				x, y := int64(a.sext(w).lo), int64(b.sext(w).lo)
+				hi, lo := bits.Mul64(uint64(x), uint64(y))
+				// the unsigned product's high half, corrected for the signs
+				if x < 0 {
+					hi -= uint64(y)
+				}
+				if y < 0 {
+					hi -= uint64(x)
+				}
+				r := u128{hi, lo}
 				return r, !fits(r, w)
 			}
+			x, y := a.sext(w), b.sext(w)
+			r := x.mul(y)
 			ax, ay := x, y
 			if x.neg128() {
 				ax = x.neg()
