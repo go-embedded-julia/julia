@@ -87,6 +87,8 @@ type VM struct {
 	emptyMemory    map[*core.DataType]*Memory
 	// singletons are the instances of singleton types (singleton.go).
 	singletons map[*core.DataType]any
+	// intrinsics are the intrinsics by number (intrinsicid.go).
+	intrinsics []*Intrinsic
 
 	// Stdout and Stderr receive what Julia code prints (Core.println,
 	// print): io.Discard unless the embedder sets them. cglobals are the C
@@ -241,10 +243,10 @@ func (vm *VM) bootCore() {
 	}
 	vm.builtinType = mustType("Core", "Builtin", core.FunctionType, true, nil, nil)
 	vm.setCore("Builtin", vm.builtinType)
-	// primitive type IntrinsicFunction <: Builtin 32 end (boot.jl): many
-	// instances, one per intrinsic, so not a singleton
-	vm.intrinsicType = mustType("Core", "IntrinsicFunction", vm.builtinType, false, nil, nil)
-	vm.intrinsicType.Name.Singleton = false
+	// primitive type IntrinsicFunction <: Builtin 32 end (jltypes.c): one
+	// value per intrinsic, its number
+	vm.intrinsicType = core.NewIncompletePrimitive("Core", "IntrinsicFunction", nil, 32)
+	must(0, vm.intrinsicType.SetSuper(vm.builtinType))
 	vm.setCore("IntrinsicFunction", vm.intrinsicType)
 
 	// boot.jl:368-446, the exceptions the interpreter itself raises

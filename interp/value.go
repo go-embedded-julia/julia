@@ -53,6 +53,7 @@ type SVec []any
 // Intrinsic is a Core.IntrinsicFunction.
 type Intrinsic struct {
 	Name expr.Symbol
+	ID   int32 // its number in enum intrinsic, its bits (intrinsicid.go)
 	Fn   func(vm *VM, args []any) (any, error)
 }
 

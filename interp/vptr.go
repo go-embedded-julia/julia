@@ -107,9 +107,15 @@ func biPointerref(vm *VM, a []any) (any, error) {
 	if _, ok := a[2].(int64); !ok {
 		return nil, vm.typeError("pointerref", "", core.Int64Type, a[2])
 	}
+	return vm.ptrLoad("pointerref", p, i)
+}
+
+// ptrLoad is the load of jl_pointerref and jl_atomic_pointerref, named as
+// the intrinsic fname: element i (1-based) of what p points into.
+func (vm *VM) ptrLoad(fname string, p *Pointer, i int64) (any, error) {
 	switch t := p.Target.(type) {
 	case *Memory:
-		k, err := vm.memIndex("pointerref", p, t, p.Type.Parameters[0], i)
+		k, err := vm.memIndex(fname, p, t, p.Type.Parameters[0], i)
 		if err != nil {
 			return nil, err
 		}
@@ -120,25 +126,25 @@ func biPointerref(vm *VM, a []any) (any, error) {
 	case layoutOf:
 		st, ok := p.Type.Parameters[0].(*core.DataType)
 		if !ok || i != 1 || p.Off != 0 || len(st.Name.FieldNames) != 6 {
-			return nil, fmt.Errorf("%w: pointerref of a layout as %s", ErrUnsupported, showValue(p.Type))
+			return nil, fmt.Errorf("%w: %s of a layout as %s", ErrUnsupported, fname, showValue(p.Type))
 		}
 		return vm.layoutStruct(t.t, st)
 	case *ptrSlot:
 		if i != 1 || p.Off != 0 {
-			return nil, vm.errorf("pointerref: invalid pointer")
+			return nil, vm.errorf("%s: invalid pointer", fname)
 		}
 		return t.val, nil
 	case string:
 		if p.Type.Parameters[0] != any(core.UInt8Type) {
-			return nil, fmt.Errorf("%w: pointerref of a String as %s", ErrUnsupported, showValue(p.Type))
+			return nil, fmt.Errorf("%w: %s of a String as %s", ErrUnsupported, fname, showValue(p.Type))
 		}
 		at := p.Off + i - 1
 		if at < 0 || at >= int64(len(t)) {
-			return nil, vm.errorf("pointerref: invalid pointer")
+			return nil, vm.errorf("%s: invalid pointer", fname)
 		}
 		return t[at], nil
 	}
-	return nil, vm.errorf("pointerref: invalid pointer")
+	return nil, vm.errorf("%s: invalid pointer", fname)
 }
 
 // stringPtr is jl_string_ptr: a Ptr{UInt8} to the bytes of s.

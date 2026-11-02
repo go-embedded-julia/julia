@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"unsafe"
 	"weak"
@@ -77,14 +78,20 @@ func (vm *VM) writableBytes(s string) ([]byte, bool) {
 }
 
 // memmove is memmove(dst, src, n) for what a pointer here can address in
-// bytes: from a String into a String allocString made. Anything else, and
-// any range outside the strings, is refused: C has no checks to refuse it
-// with.
+// bytes: from a String into a String allocString made, and between
+// memories of one inline element type, whole elements at element offsets
+// (unsafe_copyto! of Ptrs, array.jl:265-270). Anything else, and any range
+// outside them, is refused: C has no checks to refuse it with.
 func (vm *VM) memmove(a []any) (any, error) {
 	dp, ok1 := a[0].(*Pointer)
 	sp, ok2 := a[1].(*Pointer)
 	n, ok3 := a[2].(uint64)
 	if ok1 && ok2 && ok3 {
+		dm, okd := dp.Target.(*Memory)
+		sm, oks := sp.Target.(*Memory)
+		if okd && oks && memmoveElems(dm, dp.Off, sm, sp.Off, n) {
+			return dp, nil
+		}
 		dst, ok1 := dp.Target.(string)
 		src, ok2 := stringBytes(sp, n)
 		if ok1 && ok2 {
@@ -96,4 +103,25 @@ func (vm *VM) memmove(a []any) (any, error) {
 		}
 	}
 	return nil, fmt.Errorf("%w: memmove of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+}
+
+// memmoveElems moves n bytes between memories of one inline element type
+// as whole elements, overlap allowed, false where the bytes are not whole
+// elements of both or fall outside either.
+func memmoveElems(dm *Memory, doff int64, sm *Memory, soff int64, n uint64) bool {
+	ety := dm.Type.Parameters[1]
+	size, _, boxed, union := memElem(ety)
+	if sm.Type.Parameters[1] != ety || boxed || union || size == 0 {
+		return false
+	}
+	sz := int64(size)
+	if doff < 0 || soff < 0 || doff%sz != 0 || soff%sz != 0 || n%uint64(sz) != 0 || n > uint64(math.MaxInt64) {
+		return false
+	}
+	k, di, si := int64(n)/sz, doff/sz, soff/sz
+	if di > int64(len(dm.Elems)) || si > int64(len(sm.Elems)) || k > int64(len(dm.Elems))-di || k > int64(len(sm.Elems))-si {
+		return false
+	}
+	copy(dm.Elems[di:di+k], sm.Elems[si:si+k])
+	return true
 }

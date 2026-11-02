@@ -21,14 +21,9 @@ func (vm *VM) bootIntrinsics() {
 	vm.modules["Intrinsics"] = im
 	b := vm.Core.declare("Intrinsics", 0)
 	b.Value, b.Const = im, true
+	vm.intrinsics = make([]*Intrinsic, len(intrinsicNames))
 	add := func(name expr.Symbol, n int, fn func(vm *VM, a []any) (any, error)) {
-		x := &Intrinsic{Name: name, Fn: func(vm *VM, args []any) (any, error) {
-			// jl_f_intrinsic_call: JL_NARGS(intrinsic_call, n, n)
-			if err := vm.nargs("intrinsic_call", args, n, n); err != nil {
-				return nil, err
-			}
-			return fn(vm, args)
-		}}
+		x := vm.newIntrinsic(name, n, fn)
 		ib := im.declare(name, 0)
 		ib.Value, ib.Const, ib.Exports = x, true, true
 	}
@@ -210,6 +205,14 @@ func (vm *VM) bootIntrinsics() {
 	}))
 	add("bitcast", 2, biBitcast)
 	add("cglobal", 2, biCglobal)
+	vm.bootAtomics(add)
+	// no runtime function: jl_f_intrinsic_call refuses it (builtins.c:
+	// 2371-2373), before counting the arguments
+	vm.newIntrinsic("llvmcall", 0, nil).Fn = func(vm *VM, args []any) (any, error) {
+		return nil, vm.errorf("`llvmcall` requires the compiler")
+	}
+	llvmcall := im.declare("llvmcall", 0)
+	llvmcall.Value, llvmcall.Const, llvmcall.Exports = vm.intrinsics[intrinsicIDs["llvmcall"]], true, true
 	add("pointerref", 3, biPointerref)
 	add("pointerset", 4, biPointerset)
 	add("add_ptr", 2, ptrArith("add_ptr", 1))
@@ -288,6 +291,8 @@ func primBits(v any) (u128, uint, bool) {
 		return from64(uint64(x)), 16, true
 	case BFloat16:
 		return from64(uint64(x)), 16, true
+	case *Intrinsic:
+		return from64(uint64(uint32(x.ID))), 32, true
 	}
 	return u128{}, 0, false
 }
@@ -420,6 +425,9 @@ func biBitcast(vm *VM, a []any) (any, error) {
 	}
 	if vm.typeOf(a[1]) == any(t) {
 		return a[1], nil
+	}
+	if t == vm.intrinsicType {
+		return vm.intrinsicOf(int32(x.lo)), nil
 	}
 	v, ok := bitsValue(t, x)
 	if !ok {

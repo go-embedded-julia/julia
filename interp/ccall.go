@@ -65,6 +65,35 @@ func (vm *VM) bootShims() {
 			m.uuid = [2]uint64{hi, lo}
 			return nil, nil
 		},
+		// jl_field_index (datatype.c:1781-1806), fieldindex: the 0-based
+		// index of a field by name, -1 or a FieldError when there is none
+		"jl_field_index": func(vm *VM, a []any) (any, error) {
+			t, ok := a[0].(*core.DataType)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.DataTypeType, a[0])
+			}
+			name, ok := a[1].(expr.Symbol)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.SymbolType, a[1])
+			}
+			for i, n := range t.FieldNames() {
+				if n == name {
+					return int32(i), nil
+				}
+			}
+			if a[2] != int32(0) {
+				return nil, vm.noFieldError(t, name)
+			}
+			return int32(-1), nil
+		},
+		// jl_base_relative_to (toplevel.c:356-366): the top module above m
+		"jl_base_relative_to": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Module)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
+			}
+			return vm.baseRelativeTo(m), nil
+		},
 		// jl_prepend_cwd (init.c): a path made absolute against the working
 		// directory; include's paths are VM.Sources', which has none
 		"jl_prepend_cwd": func(vm *VM, a []any) (any, error) { return a[0], nil },

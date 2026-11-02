@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
 
@@ -27,6 +28,37 @@ func TestModuleUUID(t *testing.T) {
 	} {
 		v, err := set(vm, c.args)
 		check(t, c.name, v, err, c.want)
+	}
+
+	// jl_field_index, as fieldindex calls it (runtime_internals.jl:1096-1102)
+	vm.Boot()
+	fi := vm.shims["jl_field_index"]
+	nt, _ := vm.NewSession().Eval("typeof((a=1, b=2))")
+	for _, c := range []struct {
+		args []any
+		want string
+	}{
+		{[]any{core.DataTypeType, expr.Symbol("types"), int32(1)}, "3"},
+		{[]any{core.DataTypeType, expr.Symbol("name"), int32(1)}, "0"},
+		{[]any{nt, expr.Symbol("b"), int32(1)}, "1"},
+		{[]any{core.DataTypeType, expr.Symbol("nope"), int32(0)}, "-1"},
+		{[]any{core.DataTypeType, expr.Symbol("nope"), int32(1)}, "!FieldError(DataType, :nope)"},
+		{[]any{int64(1), expr.Symbol("x"), int32(1)}, "!TypeError(:ccall, \"\", DataType, 1)"},
+		{[]any{core.DataTypeType, "x", int32(1)}, "!TypeError(:ccall, \"\", Symbol, \"x\")"},
+	} {
+		v, err := fi(vm, c.args)
+		check(t, "jl_field_index", v, err, c.want)
+	}
+
+	// jl_base_relative_to: the top module above, Core's own being Core
+	rel := vm.shims["jl_base_relative_to"]
+	inner := vm.NewModule("BR")
+	for _, c := range []struct {
+		m    any
+		want string
+	}{{inner, "Core"}, {vm.Core, "Core"}, {int64(1), "!TypeError(:ccall, \"\", Module, 1)"}} {
+		v, err := rel(vm, []any{c.m})
+		check(t, "jl_base_relative_to", v, err, c.want)
 	}
 }
 

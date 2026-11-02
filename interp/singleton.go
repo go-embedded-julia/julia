@@ -49,11 +49,10 @@ func (vm *VM) typeInstance(d *core.DataType) any {
 
 // makeSingleton is the instance of a concrete immutable type d whose
 // fields all hold immutable singletons, which makes it of size 0 without
-// pointers; undef for any other. A primitive type has bits, and
-// IntrinsicFunction is one (32 bits) in julia.
+// pointers; undef for any other. A primitive type has bits.
 func (vm *VM) makeSingleton(d *core.DataType) any {
 	ft, ok := d.FieldTypes()
-	if !ok || d.Name.Bits > 0 || d == vm.intrinsicType {
+	if !ok || d.Name.Bits > 0 {
 		return undef
 	}
 	fields := make([]any, len(ft))

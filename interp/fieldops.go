@@ -152,13 +152,27 @@ func biModifyfield(vm *VM, args []any) (any, error) {
 	}
 	s.Fields[i] = y
 	syncArgs(s)
-	// jl_apply_modify_type (jltypes.c:1497-1502): boot.jl's Pair
+	return vm.modifyResult("modifyfield!", ft, old, y)
+}
+
+// modifyResult is old => new as a Pair{t, t}, jl_apply_modify_type's
+// (jltypes.c:1497-1502): boot.jl's Pair, which julia's jl_pair_type is
+// NULL before.
+func (vm *VM) modifyResult(fname string, t, old, y any) (any, error) {
 	b := vm.Core.own("Pair")
 	if b == nil {
-		return nil, vm.errorf("modifyfield!: Core.Pair is not defined before boot.jl")
+		return nil, vm.errorf("%s: Core.Pair is not defined before boot.jl", fname)
 	}
-	pair := must(core.Apply(b.Value, ft, ft))
+	pair := must(core.Apply(b.Value, t, t))
 	return vm.newStruct(pair.(*core.DataType), []any{old, y})
+}
+
+// cmpswapResult is (old = …, success = …), a NamedTuple{(:old, :success),
+// Tuple{t, Bool}} (jl_apply_cmpswap_type, jltypes.c:1504-1520).
+func (vm *VM) cmpswapResult(t, old any, success bool) (any, error) {
+	nt := must(core.Apply(core.NamedTupleType, vm.newTuple([]any{expr.Symbol("old"), expr.Symbol("success")}),
+		must(core.Apply(core.AnyTupleType, t, core.BoolType))))
+	return vm.newStruct(nt.(*core.DataType), []any{old, success})
 }
 
 // biReplacefield is jl_f_replacefield over replace_value (datatype.c:2128-
@@ -185,10 +199,7 @@ func biReplacefield(vm *VM, args []any) (any, error) {
 		s.Fields[i] = args[3]
 		syncArgs(s)
 	}
-	// jl_apply_cmpswap_type (jltypes.c:1504-1520)
-	nt := must(core.Apply(core.NamedTupleType, vm.newTuple([]any{expr.Symbol("old"), expr.Symbol("success")}),
-		must(core.Apply(core.AnyTupleType, ft, core.BoolType))))
-	return vm.newStruct(nt.(*core.DataType), []any{old, success})
+	return vm.cmpswapResult(ft, old, success)
 }
 
 // biSetfieldonce is jl_f_setfieldonce over set_nth_fieldonce

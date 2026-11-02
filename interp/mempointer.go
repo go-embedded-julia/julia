@@ -217,20 +217,27 @@ func biPointerset(vm *VM, a []any) (any, error) {
 	if _, ok := a[3].(int64); !ok {
 		return nil, vm.typeError("pointerset", "", core.Int64Type, a[3])
 	}
+	return p, vm.ptrStore("pointerset", p, a[1], i)
+}
+
+// ptrStore is the store of jl_pointerset and jl_atomic_pointerset, named
+// as the intrinsic fname: x as element i (1-based) of the memory p points
+// into, of p's element type.
+func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 	m, ok := p.Target.(*Memory)
 	if !ok {
-		return nil, vm.errorf("pointerset: invalid pointer")
+		return vm.errorf("%s: invalid pointer", fname)
 	}
 	ety := p.Type.Parameters[0]
-	if ety != any(core.AnyType) && vm.typeOf(a[1]) != ety {
-		return nil, vm.typeError("pointerset", "", ety, a[1])
+	if ety != any(core.AnyType) && vm.typeOf(x) != ety {
+		return vm.typeError(expr.Symbol(fname), "", ety, x)
 	}
-	k, err := vm.memIndex("pointerset", p, m, ety, i)
+	k, err := vm.memIndex(fname, p, m, ety, i)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	m.Elems[k] = a[1]
-	return p, nil
+	m.Elems[k] = x
+	return nil
 }
 
 // ptrArith is add_ptr and sub_ptr (runtime_intrinsics.c:1742-1758): a
