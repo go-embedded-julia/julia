@@ -67,6 +67,8 @@ type Module struct {
 	usings   []*Module
 	// istopmod marks a module `(top x)` resolves in (jl_set_istopmod).
 	istopmod bool
+	// uuid is the module's package UUID (jl_module_t.uuid), zero for none.
+	uuid [2]uint64
 }
 
 // Binding is a module's global variable. julia 1.12 partitions a binding by

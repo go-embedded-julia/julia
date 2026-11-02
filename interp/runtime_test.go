@@ -470,8 +470,9 @@ func TestToplevel(t *testing.T) {
 		{"import .Rel", "nothing"},
 		{"import .Core.Rel", "nothing"},
 		{"import Core.Intrinsics\nimport ..Intrinsics", "nothing"},
-		{"import Core.Intrinsics: add_int as plus", "!not ported yet: the import item"},
-		{"import Core.Intrinsics as CI", "!not ported yet: the import form"},
+		{"import Core.Intrinsics: add_int as plus\nplus", "Core.Intrinsics.add_int"},
+		{"import Core.Intrinsics as CI\nCI", "Core.Intrinsics"},
+		{"import Core: Intrinsics.add_int", "!not ported yet: the import item"},
 		{"export q\nq", "!UndefVarError(:q,"},
 		{"Core.Int", "!UndefVarError(:getproperty,"},
 	} {

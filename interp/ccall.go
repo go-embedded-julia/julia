@@ -46,6 +46,25 @@ func (vm *VM) bootShims() {
 			}
 			return nil, nil
 		},
+		// jl_set_module_uuid (module.c:2041), m's package UUID as two
+		// UInt64s, high half first
+		"jl_set_module_uuid": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Module)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
+			}
+			t, ok := a[1].(*Tuple)
+			if !ok || len(t.Elems) != 2 {
+				return nil, fmt.Errorf("%w: jl_set_module_uuid of %s", ErrUnsupported, showValue(a[1]))
+			}
+			hi, ok1 := t.Elems[0].(uint64)
+			lo, ok2 := t.Elems[1].(uint64)
+			if !ok1 || !ok2 {
+				return nil, fmt.Errorf("%w: jl_set_module_uuid of %s", ErrUnsupported, showValue(a[1]))
+			}
+			m.uuid = [2]uint64{hi, lo}
+			return nil, nil
+		},
 		// jl_prepend_cwd (init.c): a path made absolute against the working
 		// directory; include's paths are VM.Sources', which has none
 		"jl_prepend_cwd": func(vm *VM, a []any) (any, error) { return a[0], nil },
@@ -123,6 +142,10 @@ func (vm *VM) bootShims() {
 		"jl_ver_minor":      func(vm *VM, a []any) (any, error) { return int32(12), nil },
 		"jl_ver_patch":      func(vm *VM, a []any) (any, error) { return int32(6), nil },
 		"jl_ver_is_release": func(vm *VM, a []any) (any, error) { return int32(1), nil },
+		// jl_generating_output (precompile.c:19-22): whether an output
+		// file is set in jl_options; the VM's are all NULL (defaultOptions),
+		// it writes no image
+		"jl_generating_output": func(vm *VM, a []any) (any, error) { return int32(0), nil },
 		// jl_get_fenv_consts (jl_uv.c), rounding.jl's first call
 		"jl_get_fenv_consts": func(vm *VM, a []any) (any, error) { return vm.fenvConsts(a) },
 		// jl_module_name (module.c)

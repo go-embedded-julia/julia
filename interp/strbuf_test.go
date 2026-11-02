@@ -2,9 +2,13 @@ package interp
 
 import (
 	"errors"
+	"fmt"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-embedded-julia/julia/core"
 )
 
 // Core.ARGS is Args (jl_set_ARGS), a Vector{String}.
@@ -166,4 +170,20 @@ func TestStoredInline(t *testing.T) {
 		v, err := s.Eval("ccall(:jl_stored_inline, Int32, (Any,), " + ty + ")")
 		check(t, ty, v, err, want)
 	}
+
+	// a Union of 127 inline members or more is boxed (jl_islayout_inline)
+	members := make([]string, 127)
+	for i := range members {
+		members[i] = fmt.Sprintf("P%d", i)
+		if _, err := s.Eval(fmt.Sprintf("primitive type P%d 8 end", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for n, want := range map[int]string{126: "126", 127: "0"} {
+		v, err := s.Eval("ccall(:jl_stored_inline, Int32, (Any,), Union{" + strings.Join(members[:n], ", ") + "})")
+		check(t, fmt.Sprintf("a Union of %d", n), v, err, want)
+	}
+	// an immutable DataType with free type variables: refused
+	_, err := storedInline(core.UnwrapUnionAll(core.PairType))
+	check(t, "Pair's body", nil, err, "!not ported yet: jl_stored_inline of Pair{A, B}")
 }

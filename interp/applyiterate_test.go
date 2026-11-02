@@ -96,16 +96,17 @@ func TestMemoryCopyto(t *testing.T) {
 func TestPlatformShims(t *testing.T) {
 	vm := New()
 	for name, want := range map[string]string{
-		"jl_is_char_signed":   "true",
-		"jl_get_UNAME":        ":Darwin",
-		"jl_get_ARCH":         ":aarch64",
-		"jl_sizeof_mode_t":    "2",
-		"jl_get_LLVM_VERSION": "0x0002bf8b", // 180107
-		"jl_types_equal":      "1",
-		"jl_ver_major":        "1",
-		"jl_ver_minor":        "12",
-		"jl_ver_patch":        "6",
-		"jl_ver_is_release":   "1",
+		"jl_is_char_signed":    "true",
+		"jl_get_UNAME":         ":Darwin",
+		"jl_get_ARCH":          ":aarch64",
+		"jl_sizeof_mode_t":     "2",
+		"jl_get_LLVM_VERSION":  "0x0002bf8b", // 180107
+		"jl_types_equal":       "1",
+		"jl_ver_major":         "1",
+		"jl_ver_minor":         "12",
+		"jl_ver_patch":         "6",
+		"jl_ver_is_release":    "1",
+		"jl_generating_output": "0",
 	} {
 		v, err := vm.shims[expr.Symbol(name)](vm, []any{vm.Core, vm.Core})
 		check(t, name, v, err, want)

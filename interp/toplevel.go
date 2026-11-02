@@ -3,6 +3,7 @@ package interp
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -271,6 +272,10 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 				return err
 			}
 			for _, a := range c.Args[1:] {
+				a, asname, ok := importAs(a)
+				if !ok {
+					return malformed
+				}
 				path, ok := a.(*expr.Expr)
 				if !ok || path.Head != "." || len(path.Args) != 1 {
 					return fmt.Errorf("%w: the %s item %v", ErrUnsupported, verb, a)
@@ -279,12 +284,22 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 				if !ok {
 					return malformed
 				}
-				vm.importName(m, from, name)
+				if asname == "" {
+					asname = name
+				} else if err := vm.checkMacroRename(name, asname, verb); err != nil {
+					return err
+				}
+				vm.importName(m, from, name, asname)
 			}
 			return nil
 		}
 	}
 	for _, a := range e.Args {
+		a, asname, ok := importAs(a)
+		if !ok || asname != "" && verb == "using" {
+			// `using A as B` is not a form (toplevel.c:853)
+			return malformed
+		}
 		path, ok := a.(*expr.Expr)
 		if !ok || path.Head != "." {
 			return fmt.Errorf("%w: the %s form %v", ErrUnsupported, verb, a)
@@ -295,11 +310,20 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 				return err
 			}
 			if name != "" {
-				// `import A.b`, `import ..b`
-				vm.importName(m, mod, name)
+				// `import A.b`, `import ..b`, `import A.b as c`
+				if asname == "" {
+					asname = name
+				} else if err := vm.checkMacroRename(name, asname, verb); err != nil {
+					return err
+				}
+				vm.importName(m, mod, name, asname)
 				continue
 			}
-			b := m.declare(mod.Name, vm.newWorld())
+			if asname == "" {
+				asname = mod.Name
+			}
+			// `import A`, `import A as B`
+			b := m.declare(asname, vm.newWorld())
 			if b.Value == undef {
 				b.Value, b.Const = mod, true
 			}
@@ -358,6 +382,16 @@ func (vm *VM) importPath(m *Module, v any, verb string) (*Module, error) {
 		}
 		var v any
 		if i == 0 && cur == nil {
+			// Core's name is Core, and the Base being defined is Base
+			// before it is a root module (toplevel.c:525-530)
+			if name == vm.Core.Name {
+				cur = vm.Core
+				continue
+			}
+			if vm.baseModule != nil && name == vm.baseModule.Name {
+				cur = vm.baseModule
+				continue
+			}
 			if mod := vm.modules[name]; mod != nil && mod.Parent == nil {
 				cur = mod
 				continue
@@ -389,8 +423,10 @@ func (vm *VM) importPath(m *Module, v any, verb string) (*Module, error) {
 // does not have yet is made a binding of it, undefined, with a warning; a
 // name to already holds otherwise is kept, with a warning. A binding
 // declared and not assigned counts as undefined here: one value per
-// binding does not tell julia's guard from its declared kind.
-func (vm *VM) importName(to *Module, from *Module, name expr.Symbol) {
+// binding does not tell julia's guard from its declared kind. The binding
+// in to is named asname (`import A: x as y`); the warnings name the
+// binding imported, as julia's do.
+func (vm *VM) importName(to *Module, from *Module, name, asname expr.Symbol) {
 	// jl_get_binding then jl_walk_binding_inplace: from's own binding, or
 	// the one from reaches through its usings (Base's Pair is Core's);
 	// else the name becomes a binding of from, undefined
@@ -402,12 +438,12 @@ func (vm *VM) importName(to *Module, from *Module, name expr.Symbol) {
 	if b.resolve().Value == undef {
 		vm.warn("WARNING: Imported binding %s.%s was undeclared at import time during import to %s.\n", from.Name, name, to.Name)
 	}
-	bto := to.own(name)
+	bto := to.own(asname)
 	switch {
 	case bto == b:
 		// importing a binding on top of itself: harmless
 	case bto == nil || bto.implicit && bto.Value == undef && bto.Alias == nil:
-		bto = to.declare(name, vm.newWorld())
+		bto = to.declare(asname, vm.newWorld())
 		bto.Alias = b
 		bto.implicit = false // an export made it; the import defines it
 	case bto.resolve() == b.resolve():
@@ -417,6 +453,38 @@ func (vm *VM) importName(to *Module, from *Module, name expr.Symbol) {
 	default:
 		vm.warn("WARNING: import of %s.%s into %s conflicts with an existing identifier; ignored.\n", from.Name, name, to.Name)
 	}
+}
+
+// importAs splits an import item (as path asname) into its path and new
+// name, "" for an item without one; false for a malformed one
+// (toplevel.c:853-866, 897-915).
+func importAs(a any) (any, expr.Symbol, bool) {
+	as, ok := a.(*expr.Expr)
+	if !ok || as.Head != "as" {
+		return a, "", true
+	}
+	if len(as.Args) != 2 {
+		return a, "", false
+	}
+	path, ok1 := as.Args[0].(*expr.Expr)
+	asname, ok2 := as.Args[1].(expr.Symbol)
+	if !ok1 || path.Head != "." || !ok2 {
+		return a, "", false
+	}
+	return path, asname, true
+}
+
+// checkMacroRename is check_macro_rename (toplevel.c:685-692): a macro
+// renamed only to a macro.
+func (vm *VM) checkMacroRename(from, to expr.Symbol, verb string) error {
+	fm, tm := strings.HasPrefix(string(from), "@"), strings.HasPrefix(string(to), "@")
+	switch {
+	case fm && !tm:
+		return vm.errorf("cannot rename macro \"%s\" to non-macro \"%s\" in \"%s\"", from, to, verb)
+	case !fm && tm:
+		return vm.errorf("cannot rename non-macro \"%s\" to macro \"%s\" in \"%s\"", from, to, verb)
+	}
+	return nil
 }
 
 // warn prints a runtime warning, as jl_printf(JL_STDERR, …) does.

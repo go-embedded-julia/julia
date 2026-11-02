@@ -31,6 +31,10 @@ func (vm *VM) bootBuiltins() {
 		"apply_type":       biApplyType,
 		"_expr":            biExpr,
 		"setfield!":        biSetfield,
+		"swapfield!":       biSwapfield,
+		"modifyfield!":     biModifyfield,
+		"replacefield!":    biReplacefield,
+		"setfieldonce!":    biSetfieldonce,
 		"invokelatest":     biInvokelatest,
 		"invoke_in_world":  biInvokeInWorld,
 		"sizeof":           biSizeof,
@@ -598,33 +602,12 @@ func (vm *VM) setfieldChecked(args []any) (any, error) {
 			return nil, err
 		}
 	}
-	var t *core.DataType
-	n := 0
-	switch v := args[0].(type) {
-	case *Module:
-		return nil, vm.errorf("cannot assign variables in other modules")
-	case *Struct:
-		t, n = v.Type, len(v.Fields)
-	default:
-		t = vm.typeOf(args[0]).(*core.DataType)
-		n = len(t.FieldNames())
-	}
-	if !t.Name.Mutable {
-		return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", t.Name.Name)
-	}
-	i, err := vm.fieldIndex("setfield!", t, t.FieldNames(), n, args[0], args[1])
+	t, i, err := vm.writableField("setfield!", args[0], args[1])
 	if err != nil {
 		return nil, err
 	}
-	if fieldMarked(t.Name.ConstFields, i) {
-		return nil, vm.errorf("setfield!: const field .%s of type %s cannot be changed", t.FieldNames()[i], t.Name.Name)
-	}
-	// isatomic == (order == notatomic) is the mismatch (builtins.c:1068-1071)
-	if isatomic := fieldMarked(t.Name.AtomicFields, i); isatomic == (order == "not_atomic") {
-		if isatomic {
-			return nil, vm.atomicError("setfield!: atomic field cannot be written non-atomically")
-		}
-		return nil, vm.atomicError("setfield!: non-atomic field cannot be written atomically")
+	if err := vm.fieldOrderSuits("setfield!", t, i, order, "written"); err != nil {
+		return nil, err
 	}
 	switch v := args[0].(type) {
 	case *Struct:
