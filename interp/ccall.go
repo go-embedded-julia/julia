@@ -97,6 +97,15 @@ func (vm *VM) bootShims() {
 		// jl_symbol_n (symbol.c:113-118), boot.jl's Symbol(::String): the
 		// bytes a pointer into a String points at
 		"jl_symbol_n": func(vm *VM, a []any) (any, error) { return vm.symbolN(a) },
+		// jl_alloc_string (array.c:290-305) and the memmove that fills it
+		// (strbuf.go)
+		"jl_alloc_string": func(vm *VM, a []any) (any, error) { return vm.allocString(a) },
+		"memmove":         func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
+		// jl_stored_inline (datatype.c:430-434), array.jl's allocatedinline
+		"jl_stored_inline": func(vm *VM, a []any) (any, error) {
+			n, err := storedInline(a[0])
+			return int32(n), err
+		},
 		// jl_genericmemory_copyto (genericmemory.c:225-300), unsafe_copyto!
 		// of memories of boxed elements (mempointer.go)
 		"jl_genericmemory_copyto": func(vm *VM, a []any) (any, error) { return nil, vm.memoryCopyto(a) },
@@ -108,6 +117,12 @@ func (vm *VM) bootShims() {
 		"jl_get_UNAME":      func(vm *VM, a []any) (any, error) { return expr.Symbol("Darwin"), nil },
 		"jl_get_ARCH":       func(vm *VM, a []any) (any, error) { return expr.Symbol("aarch64"), nil },
 		"jl_sizeof_mode_t":  func(vm *VM, a []any) (any, error) { return int32(2), nil },
+		// jl_ver_* (jlapi.c:610-643) as Cints: the version the VM ports
+		// (VERSION: 1.12.6, a release); ordering.jl reads the major
+		"jl_ver_major":      func(vm *VM, a []any) (any, error) { return int32(1), nil },
+		"jl_ver_minor":      func(vm *VM, a []any) (any, error) { return int32(12), nil },
+		"jl_ver_patch":      func(vm *VM, a []any) (any, error) { return int32(6), nil },
+		"jl_ver_is_release": func(vm *VM, a []any) (any, error) { return int32(1), nil },
 		// jl_get_fenv_consts (jl_uv.c), rounding.jl's first call
 		"jl_get_fenv_consts": func(vm *VM, a []any) (any, error) { return vm.fenvConsts(a) },
 		// jl_module_name (module.c)

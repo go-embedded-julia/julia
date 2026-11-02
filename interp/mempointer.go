@@ -20,10 +20,11 @@ type layoutOf struct{ t *core.DataType }
 // (jl_islayout_inline, datatype.c:511-600): its size and alignment inline,
 // or a boxed pointer, or an inline isbits Union (with a selector byte).
 func memElem(t any) (size, align int, boxed, union bool) {
-	if d, ok := t.(*core.DataType); ok && d.IsBits() {
-		size, align, err := dataLayout(d)
-		if err == nil {
-			return size, align, false, false
+	if d, ok := t.(*core.DataType); ok {
+		if n, err := storedInline(d); err == nil && n > 0 {
+			if size, align, err := dataLayout(d); err == nil {
+				return size, align, false, false
+			}
 		}
 	}
 	if _, ok := t.(*core.Union); ok && unionIsbits(t) {
@@ -34,6 +35,49 @@ func memElem(t any) (size, align int, boxed, union bool) {
 		return size, max(align, 1), false, true
 	}
 	return 8, 8, true, false
+}
+
+// storedInline is jl_stored_inline (datatype.c:374-434), Base's
+// allocatedinline: whether a memory of element type t holds its elements
+// inline, as the number of inline types (a Union's isbits members), 0 when
+// boxed. An immutable concrete type holding references is inline unless it
+// may reference itself or leaves fields uninitialized (mayinlinealloc,
+// builtins.c:2254-2269; n_uninitialized): known here for tuples and named
+// tuples, which can do neither, and refused for other structs, whose
+// TypeName does not record either.
+func storedInline(t any) (int, error) {
+	switch x := t.(type) {
+	case *core.Union:
+		// union_isinlinable with pointerfree: every member isbits
+		n := 0
+		for _, m := range unionMembers(x, nil) {
+			if !unionIsbits(m) {
+				return 0, nil
+			}
+			n++
+		}
+		if n >= 127 {
+			return 0, nil
+		}
+		return n, nil
+	case *core.DataType:
+		switch {
+		case x.Name.Abstract || x.Name.Mutable:
+			return 0, nil
+		case x.IsBits():
+			return 1, nil
+		case !x.IsConcrete:
+			// a layout only when fixed (jl_has_fixed_layout,
+			// jltypes.c:293-319): never a tuple's
+			if x.Name == core.TupleTypeName {
+				return 0, nil
+			}
+		case x.Name == core.TupleTypeName || x.Name == core.NamedTupleTypeName:
+			return 1, nil
+		}
+		return 0, fmt.Errorf("%w: jl_stored_inline of %s, an immutable struct holding references", ErrUnsupported, showValue(x))
+	}
+	return 0, nil // Union{}, a UnionAll, a TypeVar: no datatype to inline
 }
 
 // memPtr is getfield(m, :ptr): a pointer to the first element.

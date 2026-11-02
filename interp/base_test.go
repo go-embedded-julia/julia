@@ -9,6 +9,7 @@ import (
 // build does, and reports where it stops.
 func TestBaseProgress(t *testing.T) {
 	vm := New()
+	vm.Args = []string{"Base_compiler.jl"}
 	if err := vm.Boot(); err != nil {
 		t.Fatal(err)
 	}

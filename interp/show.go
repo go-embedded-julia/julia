@@ -164,6 +164,106 @@ func showChar(c expr.Char) string {
 	return fmt.Sprintf("'\\%c%0*x'", letter, d, cp)
 }
 
+// quoteString is show(io, s::String), print_quoted (base/strings/io.jl:
+// 470-474): s in quotes, through escape_string (:438-465) with " and $
+// escaped, over the characters iterate makes of its bytes
+// (string.jl:430-459).
+func quoteString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for i := 0; i < len(s); {
+		u, next := stringChar(s, i)
+		i = next
+		peek := func(pred func(cp uint32) bool) bool {
+			if i >= len(s) {
+				return false
+			}
+			p, _ := stringChar(s, i)
+			cp, ok := charCodepoint(p)
+			return ok && pred(cp)
+		}
+		cp, valid := charCodepoint(u)
+		switch {
+		case u == '"'<<24 || u == '$'<<24:
+			b.WriteByte('\\')
+			b.WriteByte(byte(u >> 24))
+		case valid && cp < 0x80:
+			switch c := byte(cp); {
+			case c == 0:
+				// \0 unless an octal digit follows (escape_nul)
+				if peek(func(cp uint32) bool { return '0' <= cp && cp <= '7' }) {
+					b.WriteString("\\x00")
+				} else {
+					b.WriteString("\\0")
+				}
+			case c == 0x1b:
+				b.WriteString("\\e")
+			case c == '\\':
+				b.WriteString("\\\\")
+			case c >= '\a' && c <= '\r':
+				b.WriteByte('\\')
+				b.WriteByte("abtnvfr"[c-'\a'])
+			case c >= 0x20 && c < 0x7f:
+				b.WriteByte(c)
+			default:
+				fmt.Fprintf(&b, "\\x%02x", c)
+			}
+		case valid && !charOverlong(u):
+			if cat := unitab.Category(cp); cat >= 1 && cat <= 23 {
+				b.WriteRune(rune(cp))
+				break
+			}
+			// \u and \U pad in full before a hex digit (need_full_hex)
+			full := peek(func(cp uint32) bool {
+				return cp >= '0' && cp <= '9' || cp >= 'a' && cp <= 'f' || cp >= 'A' && cp <= 'F'
+			})
+			switch {
+			case cp <= 0xffff && full:
+				fmt.Fprintf(&b, "\\u%04x", cp)
+			case cp <= 0xffff:
+				fmt.Fprintf(&b, "\\u%02x", cp)
+			case full:
+				fmt.Fprintf(&b, "\\U%08x", cp)
+			default:
+				fmt.Fprintf(&b, "\\U%04x", cp)
+			}
+		default: // malformed or overlong: its bytes
+			for {
+				fmt.Fprintf(&b, "\\x%02x", u>>24)
+				if u <<= 8; u == 0 {
+					break
+				}
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// stringChar is iterate(s::String, i) (string.jl:430-459) at 0-based i:
+// the Char of the bytes from i, as julia packs them (a malformed sequence
+// stops at its first non-continuation byte), and the next index.
+func stringChar(s string, i int) (uint32, int) {
+	u := uint32(s[i]) << 24
+	if s[i] < 0x80 || s[i] > 0xf7 || u < 0xc0000000 {
+		return u, i + 1
+	}
+	for k, min := 1, uint32(0); k <= 3; k++ {
+		// the k-th continuation byte, when the lead byte asks for it
+		switch k {
+		case 2:
+			min = 0xe0000000
+		case 3:
+			min = 0xf0000000
+		}
+		if i+k >= len(s) || u < min || s[i+k]&0xc0 != 0x80 {
+			return u, i + k
+		}
+		u |= uint32(s[i+k]) << (24 - 8*k)
+	}
+	return u, i + 4
+}
+
 // charMalformed and charOverlong are ismalformed and isoverlong
 // (base/char.jl:98-111), which decide that show prints a Char's bytes.
 func charMalformed(u uint32) bool {
@@ -285,7 +385,7 @@ func writeValue(b *strings.Builder, v any) {
 	case expr.Char:
 		b.WriteString(showChar(x))
 	case string:
-		b.WriteString(strconv.Quote(x))
+		b.WriteString(quoteString(x))
 	case expr.Symbol:
 		b.WriteString(":" + string(x))
 	case *Tuple:
@@ -325,7 +425,7 @@ func writeValue(b *strings.Builder, v any) {
 		case nil:
 			fmt.Fprintf(b, "0x%016x", uint64(x.Off))
 		case string:
-			fmt.Fprintf(b, "%s + %d", strconv.Quote(tg), x.Off)
+			fmt.Fprintf(b, "%s + %d", quoteString(tg), x.Off)
 		case *ptrSlot:
 			fmt.Fprintf(b, "cglobal(:%s) + %d", tg.name, x.Off)
 		case *outStream:

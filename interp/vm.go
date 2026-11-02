@@ -76,6 +76,10 @@ type VM struct {
 	// by default, rooted as julia's base/ is.
 	Sources fs.FS
 
+	// Args is the command line after julia's options, the program file
+	// first, which Boot makes Core.ARGS (jl_set_ARGS, jlapi.c:53-74).
+	Args []string
+
 	// MaxMemoryElems bounds the elements of one memorynew; past it the
 	// allocation stops with ErrMemoryLimit instead of exhausting the host.
 	// emptyMemory holds each memory type's zero-length instance.
@@ -92,6 +96,11 @@ type VM struct {
 	// argVectors is each Expr's args vector (exprargs.go).
 	argMu      sync.Mutex
 	argVectors map[weak.Pointer[expr.Expr]]*Struct
+
+	// strBufs are the bytes of the Strings jl_alloc_string made, which
+	// Julia code may write (strbuf.go).
+	strMu   sync.Mutex
+	strBufs map[uintptr]strBuf
 
 	builtinType, intrinsicType  *core.DataType
 	tError, tUndefVar           *core.DataType
@@ -121,7 +130,7 @@ func New() *VM {
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
 		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources,
 		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{},
-		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, Stdout: io.Discard, Stderr: io.Discard,
+		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard,
 		addrs: addrSpace{byTarget: map[any]uint64{}, byID: map[uint64]any{}}}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
