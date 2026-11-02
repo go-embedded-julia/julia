@@ -81,6 +81,8 @@ func (vm *VM) bootShims() {
 			size, _, err := dataLayout(t)
 			return int64(size), err
 		},
+		// jl_get_fenv_consts (jl_uv.c), rounding.jl's first call
+		"jl_get_fenv_consts": func(vm *VM, a []any) (any, error) { return vm.fenvConsts(a) },
 		// jl_module_name (module.c)
 		"jl_module_name": func(vm *VM, a []any) (any, error) {
 			m, ok := a[0].(*Module)

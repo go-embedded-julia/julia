@@ -15,35 +15,65 @@ import (
 // largest alignment. An isbits Union field (inline with a selector byte) is
 // not laid out here.
 func dataLayout(t *core.DataType) (size, align int, err error) {
+	l, err := structLayout(t)
+	return l.size, l.align, err
+}
+
+// layout is what jl_compute_field_offsets records of a type: its size and
+// alignment, each field's offset and whether it is a pointer, whether
+// fields leave undefined bytes between them, and whether its egality is
+// that of its bits (julia.h:571-592).
+type layout struct {
+	size, align int
+	offsets     []int
+	pointers    []bool
+	haspadding  bool
+	isbitsegal  bool
+}
+
+func structLayout(t *core.DataType) (layout, error) {
 	if t.Name.Bits > 0 {
-		size = t.Name.Bits / 8
-		return size, min(size, 16), nil
+		size := t.Name.Bits / 8
+		return layout{size: size, align: min(size, 16), isbitsegal: true}, nil
 	}
 	if t.Name.Abstract {
-		return 0, 0, fmt.Errorf("%w: the layout of the abstract type %s", ErrUnsupported, t.Name.Name)
+		return layout{}, fmt.Errorf("%w: the layout of the abstract type %s", ErrUnsupported, t.Name.Name)
 	}
 	ft, ok := t.FieldTypes()
 	if !ok {
-		return 0, 0, fmt.Errorf("%w: the layout of %s", ErrUnsupported, t.Name.Name)
+		return layout{}, fmt.Errorf("%w: the layout of %s", ErrUnsupported, t.Name.Name)
 	}
-	align = 1
+	l := layout{align: 1, isbitsegal: true}
+	used := 0
 	for _, f := range ft {
 		fs, fa := 8, 8 // a pointer to a boxed value
+		isptr := true
 		if d, ok := f.(*core.DataType); ok && d.Name.Isbits && d.IsConcrete {
-			var err error
-			if fs, fa, err = dataLayout(d); err != nil {
-				return 0, 0, err
+			fl, err := structLayout(d)
+			if err != nil {
+				return layout{}, err
 			}
+			fs, fa, isptr = fl.size, fl.align, false
+			l.isbitsegal = l.isbitsegal && fl.isbitsegal
+			l.haspadding = l.haspadding || fl.haspadding
 		} else if _, isUnion := f.(*core.Union); isUnion && unionIsbits(f) {
-			return 0, 0, fmt.Errorf("%w: the layout of an isbits Union field of %s", ErrUnsupported, t.Name.Name)
+			return layout{}, fmt.Errorf("%w: the layout of an isbits Union field of %s", ErrUnsupported, t.Name.Name)
 		}
 		if fa > 0 {
-			size = (size + fa - 1) / fa * fa
+			l.size = (l.size + fa - 1) / fa * fa
 		}
-		size += fs
-		align = max(align, fa)
+		l.offsets = append(l.offsets, l.size)
+		l.pointers = append(l.pointers, isptr)
+		l.size += fs
+		used += fs
+		l.align = max(l.align, fa)
+		if isptr {
+			l.isbitsegal = false
+		}
 	}
-	return (size + align - 1) / align * align, align, nil
+	l.size = (l.size + l.align - 1) / l.align * l.align
+	l.haspadding = l.haspadding || used < l.size
+	return l, nil
 }
 
 // unionIsbits reports that every member of a Union is an isbits type, the

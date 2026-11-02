@@ -343,6 +343,8 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 					return SVec{}, true
 				}
 				return nil, true
+			case 5:
+				return vm.typeLayoutPtr(x), true
 			case 7:
 				return dataTypeFlags(x), true
 			}
@@ -434,12 +436,18 @@ func biGetfield(vm *VM, args []any) (any, error) {
 	case *Memory:
 		// (length, ptr) (jltypes.c:3328-3329); a pointer has no value here
 		return vm.goField(v, v.Type, []expr.Symbol{"length", "ptr"}, func(i int) (any, bool) {
-			return int64(len(v.Elems)), i == 0
+			if i == 1 {
+				return vm.memPtr(v), true
+			}
+			return int64(len(v.Elems)), true
 		}, args[1])
 	case *MemoryRef:
 		// (ptr_or_offset, mem) (jltypes.c:3340-3341)
 		return vm.goField(v, v.Type, []expr.Symbol{"ptr_or_offset", "mem"}, func(i int) (any, bool) {
-			return v.Mem, i == 1
+			if i == 0 {
+				return vm.refPtrOrOffset(v), true
+			}
+			return v.Mem, true
 		}, args[1])
 	}
 	// a value without fields (an Int, a Symbol …): every index is out of

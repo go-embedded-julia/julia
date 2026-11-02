@@ -250,6 +250,10 @@ func writeValue(b *strings.Builder, v any) {
 			fmt.Fprintf(b, "cglobal(:%s) + %d", tg.name, x.Off)
 		case *outStream:
 			fmt.Fprintf(b, "%s + %d", tg.name, x.Off)
+		case *Memory:
+			fmt.Fprintf(b, "pointer(%s) + %d", showValue(tg.Type), x.Off)
+		case layoutOf:
+			fmt.Fprintf(b, "%s.layout + %d", showValue(tg.t), x.Off)
 		}
 		b.WriteByte(')')
 	case *MemoryRef:

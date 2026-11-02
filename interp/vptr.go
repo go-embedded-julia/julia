@@ -107,6 +107,21 @@ func biPointerref(vm *VM, a []any) (any, error) {
 		return nil, vm.typeError("pointerref", "", core.Int64Type, a[2])
 	}
 	switch t := p.Target.(type) {
+	case *Memory:
+		k, err := vm.memIndex("pointerref", p, t, p.Type.Parameters[0], i)
+		if err != nil {
+			return nil, err
+		}
+		if t.Elems[k] == undef {
+			return nil, vm.exception(vm.tUndefRef)
+		}
+		return t.Elems[k], nil
+	case layoutOf:
+		st, ok := p.Type.Parameters[0].(*core.DataType)
+		if !ok || i != 1 || p.Off != 0 || len(st.Name.FieldNames) != 6 {
+			return nil, fmt.Errorf("%w: pointerref of a layout as %s", ErrUnsupported, showValue(p.Type))
+		}
+		return vm.layoutStruct(t.t, st)
 	case *ptrSlot:
 		if i != 1 || p.Off != 0 {
 			return nil, vm.errorf("pointerref: invalid pointer")

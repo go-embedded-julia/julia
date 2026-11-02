@@ -194,6 +194,9 @@ func (vm *VM) bootIntrinsics() {
 	add("bitcast", 2, biBitcast)
 	add("cglobal", 2, biCglobal)
 	add("pointerref", 3, biPointerref)
+	add("pointerset", 4, biPointerset)
+	add("add_ptr", 2, ptrArith("add_ptr", 1))
+	add("sub_ptr", 2, ptrArith("sub_ptr", -1))
 	// jl_fintrinsic_1 (runtime_intrinsics.c:1068-1092), reached through
 	// un_fintrinsic's jl_neg_float_withtype, whose name the messages carry
 	// (:1059-1064)
@@ -348,24 +351,35 @@ func biBitcast(vm *VM, a []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	// pointers without addresses (vptr.go): a pointer retyped keeps what it
-	// points into; an integer made a pointer points at nothing (C_NULL); a
-	// pointer made an integer has an address only when it points at nothing
+	// pointers without host addresses (vptr.go, addrspace.go): a pointer
+	// retyped keeps what it points into; a pointer made an integer is its
+	// address in the VM's address space; an integer made a pointer points
+	// into the target whose region holds it, or at nothing (C_NULL)
 	isPtr := t.Name == core.PtrType.Body.(*core.DataType).Name
 	if p, ok := a[1].(*Pointer); ok {
 		if isPtr {
 			return &Pointer{Type: t, Target: p.Target, Off: p.Off}, nil
 		}
-		if p.Target != nil || t.Name.Bits != 64 {
-			return nil, fmt.Errorf("%w: the address of %s", ErrUnsupported, showValue(p))
+		if t.Name.Bits != 64 {
+			return nil, vm.errorf("bitcast: argument size does not match size of target type")
 		}
-		v, _ := bitsValue(t, from64(uint64(p.Off)))
+		addr := uint64(p.Off)
+		if p.Target != nil {
+			var err error
+			if addr, err = vm.addressOf(p); err != nil {
+				return nil, err
+			}
+		}
+		v, _ := bitsValue(t, from64(addr))
 		return v, nil
 	}
 	if isPtr {
 		x, w, ok := primBits(a[1])
 		if !ok || w != 64 {
 			return nil, vm.errorf("bitcast: argument size does not match size of target type")
+		}
+		if target, off, ok := vm.targetAt(x.lo); ok {
+			return &Pointer{Type: t, Target: target, Off: off}, nil
 		}
 		return &Pointer{Type: t, Off: int64(x.lo)}, nil
 	}

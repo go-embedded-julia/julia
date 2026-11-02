@@ -92,8 +92,9 @@ func TestIntrinsics128(t *testing.T) {
 		{[]any{u8p, uint64(16)}, "Ptr{UInt8}(0x0000000000000010)"},
 		{[]any{vm.ptrType(core.Int8Type), &Pointer{Type: u8p, Off: 16}}, "Ptr{Int8}(0x0000000000000010)"},
 		{[]any{core.UInt64Type, &Pointer{Type: u8p}}, "0x0000000000000000"},
-		{[]any{core.UInt64Type, &Pointer{Type: u8p, Target: "s"}}, "!not ported yet: the address of"},
-		{[]any{core.UInt32Type, &Pointer{Type: u8p}}, "!not ported yet: the address of"},
+		{[]any{core.UInt64Type, &Pointer{Type: u8p, Target: "s"}}, "0x0000010000000000"},
+		{[]any{core.UInt64Type, &Pointer{Type: u8p, Target: "s", Off: -1}}, "!not ported yet: the address of"},
+		{[]any{core.UInt32Type, &Pointer{Type: u8p}}, "!bitcast: argument size does not match size of target type"},
 		{[]any{u8p, uint32(1)}, "!bitcast: argument size does not match size of target type"},
 		{[]any{u8p, "s"}, "!bitcast: argument size does not match size of target type"},
 	} {

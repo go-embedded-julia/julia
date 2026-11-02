@@ -87,6 +87,7 @@ type VM struct {
 	// globals cglobal can name (vptr.go).
 	Stdout, Stderr io.Writer
 	cglobals       map[expr.Symbol]*ptrSlot
+	addrs          addrSpace
 
 	// argVectors is each Expr's args vector (exprargs.go).
 	argMu      sync.Mutex
@@ -119,7 +120,8 @@ func New() *VM {
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
 		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources,
 		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{},
-		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, Stdout: io.Discard, Stderr: io.Discard}
+		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, Stdout: io.Discard, Stderr: io.Discard,
+		addrs: addrSpace{byTarget: map[any]uint64{}, byID: map[uint64]any{}}}
 	vm.world.Store(1)
 	vm.Core = vm.addModule("Core", nil)
 	// Core lowers against itself, as boot.jl needs (it marks Core a top
