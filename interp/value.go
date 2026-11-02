@@ -81,8 +81,10 @@ type Binding struct {
 	Const   bool
 	Value   any // undef until assigned
 	Exports bool
-	// Alias is the binding an import refers to.
+	// Alias is the binding an import refers to, From the module it was
+	// imported from (jl_binding_dbgmodule).
 	Alias *Binding
+	From  *Module
 	// Type is a global's declared type (`global x::T`, the partition's
 	// restriction), nil for Any.
 	Type any

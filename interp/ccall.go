@@ -209,6 +209,9 @@ func (vm *VM) bootShims() {
 		"jl_has_free_typevars": func(vm *VM, a []any) (any, error) { return core.HasFreeTypeVars(a[0]), nil },
 		// jl_get_tls_world_age (task.c): the task's world, a UInt
 		"jl_get_tls_world_age": func(vm *VM, a []any) (any, error) { return vm.taskWorld, nil },
+		// jl_get_world_counter (gf.c:32-38): the newest world, a UInt;
+		// there are no pure callbacks here
+		"jl_get_world_counter": func(vm *VM, a []any) (any, error) { return vm.World(), nil },
 	}
 	vm.bootEqtableShims()
 }

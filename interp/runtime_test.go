@@ -441,7 +441,7 @@ func TestNewStruct(t *testing.T) {
 func TestGlobals(t *testing.T) {
 	s := New().NewSession()
 	for _, c := range []struct{ src, want string }{
-		{"import Core.Intrinsics: add_int\nadd_int = 1", "!cannot assign a value to imported variable L.add_int"},
+		{"import Core.Intrinsics: add_int\nadd_int = 1", "!cannot assign a value to imported variable Intrinsics.add_int from module L"},
 		{"const k = 1\nk = 2", "!invalid assignment to constant L.k."},
 	} {
 		v, err := s.Eval(c.src)

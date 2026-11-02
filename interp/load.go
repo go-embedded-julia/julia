@@ -2,6 +2,7 @@ package interp
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -62,7 +63,11 @@ func (vm *VM) jlLoad(a []any) (any, error) {
 			if t, ok := err.(*Thrown); ok && vm.tLoadError != nil {
 				return nil, vm.exception(vm.tLoadError, name, int64(line), t.Value)
 			}
-			return nil, err
+			if _, ok := err.(*Thrown); ok {
+				return nil, err
+			}
+			// a refusal of the VM's says where, as a LoadError would
+			return nil, fmt.Errorf("%s:%d: %w", name, line, err)
 		}
 	}
 	return v, nil

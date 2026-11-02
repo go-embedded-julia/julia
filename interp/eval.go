@@ -321,27 +321,50 @@ func (vm *VM) globalValue(m *Module, name expr.Symbol) (any, error) {
 // assignGlobal is jl_get_binding_wr plus jl_checked_assignment
 // (module.c:820-857, 1901-1907).
 func (vm *VM) assignGlobal(m *Module, name expr.Symbol, v any) error {
+	b, err := vm.writableGlobal(m, name)
+	if err != nil {
+		return err
+	}
+	if err := vm.checkGlobalValue("setglobal!", m, name, b, v); err != nil {
+		return err
+	}
+	b.Value = v
+	return nil
+}
+
+// writableGlobal is jl_get_binding_wr: m's own binding of name, which must
+// exist in the task's world and be neither an import nor a constant.
+func (vm *VM) writableGlobal(m *Module, name expr.Symbol) (*Binding, error) {
 	b := m.own(name)
 	if b == nil || b.World > vm.taskWorld {
 		if ub := m.lookup(name, vm.taskWorld); ub != nil {
-			return vm.errorf("cannot assign a value to imported variable %s.%s", m.Name, name)
+			return nil, vm.errorf("cannot assign a value to imported variable %s.%s", m.Name, name)
 		}
-		return vm.errorf("Global %s.%s does not exist and cannot be assigned.\n"+
+		return nil, vm.errorf("Global %s.%s does not exist and cannot be assigned.\n"+
 			"Note: Julia 1.9 and 1.10 inadvertently omitted this error check (#56933).\n"+
 			"Hint: Declare it using `global %s` inside `%s` before attempting assignment.",
 			m.Name, name, name, m.Name)
 	}
 	if b.Alias != nil {
-		return vm.errorf("cannot assign a value to imported variable %s.%s", m.Name, name)
+		// named after the module it came from (module.c:840-846)
+		if b.From != nil && b.From != m {
+			return nil, vm.errorf("cannot assign a value to imported variable %s.%s from module %s", b.From.Name, name, m.Name)
+		}
+		return nil, vm.errorf("cannot assign a value to imported variable %s.%s", m.Name, name)
 	}
 	if b.Const {
-		return vm.errorf("invalid assignment to constant %s.%s. This redefinition may be permitted using the `const` keyword.", m.Name, name)
+		return nil, vm.errorf("invalid assignment to constant %s.%s. This redefinition may be permitted using the `const` keyword.", m.Name, name)
 	}
-	// jl_check_binding_assign_value (module.c:1886-1899)
+	return b, nil
+}
+
+// checkGlobalValue is jl_check_binding_assign_value (module.c:1886-1899):
+// v must be of the global's declared type, a TypeError naming fname
+// otherwise.
+func (vm *VM) checkGlobalValue(fname expr.Symbol, m *Module, name expr.Symbol, b *Binding, v any) error {
 	if b.Type != nil && !vm.isa(v, b.Type) {
-		return vm.exception(vm.tTypeError, expr.Symbol("setglobal!"), expr.GlobalRef{Mod: m.Name, Name: name}, b.Type, v)
+		return vm.exception(vm.tTypeError, fname, expr.GlobalRef{Mod: m.Name, Name: name}, b.Type, v)
 	}
-	b.Value = v
 	return nil
 }
 

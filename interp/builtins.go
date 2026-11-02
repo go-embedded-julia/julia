@@ -35,6 +35,10 @@ func (vm *VM) bootBuiltins() {
 		"modifyfield!":     biModifyfield,
 		"replacefield!":    biReplacefield,
 		"setfieldonce!":    biSetfieldonce,
+		"swapglobal!":      biSwapglobal,
+		"modifyglobal!":    biModifyglobal,
+		"replaceglobal!":   biReplaceglobal,
+		"setglobalonce!":   biSetglobalonce,
 		"invokelatest":     biInvokelatest,
 		"invoke_in_world":  biInvokeInWorld,
 		"sizeof":           biSizeof,
@@ -674,7 +678,7 @@ func biSetglobal(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("setglobal!", args, 3, 4); err != nil {
 		return nil, err
 	}
-	m, s, err := vm.moduleSymbol("setglobal!", args)
+	m, s, err := vm.globalOp("setglobal!", args, 3, false, false)
 	if err != nil {
 		return nil, err
 	}

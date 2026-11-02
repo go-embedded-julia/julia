@@ -414,6 +414,20 @@ func writeValue(b *strings.Builder, v any) {
 		b.WriteString("QuoteNode(")
 		writeValue(b, x.Value)
 		b.WriteByte(')')
+	case expr.GlobalRef:
+		// :(M.x), the module qualified as a type's is (modulePrefix)
+		mod := string(x.Mod)
+		switch mod {
+		case "Core", "Base", "Main":
+		default:
+			mod = "Main." + mod
+		}
+		// a name that is not an identifier is quoted: :(Main.:(var"a b"))
+		name := showSym(x.Name)
+		if name != string(x.Name) {
+			name = ":(" + name + ")"
+		}
+		b.WriteString(":(" + mod + "." + name + ")")
 	case *Memory:
 		writeIn(b, x, nil)
 	case *Pointer:

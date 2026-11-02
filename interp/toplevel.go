@@ -444,7 +444,7 @@ func (vm *VM) importName(to *Module, from *Module, name, asname expr.Symbol) {
 		// importing a binding on top of itself: harmless
 	case bto == nil || bto.implicit && bto.Value == undef && bto.Alias == nil:
 		bto = to.declare(asname, vm.newWorld())
-		bto.Alias = b
+		bto.Alias, bto.From = b, from
 		bto.implicit = false // an export made it; the import defines it
 	case bto.resolve() == b.resolve():
 		// already imported

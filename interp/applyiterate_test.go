@@ -111,6 +111,9 @@ func TestPlatformShims(t *testing.T) {
 		v, err := vm.shims[expr.Symbol(name)](vm, []any{vm.Core, vm.Core})
 		check(t, name, v, err, want)
 	}
+	if v, _ := vm.shims["jl_get_world_counter"](vm, nil); v != vm.World() {
+		t.Errorf("jl_get_world_counter: %v, the world is %d", v, vm.World())
+	}
 	if v, _ := vm.shims["jl_types_equal"](vm, []any{vm.Core, int64(1)}); v != int32(0) {
 		t.Errorf("jl_types_equal of unequal values: %v", v)
 	}
