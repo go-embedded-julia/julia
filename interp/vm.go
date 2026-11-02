@@ -100,6 +100,7 @@ type VM struct {
 	tBounds, tUndefRef          *core.DataType
 	tDivide, tLoadError         *core.DataType
 	tAtomicError                *core.DataType
+	tFieldError                 *core.DataType
 	tExpr, tQuoteNode           *core.DataType
 	tSSAValue, tSlotNumber      *core.DataType
 	tArgument, tGotoNode        *core.DataType

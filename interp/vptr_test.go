@@ -108,5 +108,6 @@ func TestPointersAndOutput(t *testing.T) {
 	}
 	// a TypeName field other than an inference hint is not set
 	_, err = biSetfield(vm, []any{core.Int64Type.Name, expr.Symbol("name"), expr.Symbol("x")})
-	check(t, "setfield! of a TypeName's name", nil, err, "!not ported yet: setfield! of a TypeName's name")
+	// typename_constfields (jltypes.c:3014), as julia 1.12.6 answers
+	check(t, "setfield! of a TypeName's name", nil, err, "!setfield!: const field .name of type TypeName cannot be changed")
 }

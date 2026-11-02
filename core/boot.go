@@ -113,6 +113,15 @@ func layout(d *DataType, names []Symbol, types ...any) {
 	}
 }
 
+// fieldMask is n fields with those at the indices marked.
+func fieldMask(n int, marked ...int) []bool {
+	m := make([]bool, n)
+	for _, i := range marked {
+		m[i] = true
+	}
+	return m
+}
+
 func init() {
 	anyTN := &TypeName{Name: "Any", Module: "Core", Abstract: true}
 	AnyType = &DataType{Name: anyTN, HasConcreteSubtype: true}
@@ -234,6 +243,9 @@ func init() {
 		"flags", "cache_entry_count", "max_methods", "constprop_heuristic"},
 		SymbolType, AnyType, SymbolType, SimpleVectorType, AnyType, AnyType, typeTypePrimary.Name.Wrapper,
 		SimpleVectorType, SimpleVectorType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType)
+	// typename_constfields and typename_atomicfields (jltypes.c:3014-3015)
+	TypeNameType.Name.ConstFields = fieldMask(18, 0, 1, 3, 6, 11, 13, 14)
+	TypeNameType.Name.AtomicFields = fieldMask(18, 7, 8, 9, 12, 15)
 	layout(TypeVarType, []Symbol{"name", "lb", "ub"}, SymbolType, AnyType, AnyType)
 	layout(UnionAllType, []Symbol{"var", "body"}, TypeVarType, AnyType)
 	layout(UnionType, []Symbol{"a", "b"}, AnyType, AnyType)

@@ -62,6 +62,7 @@ func (vm *VM) postBootHooks() error {
 		{"UndefRefError", &vm.tUndefRef},
 		{"ErrorException", &vm.tError},
 		{"UndefVarError", &vm.tUndefVar},
+		{"FieldError", &vm.tFieldError},
 		{"ConcurrencyViolationError", &vm.tAtomicError},
 		{"BoundsError", &vm.tBounds},
 		{"TypeError", &vm.tTypeError},

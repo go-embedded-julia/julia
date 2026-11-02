@@ -88,14 +88,10 @@ func syncArgs(v *Struct) {
 	ex.Args = elems
 }
 
-// setExprField is setfield! of an Expr, a mutable struct: head takes a
-// Symbol, args a Vector{Any}, which becomes the Expr's arguments.
-func (vm *VM) setExprField(ex *expr.Expr, field, v any) (any, error) {
-	t := vm.typeOf(ex).(*core.DataType)
-	i, err := vm.fieldIndex("setfield!", t, []expr.Symbol{"head", "args"}, 2, ex, field)
-	if err != nil {
-		return nil, err
-	}
+// setExprField is setfield! of an Expr's field i (setfield! has checked
+// it), a mutable struct: head takes a Symbol, args a Vector{Any}, which
+// becomes the Expr's arguments.
+func (vm *VM) setExprField(ex *expr.Expr, i int, v any) (any, error) {
 	if i == 0 {
 		s, ok := v.(expr.Symbol)
 		if !ok {

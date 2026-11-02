@@ -38,7 +38,7 @@ func TestTypedefBuiltins(t *testing.T) {
 		{"_structtype attrs", "_structtype", []any{m, sym("S"), SVec{}, SVec{}, int64(1), false, int64(0)}, "!TypeError(:_structtype, \"\", Core.SimpleVector, 1)"},
 		{"_structtype mutable", "_structtype", []any{m, sym("S"), SVec{}, SVec{}, SVec{}, int64(1), int64(0)}, "!TypeError(:_structtype, \"\", Bool, 1)"},
 		{"_structtype ninit", "_structtype", []any{m, sym("S"), SVec{}, SVec{}, SVec{}, false, true}, "!TypeError(:_structtype, \"\", Int64, true)"},
-		{"_structtype attributes", "_structtype", []any{m, sym("S"), SVec{}, SVec{sym("x")}, SVec{int64(1), sym("const")}, true, int64(1)}, "!not ported yet: field attributes"},
+		{"_structtype attributes", "_structtype", []any{m, sym("S"), SVec{}, SVec{sym("x")}, SVec{int64(1), sym("const")}, true, int64(1)}, "Main.L.S"},
 		{"_structtype field name", "_structtype", []any{m, sym("S"), SVec{}, SVec{int64(1)}, SVec{}, false, int64(1)}, "!TypeError(:_structtype, \"\", Symbol, 1)"},
 		{"_setsuper! arity", "_setsuper!", nil, "!_setsuper!: too few arguments"},
 		{"_setsuper! of a non-type", "_setsuper!", []any{int64(1), core.AnyType}, "!TypeError(:_setsuper!, \"\", DataType, 1)"},

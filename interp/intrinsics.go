@@ -475,8 +475,6 @@ func fromBits(like any, bits u128) any {
 		return int16(bits.lo)
 	case int32:
 		return int32(bits.lo)
-	case int64:
-		return int64(bits.lo)
 	case Int128:
 		return Int128{bits.hi, bits.lo}
 	case uint8:

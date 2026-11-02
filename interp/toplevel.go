@@ -279,9 +279,7 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 				if !ok {
 					return malformed
 				}
-				if err := vm.importName(m, from, name); err != nil {
-					return err
-				}
+				vm.importName(m, from, name)
 			}
 			return nil
 		}
@@ -290,6 +288,22 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 		path, ok := a.(*expr.Expr)
 		if !ok || path.Head != "." {
 			return fmt.Errorf("%w: the %s form %v", ErrUnsupported, verb, a)
+		}
+		if verb == "import" {
+			mod, name, err := vm.importTarget(m, path, verb)
+			if err != nil {
+				return err
+			}
+			if name != "" {
+				// `import A.b`, `import ..b`
+				vm.importName(m, mod, name)
+				continue
+			}
+			b := m.declare(mod.Name, vm.newWorld())
+			if b.Value == undef {
+				b.Value, b.Const = mod, true
+			}
+			continue
 		}
 		mod, err := vm.importPath(m, path, verb)
 		if err != nil {
@@ -311,8 +325,11 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 // importPath resolves (. A B …) to a module.
 func (vm *VM) importPath(m *Module, v any, verb string) (*Module, error) {
 	path, ok := v.(*expr.Expr)
-	if !ok || path.Head != "." || len(path.Args) == 0 {
+	if !ok || path.Head != "." {
 		return nil, vm.errorf("syntax: malformed \"%s\" statement", verb)
+	}
+	if len(path.Args) == 0 {
+		return nil, vm.errorf("malformed \"%s\" statement", verb) // toplevel.c:510-511
 	}
 	var cur *Module
 	args := path.Args
@@ -367,17 +384,81 @@ func (vm *VM) importPath(m *Module, v any, verb string) (*Module, error) {
 	return cur, nil
 }
 
-// importName is jl_module_import: name in m becomes an alias of from's
-// binding, in a new world.
-func (vm *VM) importName(m *Module, from *Module, name expr.Symbol) error {
-	src := from.own(name)
-	if src == nil {
-		return vm.undefVar(name, vm.taskWorld, from)
+// importName is jl_module_import over module_import_ (module.c:1232-1311):
+// name in to becomes an alias of from's binding, in a new world. A name from
+// does not have yet is made a binding of it, undefined, with a warning; a
+// name to already holds otherwise is kept, with a warning. A binding
+// declared and not assigned counts as undefined here: one value per
+// binding does not tell julia's guard from its declared kind.
+func (vm *VM) importName(to *Module, from *Module, name expr.Symbol) {
+	b := from.own(name)
+	if b == nil {
+		// jl_get_binding makes the name a binding of from
+		b = from.declare(name, vm.taskWorld)
+		b.implicit = true
 	}
-	b := m.declare(name, vm.newWorld())
-	if b != src {
-		b.Alias = src.resolve()
-		b.implicit = false // an export made it; the import defines it
+	if b.resolve().Value == undef {
+		vm.warn("WARNING: Imported binding %s.%s was undeclared at import time during import to %s.\n", from.Name, name, to.Name)
 	}
-	return nil
+	bto := to.own(name)
+	switch {
+	case bto == b:
+		// importing a binding on top of itself: harmless
+	case bto == nil || bto.implicit && bto.Value == undef && bto.Alias == nil:
+		bto = to.declare(name, vm.newWorld())
+		bto.Alias = b
+		bto.implicit = false // an export made it; the import defines it
+	case bto.resolve() == b.resolve():
+		// already imported
+	case bto.Alias != nil:
+		vm.warn("WARNING: ignoring conflicting import of %s.%s into %s\n", from.Name, name, to.Name)
+	default:
+		vm.warn("WARNING: import of %s.%s into %s conflicts with an existing identifier; ignored.\n", from.Name, name, to.Name)
+	}
+}
+
+// warn prints a runtime warning, as jl_printf(JL_STDERR, …) does.
+func (vm *VM) warn(format string, args ...any) {
+	if vm.Stderr != nil {
+		fmt.Fprintf(vm.Stderr, format, args...)
+	}
+}
+
+// importTarget is eval_import_path (toplevel.c:507-570) for `import`
+// without a colon: a lone root names a module to import, any other path
+// ends in the name of a binding of the module the rest reaches.
+func (vm *VM) importTarget(m *Module, path *expr.Expr, verb string) (*Module, expr.Symbol, error) {
+	args := path.Args
+	if len(args) <= 1 && (len(args) == 0 || args[0] != any(expr.Symbol("."))) {
+		mod, err := vm.importPath(m, path, verb)
+		return mod, "", err
+	}
+	dots := 0
+	for dots < len(args) && args[dots] == any(expr.Symbol(".")) {
+		dots++
+	}
+	if dots == len(args) {
+		return nil, "", vm.errorf("invalid module path")
+	}
+	var mod *Module
+	if dots == len(args)-1 {
+		// `.x`, `..x`: this module, then a parent per further dot
+		mod = m
+		for i := 1; i < dots && mod.Parent != nil; i++ {
+			mod = mod.Parent
+		}
+	} else {
+		var err error
+		if mod, err = vm.importPath(m, &expr.Expr{Head: ".", Args: args[:len(args)-1]}, verb); err != nil {
+			return nil, "", err
+		}
+	}
+	name, ok := args[len(args)-1].(expr.Symbol)
+	if !ok {
+		return nil, "", vm.typeError(expr.Symbol(verb), "", core.SymbolType, args[len(args)-1])
+	}
+	if name == "." {
+		return nil, "", vm.errorf("invalid %s path: \".\" in identifier path", verb)
+	}
+	return mod, name, nil
 }

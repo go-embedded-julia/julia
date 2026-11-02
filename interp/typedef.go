@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/core/dispatch"
@@ -206,8 +207,7 @@ func biPrimitivetype(vm *VM, args []any) (any, error) {
 	return core.NewIncompletePrimitive(string(m.Name), string(name), params, int(nb)).Name.Wrapper, nil
 }
 
-// biStructtype is jl_f__structtype (builtins.c:1978-1995). Field attributes
-// (const, atomic) are not supported yet.
+// biStructtype is jl_f__structtype (builtins.c:1978-1995).
 func biStructtype(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("_structtype", args, 7, 7); err != nil {
 		return nil, err
@@ -232,9 +232,6 @@ func biStructtype(vm *VM, args []any) (any, error) {
 	if err := vm.typechk("_structtype", core.Int64Type, args[6], ok); err != nil {
 		return nil, err
 	}
-	if len(fattrs) > 0 {
-		return nil, fmt.Errorf("%w: field attributes (%s)", ErrUnsupported, name)
-	}
 	names := make([]expr.Symbol, len(fnames))
 	for i, f := range fnames {
 		s, ok := f.(expr.Symbol)
@@ -243,8 +240,52 @@ func biStructtype(vm *VM, args []any) (any, error) {
 		}
 		names[i] = s
 	}
-	return core.NewIncompleteType(string(m.Name), string(name), params, false, mutable, names).Name.Wrapper, nil
+	atomic, cnst, err := vm.fieldAttrs(fattrs, len(names), mutable)
+	if err != nil {
+		return nil, err
+	}
+	dt := core.NewIncompleteType(string(m.Name), string(name), params, false, mutable, names)
+	dt.Name.AtomicFields, dt.Name.ConstFields = atomic, cnst
+	return dt.Name.Wrapper, nil
 }
+
+// fieldAttrs reads _structtype's attributes, pairs of a field's index from 1
+// and :atomic or :const, into masks (jl_new_datatype, datatype.c:900-944).
+func (vm *VM) fieldAttrs(fattrs SVec, n int, mutable bool) (atomic, cnst []bool, err error) {
+	for i := 0; i+1 < len(fattrs); i += 2 {
+		fld, ok := fattrs[i].(int64)
+		if !ok {
+			return nil, nil, vm.typeError("typeassert", "", core.Int64Type, fattrs[i])
+		}
+		attr, ok := fattrs[i+1].(expr.Symbol)
+		if !ok {
+			return nil, nil, vm.typeError("typeassert", "", core.SymbolType, fattrs[i+1])
+		}
+		if fld < 1 || fld > int64(n) {
+			return nil, nil, vm.errorf("invalid field attribute %d", fld)
+		}
+		var mask *[]bool
+		switch attr {
+		case "atomic":
+			mask = &atomic
+		case "const":
+			mask = &cnst
+		default:
+			return nil, nil, vm.errorf("invalid field attribute %s", attr)
+		}
+		if !mutable {
+			return nil, nil, vm.errorf("invalid field attribute %s for immutable struct", attr)
+		}
+		if *mask == nil {
+			*mask = make([]bool, n)
+		}
+		(*mask)[fld-1] = true
+	}
+	return atomic, cnst, nil
+}
+
+// fieldMarked is whether field i is marked in a mask of fieldAttrs.
+func fieldMarked(mask []bool, i int) bool { return i < len(mask) && mask[i] }
 
 // biSetsuper is jl_f__setsuper (builtins.c:2051-2058).
 func biSetsuper(vm *VM, args []any) (any, error) {
@@ -311,7 +352,9 @@ func equivFieldTypes(old []any, ft SVec) bool {
 
 // biEquivTypedef is jl_f__equiv_typedef over equiv_type (builtins.c:
 // 2287-2352) for types without parameters: same kind, name, mutability,
-// field names, and an equal supertype.
+// field attributes, field names, and an equal supertype. slices.Equal tells
+// a nil mask (no field marked) from an all-false one, as the C compares a
+// NULL mask; fieldAttrs makes one only to mark a field.
 func biEquivTypedef(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("_equiv_typedef", args, 2, 2); err != nil {
 		return nil, err
@@ -323,7 +366,8 @@ func biEquivTypedef(vm *VM, args []any) (any, error) {
 	}
 	if a.Name.Name != b.Name.Name || a.Name.Abstract != b.Name.Abstract || a.Name.Mutable != b.Name.Mutable ||
 		a.Name.Bits != b.Name.Bits ||
-		len(a.Name.FieldNames) != len(b.Name.FieldNames) || len(a.Parameters) != len(b.Parameters) {
+		len(a.Name.FieldNames) != len(b.Name.FieldNames) || len(a.Parameters) != len(b.Parameters) ||
+		!slices.Equal(a.Name.AtomicFields, b.Name.AtomicFields) || !slices.Equal(a.Name.ConstFields, b.Name.ConstFields) {
 		return false, nil
 	}
 	for i := range a.Name.FieldNames {

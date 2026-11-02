@@ -43,7 +43,7 @@ func TestKindFields(t *testing.T) {
 		"(Int64.name.name, Int64.parameters, Int64.types, Any.super)":  "(:Int64, svec(), svec(), Any)",
 		"(Tuple{Int8}.parameters, Tuple{Int8}.types)":                  "(svec(Int8), svec(Int8))",
 		"(Array{Int8, 1}.name.wrapper, Expr.name.names, Number.types)": "(Array, svec(:head, :args), svec())",
-		"Array.name": "!type UnionAll has no field name",
+		"Array.name": "!FieldError(UnionAll, :name)",
 		"(Array.var.name, Array.var.ub, Array.body.var.lb)": "(:T, Any, Union{})",
 		"(Union{Int8, Int16}.a, Union{Int8, Int16}.b)":      "(Int16, Int8)",
 		"(Vararg{Int8}.T, getfield(Array, 1))":              "(Int8, T)",
@@ -51,7 +51,7 @@ func TestKindFields(t *testing.T) {
 		"Int64.layout":                                      "Ptr{Nothing}(Int64.layout + 0)",
 		"Int64.hash":                                        "!not ported yet: the field hash of a DataType",
 		"Int64.name.cache":                                  "!not ported yet: the field cache of a TypeName",
-		"Int64.nope":                                        "!type DataType has no field nope",
+		"Int64.nope":                                        "!FieldError(DataType, :nope)",
 		"getfield(Array.var, 4)":                            "!BoundsError",
 	} {
 		v, err := s.Eval(src)
