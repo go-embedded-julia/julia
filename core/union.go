@@ -140,6 +140,9 @@ func (d *DataType) fieldTypes() ([]any, bool) {
 	if d.Name == TupleTypeName {
 		return d.Parameters, true
 	}
+	if d.Name == NamedTupleTypeName {
+		return d.ntTypes, d.ntTypes != nil
+	}
 	if d.Name.Fields == nil {
 		return nil, false
 	}
@@ -368,7 +371,7 @@ func TypeUnion(ts ...any) any {
 	}
 	for _, pi := range ts {
 		if !(IsType(pi) || isTypeVar(pi)) {
-			throwf("TypeError: in Union, expected Type, got %s", Show(pi))
+			throwTypeError("Union", "", TypeType, pi, "TypeError: in Union, expected Type, got %s", Show(pi))
 		}
 	}
 	if len(ts) == 1 {

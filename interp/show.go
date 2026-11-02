@@ -24,6 +24,68 @@ func showValue(v any) string {
 	return b.String()
 }
 
+// showSym is show_sym (show.jl:1814-1823): an identifier as it is, any
+// other name as var"…". julia also prints an operator name bare
+// (is_valid_identifier's jl_is_operator, flisp's tables, not ported here),
+// which this prints as var"…".
+func showSym(s expr.Symbol) string {
+	if isIdentifier(string(s)) {
+		return string(s)
+	}
+	return "var" + showValue(string(s))
+}
+
+// isIdentifier is Base.isidentifier (show.jl:1565-1572): not true or
+// false, an identifier start character, then identifier characters.
+func isIdentifier(s string) bool {
+	if s == "" || s == "true" || s == "false" {
+		return false
+	}
+	for i, c := range s {
+		if c == utf8.RuneError {
+			return false
+		}
+		if i == 0 && !unitab.IsIDStart(uint32(c)) || i > 0 && !unitab.IsIDChar(uint32(c)) {
+			return false
+		}
+	}
+	return true
+}
+
+// writeNamedTuple is show(io, ::NamedTuple) (namedtuple.jl:198-229): the
+// whole type when a field's value is not of the field's type, else
+// (a = 1, b = 2), NamedTuple() when empty. The construction checked each
+// value against its field type, so the value's type is the field's exactly
+// when that is concrete.
+func writeNamedTuple(b *strings.Builder, x *Struct) {
+	ft, _ := x.Type.FieldTypes()
+	for i := range x.Fields {
+		if i >= len(ft) || !core.IsConcrete(ft[i]) {
+			writeType(b, x.Type)
+			b.WriteByte('(')
+			writeValue(b, &Tuple{Elems: x.Fields})
+			b.WriteByte(')')
+			return
+		}
+	}
+	if len(x.Fields) == 0 {
+		b.WriteString("NamedTuple()")
+		return
+	}
+	names := x.Type.FieldNames()
+	b.WriteByte('(')
+	for i, f := range x.Fields {
+		b.WriteString(showSym(names[i]) + " = ")
+		writeValue(b, f)
+		if len(x.Fields) == 1 {
+			b.WriteByte(',')
+		} else if i < len(x.Fields)-1 {
+			b.WriteString(", ")
+		}
+	}
+	b.WriteByte(')')
+}
+
 // showFloat64 is julia's shortest round-trip form of a Float64: the digits
 // Go's 'g' with precision -1 chooses, at the same exponent thresholds (below
 // -4 or from 6 on), spelled as julia spells them: 1.0e6, 2.0, 1.0e-5.
@@ -284,6 +346,10 @@ func writeValue(b *strings.Builder, v any) {
 	case *Struct:
 		if _, _, _, ok := arrayOf(x); ok {
 			writeIn(b, x, nil)
+			return
+		}
+		if x.Type.Name == core.NamedTupleTypeName {
+			writeNamedTuple(b, x)
 			return
 		}
 		// the instance's whole type, parameters included: Q{Int64}(1)

@@ -11,14 +11,34 @@ func (e *Error) Error() string { return e.Msg }
 
 func throwf(format string, args ...any) { panic(&Error{fmt.Sprintf(format, args...)}) }
 
-// catchError turns a panic carrying *Error into a returned error.
+// TypeError is a TypeError julia raises while building a type
+// (jl_type_error_rt, rtutils.c:112-122): in Func, in Context, a value Got
+// where Expected was. Msg is the message core reports it with.
+type TypeError struct {
+	Func, Context string
+	Expected, Got any
+	Msg           string
+}
+
+func (e *TypeError) Error() string { return e.Msg }
+
+// throwTypeError raises a TypeError whose message is the format's.
+func throwTypeError(fn, ctx string, expected, got any, format string, args ...any) {
+	panic(&TypeError{Func: fn, Context: ctx, Expected: expected, Got: got, Msg: fmt.Sprintf(format, args...)})
+}
+
+// catchError turns a panic carrying *Error or *TypeError into a returned
+// error.
 func catchError(err *error) {
 	if r := recover(); r != nil {
-		e, ok := r.(*Error)
-		if !ok {
+		switch e := r.(type) {
+		case *Error:
+			*err = e
+		case *TypeError:
+			*err = e
+		default:
 			panic(r)
 		}
-		*err = e
 	}
 }
 
@@ -93,14 +113,14 @@ func wrapVararg(t, n any, check bool) *Vararg {
 			if _, ok := n.(*TypeVar); ok {
 			} else if _, ok := UnwrapUnionAll(n).(*Union); ok {
 			} else if k, ok := n.(int64); !ok {
-				throwf("TypeError: in Vararg, in count, expected Int64, got %s", Show(n))
+				throwTypeError("Vararg", "count", Int64Type, n, "TypeError: in Vararg, in count, expected Int64, got %s", Show(n))
 			} else if k < 0 {
 				throwf("Vararg length is negative: %d", k)
 			}
 		}
 		if t != nil {
 			if !ValidTypeParam(t) {
-				throwf("TypeError: in Vararg, in type, expected Type, got %s", Show(t))
+				throwTypeError("Vararg", "type", TypeType, t, "TypeError: in Vararg, in type, expected Type, got %s", Show(t))
 			}
 			t = mayEqualWrapper(normalizeUnionAlls(t))
 		}
@@ -304,7 +324,7 @@ func instTuple(tt *DataType, env *typeEnv, stack *typeStack, check bool) any {
 func tupletypeFill(n int64, t any, check bool) any {
 	if check {
 		if !ValidTypeParam(t) {
-			throwf("TypeError: in Vararg, in type, expected Type, got %s", Show(t))
+			throwTypeError("Vararg", "type", TypeType, t, "TypeError: in Vararg, in type, expected Type, got %s", Show(t))
 		}
 		t = mayEqualWrapper(normalizeUnionAlls(t))
 		check = false
@@ -377,6 +397,12 @@ func objectID(v any) uint32 {
 		return strHash(string(x))
 	case *Instance:
 		return bitmix(x.Type.hash, strHash(x.Bits))
+	case *Tuple:
+		h := x.Type.hash
+		for _, e := range x.Elems {
+			h = bitmix(h, objectID(e))
+		}
+		return h
 	case *bottomType:
 		return 0x1b873593
 	}
@@ -558,8 +584,9 @@ func checkDatatypeParameters(tn *TypeName, params []any) {
 	for i := range params {
 		tv := w.(*UnionAll).Var
 		if !withinTypeVar(params[i], bounds[2*i], bounds[2*i+1]) {
-			throwf("TypeError: in %s, in %s, expected %s, got %s", tn.Name, tv.Name,
-				Show(&TypeVar{Name: tv.Name, LB: bounds[2*i], UB: bounds[2*i+1]}), Show(params[i]))
+			bound := &TypeVar{Name: tv.Name, LB: bounds[2*i], UB: bounds[2*i+1]}
+			throwTypeError(tn.Name, tv.Name, bound, params[i], "TypeError: in %s, in %s, expected %s, got %s", tn.Name, tv.Name,
+				Show(bound), Show(params[i]))
 		}
 		for j := 2*i + 2; j < len(bounds); j++ {
 			if bj := bounds[j]; bj != any(AnyType) && bj != any(Bottom) {
@@ -698,6 +725,9 @@ func instDatatypeInner(dt *DataType, iparams []any, stack *typeStack, env *typeE
 	}
 	p := append([]any(nil), iparams...)
 	ndt := &DataType{Name: tn, Parameters: p, HasConcreteSubtype: true}
+	if tn == NamedTupleTypeName {
+		namedTupleFields(ndt)
+	}
 	top := &typeStack{ndt, stack}
 	precomputeMemoized(ndt, cacheable)
 	if istuple {
@@ -709,6 +739,62 @@ func instDatatypeInner(dt *DataType, iparams []any, stack *typeStack, env *typeE
 		return cacheOrGet(ndt)
 	}
 	return ndt
+}
+
+// namedTupleFields gives a NamedTuple{names, T} instance its field names,
+// names' symbols, and types, T's parameters (inst_datatype_inner,
+// jltypes.c:2327-2373). With a free type variable in either, julia gives it
+// no field types (an empty list, "essentially always incorrect").
+func namedTupleFields(ndt *DataType) {
+	names, tt := ndt.Parameters[0], ndt.Parameters[1]
+	if HasFreeTypeVars(names) || HasFreeTypeVars(tt) {
+		ndt.ntTypes = []any{}
+		return
+	}
+	nt, ok := names.(*Tuple)
+	if !ok {
+		throwTypeError("NamedTuple", "names", AnyTupleType, names,
+			"TypeError: in NamedTuple, in names, expected Tuple, got %s", Show(names))
+	}
+	ndt.ntNames = make([]Symbol, len(nt.Elems))
+	for i, ni := range nt.Elems {
+		s, ok := ni.(Symbol)
+		if !ok {
+			throwTypeError("NamedTuple", "name", SymbolType, ni,
+				"TypeError: in NamedTuple, in name, expected Symbol, got %s", Show(ni))
+		}
+		for _, prev := range ndt.ntNames[:i] {
+			if prev == s {
+				throwf("duplicate field name in NamedTuple: \"%s\" is not unique", s)
+			}
+		}
+		ndt.ntNames[i] = s
+	}
+	if tt == any(Bottom) && len(nt.Elems) > 0 {
+		ndt.ntTypes = make([]any, len(nt.Elems))
+		for i := range ndt.ntTypes {
+			ndt.ntTypes[i] = Bottom
+		}
+		return
+	}
+	d, ok := tt.(*DataType)
+	if !ok {
+		// check_datatype_parameters refused it first (T <: Tuple)
+		throwf("NamedTuple field type must be a tuple datatype")
+	}
+	if IsVaTuple(d) || len(d.Parameters) != len(nt.Elems) {
+		throwf("NamedTuple names and field types must have matching lengths")
+	}
+	ndt.ntTypes = d.Parameters
+}
+
+// FieldNames is the instance's field names (jl_field_names): a NamedTuple's
+// come from its names parameter, any other type's from its name.
+func (d *DataType) FieldNames() []Symbol {
+	if d.Name == NamedTupleTypeName {
+		return d.ntNames
+	}
+	return d.Name.FieldNames
 }
 
 // maybeSubtypeOfCache is maybe_subtype_of_cache (jltypes.c:1292-1314).
@@ -901,7 +987,7 @@ func applyType(tc any, params []any) any {
 				if isdt {
 					name = inner.Name.Name
 				}
-				throwf("TypeError: in %s, in %s, expected %s, got %s", name, ua.Var.Name, Show(ua.Var), Show(pi))
+				throwTypeError(name, ua.Var.Name, ua.Var, pi, "TypeError: in %s, in %s, expected %s, got %s", name, ua.Var.Name, Show(ua.Var), Show(pi))
 			}
 		}
 		tc = instType(ua.Body, &typeEnv{ua.Var, pi, nil}, nil, true)

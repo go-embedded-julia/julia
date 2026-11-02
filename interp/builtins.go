@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -255,6 +256,16 @@ func (vm *VM) argTupleType(args []any) *core.DataType {
 	return t.(*core.DataType)
 }
 
+// noFieldError is jl_field_index with err=1 (datatype.c:1781):
+// jl_has_no_field_error (rtutils.c:169-172) once post_boot_hooks has found
+// FieldError, its message before.
+func (vm *VM) noFieldError(st *core.DataType, name expr.Symbol) error {
+	if vm.tFieldError == nil {
+		return vm.errorf("type %s has no field %s", st.Name.Name, name)
+	}
+	return vm.exception(vm.tFieldError, st, name)
+}
+
 func biSvec(vm *VM, args []any) (any, error) { return SVec(append([]any(nil), args...)), nil }
 
 // fieldIndex is get_checked_fieldindex (builtins.c:994-1021) for reads.
@@ -271,12 +282,7 @@ func (vm *VM) fieldIndex(fname expr.Symbol, st *core.DataType, names []expr.Symb
 				return i, nil
 			}
 		}
-		// jl_field_index with err=1 (datatype.c:1781), jl_has_no_field_error
-		// (rtutils.c:169-172) once post_boot_hooks has found FieldError
-		if vm.tFieldError == nil {
-			return 0, vm.errorf("type %s has no field %s", st.Name.Name, a)
-		}
-		return 0, vm.exception(vm.tFieldError, st, a)
+		return 0, vm.noFieldError(st, a)
 	}
 	return 0, vm.typeError(fname, "", core.TypeUnion(core.Int64Type, core.SymbolType), arg)
 }
@@ -430,7 +436,7 @@ func (vm *VM) atomicOrder(fname expr.Symbol, arg any, loading, storing bool) (ex
 func biGetfield(vm *VM, args []any) (any, error) {
 	if len(args) == 2 {
 		if v, ok := args[0].(*Struct); ok {
-			i, err := vm.fieldIndex("getfield", v.Type, v.Type.Name.FieldNames, len(v.Fields), v, args[1])
+			i, err := vm.fieldIndex("getfield", v.Type, v.Type.FieldNames(), len(v.Fields), v, args[1])
 			if err != nil {
 				return nil, err
 			}
@@ -465,7 +471,7 @@ func (vm *VM) getfieldOrdered(args []any) (any, error) {
 		}
 	}
 	if v, ok := args[0].(*Struct); ok {
-		i, err := vm.fieldIndex("getfield", v.Type, v.Type.Name.FieldNames, len(v.Fields), v, args[1])
+		i, err := vm.fieldIndex("getfield", v.Type, v.Type.FieldNames(), len(v.Fields), v, args[1])
 		if err != nil {
 			return nil, err
 		}
@@ -560,7 +566,7 @@ func (vm *VM) getfieldOf(args []any) (any, error) {
 func biSetfield(vm *VM, args []any) (any, error) {
 	if len(args) == 3 {
 		if v, ok := args[0].(*Struct); ok && v.Type.Name.Mutable && v.Type.Name.ConstFields == nil && v.Type.Name.AtomicFields == nil {
-			i, err := vm.fieldIndex("setfield!", v.Type, v.Type.Name.FieldNames, len(v.Fields), v, args[1])
+			i, err := vm.fieldIndex("setfield!", v.Type, v.Type.FieldNames(), len(v.Fields), v, args[1])
 			if err != nil {
 				return nil, err
 			}
@@ -601,17 +607,17 @@ func (vm *VM) setfieldChecked(args []any) (any, error) {
 		t, n = v.Type, len(v.Fields)
 	default:
 		t = vm.typeOf(args[0]).(*core.DataType)
-		n = len(t.Name.FieldNames)
+		n = len(t.FieldNames())
 	}
 	if !t.Name.Mutable {
 		return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", t.Name.Name)
 	}
-	i, err := vm.fieldIndex("setfield!", t, t.Name.FieldNames, n, args[0], args[1])
+	i, err := vm.fieldIndex("setfield!", t, t.FieldNames(), n, args[0], args[1])
 	if err != nil {
 		return nil, err
 	}
 	if fieldMarked(t.Name.ConstFields, i) {
-		return nil, vm.errorf("setfield!: const field .%s of type %s cannot be changed", t.Name.FieldNames[i], t.Name.Name)
+		return nil, vm.errorf("setfield!: const field .%s of type %s cannot be changed", t.FieldNames()[i], t.Name.Name)
 	}
 	// isatomic == (order == notatomic) is the mismatch (builtins.c:1068-1071)
 	if isatomic := fieldMarked(t.Name.AtomicFields, i); isatomic == (order == "not_atomic") {
@@ -628,12 +634,12 @@ func (vm *VM) setfieldChecked(args []any) (any, error) {
 	case *core.TypeName:
 		// the fields that steer inference and method caches; there is no
 		// inference here, so a hint is accepted and kept nowhere
-		switch t.Name.FieldNames[i] {
+		switch t.FieldNames()[i] {
 		case "max_methods", "constprop_heuristic", "max_args", "cache_entry_count":
 			return args[2], nil
 		}
 	}
-	return nil, fmt.Errorf("%w: setfield! of a %s's %s", ErrUnsupported, t.Name.Name, t.Name.FieldNames[i])
+	return nil, fmt.Errorf("%w: setfield! of a %s's %s", ErrUnsupported, t.Name.Name, t.FieldNames()[i])
 }
 
 func biNfields(vm *VM, args []any) (any, error) {
@@ -726,7 +732,17 @@ func biApplyType(vm *VM, args []any) (any, error) {
 	}
 	t, err := core.ApplyType(args[0], args[1:]...)
 	if err != nil {
-		return nil, vm.errorf("%s", err.Error())
+		return nil, vm.coreError(err)
 	}
 	return t, nil
+}
+
+// coreError is an error building a type, as julia raises it: a TypeError
+// (jl_type_error_rt) or an ErrorException of the message.
+func (vm *VM) coreError(err error) error {
+	var te *core.TypeError
+	if errors.As(err, &te) {
+		return vm.typeError(expr.Symbol(te.Func), te.Context, te.Expected, te.Got)
+	}
+	return vm.errorf("%s", err.Error())
 }

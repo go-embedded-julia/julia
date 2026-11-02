@@ -54,7 +54,7 @@ func (vm *VM) bootCTypes() {
 		opaque(name)
 	}
 	vm.tCodeInfo = opaque("CodeInfo")
-	opaque("NamedTuple", "names", "T")
+	vm.setCore("NamedTuple", core.NamedTupleType)
 	opaque("OpaqueClosure", "A", "R")
 	llvm := core.NewIncompletePrimitive("Core", "LLVMPtr", []*core.TypeVar{
 		{Name: "T", LB: core.Bottom, UB: core.AnyType}, {Name: "AS", LB: core.Bottom, UB: core.AnyType}}, 64)

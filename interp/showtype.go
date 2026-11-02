@@ -126,6 +126,30 @@ func aliasOf(d *core.DataType) *typeAlias {
 // from its clause.
 func writeDataType(b *strings.Builder, d *core.DataType, elide *[]*core.TypeVar, bound []*core.TypeVar) {
 	params := d.Parameters
+	// @NamedTuple{a::Int64, b} when the names are a tuple and the types a
+	// DataType (show.jl:1201-1236). julia's show_sym then throws a
+	// MethodError on a name that is not a Symbol (NamedTuple{(1,),
+	// Tuple{T}} where T, whose names a free T leaves unchecked); such a type
+	// is shown in the generic form here.
+	if d.Name == core.NamedTupleTypeName {
+		syms, ok1 := params[0].(*Tuple)
+		types, ok2 := params[1].(*core.DataType)
+		if ok1 && ok2 && allSymbols(syms.Elems) {
+			b.WriteString("@NamedTuple{")
+			for i, s := range syms.Elems {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(showSym(s.(expr.Symbol)))
+				if i < len(types.Parameters) && types.Parameters[i] != any(core.AnyType) {
+					b.WriteString("::")
+					writeParam(b, types.Parameters[i], bound)
+				}
+			}
+			b.WriteByte('}')
+			return
+		}
+	}
 	var orig []*core.TypeVar
 	name := modulePrefix(d)
 	if d.Name.Module == "Core" && (d.Name.Name == "TypeName" || d.Name.Name == "SimpleVector" ||
@@ -183,6 +207,15 @@ func writeDataType(b *strings.Builder, d *core.DataType, elide *[]*core.TypeVar,
 		writeParam(b, p, bound)
 	}
 	b.WriteByte('}')
+}
+
+func allSymbols(xs []any) bool {
+	for _, x := range xs {
+		if _, ok := x.(expr.Symbol); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // wrapperVar is the i-th type variable of tn's wrapper, nil past them.

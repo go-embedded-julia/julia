@@ -142,7 +142,10 @@ func biApplyIterate(vm *VM, args []any) (any, error) {
 		case *Memory:
 			err = addElems(x.Elems)
 		default:
-			if _, _, elems, ok := arrayOf(a); ok {
+			if s, ok := a.(*Struct); ok && s.Type.Name == core.NamedTupleTypeName {
+				// a NamedTuple spreads its fields, as a tuple (builtins.c:773)
+				err = add(s.Fields...)
+			} else if _, _, elems, ok := arrayOf(a); ok {
 				err = addElems(elems)
 			} else {
 				err = vm.spreadIterate(iterate, a, add)
@@ -450,13 +453,13 @@ func biFieldtype(vm *VM, args []any) (any, error) {
 	case int64:
 		idx = int(f - 1)
 	case expr.Symbol:
-		for i, n := range st.Name.FieldNames {
+		for i, n := range st.FieldNames() {
 			if n == f {
 				idx = i
 			}
 		}
 		if idx < 0 {
-			return nil, vm.errorf("type %s has no field %s", st.Name.Name, f)
+			return nil, vm.noFieldError(st, f)
 		}
 	default:
 		return nil, vm.typeError("fieldtype", "", core.SymbolType, args[1])

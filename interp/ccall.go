@@ -94,6 +94,9 @@ func (vm *VM) bootShims() {
 			}
 			return int32(0), nil
 		},
+		// jl_symbol_n (symbol.c:113-118), boot.jl's Symbol(::String): the
+		// bytes a pointer into a String points at
+		"jl_symbol_n": func(vm *VM, a []any) (any, error) { return vm.symbolN(a) },
 		// jl_genericmemory_copyto (genericmemory.c:225-300), unsafe_copyto!
 		// of memories of boxed elements (mempointer.go)
 		"jl_genericmemory_copyto": func(vm *VM, a []any) (any, error) { return nil, vm.memoryCopyto(a) },

@@ -89,6 +89,7 @@ type (
 	oSymbol          struct{ name expr.Symbol } // a bare global of the frame's module
 	oCall            struct{ args []op }
 	oNew             struct{ args []op }
+	oSplatnew        struct{ args []op }
 	oIsdefSlot       struct{ i int }
 	oIsdefSparam     struct{ n int }
 	oThrowUndefIfNot struct {
@@ -309,6 +310,11 @@ func (c *code) prepExpr(x *expr.Expr) op {
 			return oRaise{"Invalid IR: :new without a type"}
 		}
 		return oNew{c.prepArgs(x.Args)}
+	case "splatnew":
+		if len(x.Args) != 2 {
+			return oRaise{"Invalid IR: malformed :splatnew"}
+		}
+		return oSplatnew{c.prepArgs(x.Args)}
 	case "isdefined":
 		if len(x.Args) == 1 {
 			switch a := x.Args[0].(type) {
@@ -367,7 +373,7 @@ func (c *code) prepExpr(x *expr.Expr) op {
 		return c.prepForeign(x)
 	case "cfunction":
 		return oRaise{"`cfunction` requires the compiler"}
-	case "invoke", "splatnew", "new_opaque_closure":
+	case "invoke", "new_opaque_closure":
 		return oUnsupported{":" + string(x.Head)}
 	}
 	return oRaise{"unsupported or misplaced expression " + string(x.Head)}

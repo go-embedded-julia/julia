@@ -104,6 +104,18 @@ func show(b *strings.Builder, v any) {
 		b.WriteByte(')')
 	case *Instance:
 		b.WriteString(x.Bits)
+	case *Tuple:
+		b.WriteByte('(')
+		for i, e := range x.Elems {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			show(b, e)
+		}
+		if len(x.Elems) == 1 {
+			b.WriteByte(',')
+		}
+		b.WriteByte(')')
 	case ModuleValue:
 		b.WriteString(x.ModuleName())
 	default:

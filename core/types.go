@@ -78,6 +78,11 @@ type DataType struct {
 	IsDispatchTuple     bool
 	HasConcreteSubtype  bool
 	MaybeSubtypeOfCache bool
+
+	// ntNames and ntTypes are a NamedTuple instance's field names and types,
+	// from its parameters (jltypes.c:2327-2373); nil for any other type.
+	ntNames []Symbol
+	ntTypes []any
 }
 
 // Union is Union{A, B} (jl_uniontype_t).
@@ -237,10 +242,20 @@ func TypeOf(v any) any {
 		return SymbolType
 	case *Instance:
 		return x.Type
+	case *Tuple:
+		return x.Type
 	case ModuleValue:
 		return ModuleType
 	}
 	return nil
+}
+
+// Tuple is a tuple value: its type, a concrete Tuple type, and its
+// elements. The interpreter's tuples are these; a tuple of symbols and
+// isbits values is a valid type parameter (NamedTuple{(:a, :b)}).
+type Tuple struct {
+	Type  *DataType
+	Elems []any
 }
 
 // Instance is a constant of a user-visible isbits or singleton type, as it

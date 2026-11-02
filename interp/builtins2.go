@@ -115,12 +115,12 @@ func biIsdefined(vm *VM, args []any) (any, error) {
 	var fields []any
 	switch x := args[0].(type) {
 	case *Struct:
-		names, n, fields = x.Type.Name.FieldNames, len(x.Fields), x.Fields
+		names, n, fields = x.Type.FieldNames(), len(x.Fields), x.Fields
 	case *Tuple:
 		n = len(x.Elems)
 	default:
 		if t != nil {
-			names = t.Name.FieldNames
+			names = t.FieldNames()
 			n = len(names)
 		}
 	}

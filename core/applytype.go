@@ -48,6 +48,8 @@ func ValidTypeParam(v any) bool {
 		return true
 	case *Instance:
 		return x.Type.isbits() || isNestableTypeParam(x.Type)
+	case *Tuple:
+		return x.Type.isbits() || isNestableTypeParam(x.Type)
 	}
 	d, ok := TypeOf(v).(*DataType)
 	return ok && d.isbits()
@@ -92,10 +94,12 @@ func ApplyType(tc any, params ...any) (t any, err error) {
 		for i, pi := range params {
 			if _, ok := pi.(*Vararg); ok {
 				if i != len(params)-1 {
-					throwf("TypeError: in Tuple, in non-final parameter, expected Type, got %s", Show(pi))
+					throwTypeError("Tuple", "non-final parameter", TypeType, pi,
+						"TypeError: in Tuple, in non-final parameter, expected Type, got %s", Show(pi))
 				}
 			} else if !ValidTypeParam(pi) {
-				throwf("TypeError: in Tuple, in parameter, expected Type, got %s", Show(pi))
+				throwTypeError("Tuple", "parameter", TypeType, pi,
+					"TypeError: in Tuple, in parameter, expected Type, got %s", Show(pi))
 			}
 		}
 		return applyType(AnyTupleType, params), nil
@@ -123,11 +127,12 @@ func ApplyType(tc any, params ...any) (t any, err error) {
 	if _, ok := tc.(*UnionAll); ok {
 		for _, pi := range params {
 			if !ValidTypeParam(pi) {
-				expected := "Type"
+				expected, et := "Type", any(TypeType)
 				if Isa(pi, NumberType) {
-					expected = "Int64"
+					expected, et = "Int64", Int64Type
 				}
-				throwf("TypeError: in Type, in parameter, expected %s, got %s", expected, Show(pi))
+				throwTypeError("Type", "parameter", et, pi,
+					"TypeError: in Type, in parameter, expected %s, got %s", expected, Show(pi))
 			}
 		}
 		return applyType(tc, params), nil

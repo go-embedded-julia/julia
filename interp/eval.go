@@ -214,6 +214,16 @@ func (f *frame) evalValue(o op) (any, error) {
 			args[i] = v
 		}
 		return vm.newStruct(args[0], args[1:])
+	case oSplatnew:
+		t, err := f.evalValue(x.args[0])
+		if err != nil {
+			return nil, err
+		}
+		tup, err := f.evalValue(x.args[1])
+		if err != nil {
+			return nil, err
+		}
+		return vm.newStructT(t, tup)
 	case oIsdefSlot:
 		return f.locals[x.i] != undef, nil
 	case oIsdefSparam:
@@ -621,10 +631,11 @@ func (vm *VM) newStruct(tv any, fields []any) (any, error) {
 	if !ok || !t.IsConcrete {
 		return nil, vm.typeError("new", "", core.DataTypeType, tv)
 	}
-	if core.IsTupleType(t) || t.Name.FieldNames == nil && len(t.Name.Fields) == 0 && !t.Name.Singleton {
+	// a NamedTuple instance's names are its own (core's FieldNames)
+	if core.IsTupleType(t) || t.FieldNames() == nil && len(t.Name.Fields) == 0 && !t.Name.Singleton {
 		return nil, fmt.Errorf("%w: :new of %s", ErrUnsupported, core.Show(tv))
 	}
-	n := len(t.Name.FieldNames)
+	n := len(t.FieldNames())
 	if len(fields) > n {
 		return nil, vm.errorf("invalid struct allocation")
 	}
@@ -644,6 +655,24 @@ func (vm *VM) newStruct(tv any, fields []any) (any, error) {
 	}
 	copy(vals, fields)
 	return &Struct{Type: t, Fields: vals}, nil
+}
+
+// newStructT is jl_new_structt (datatype.c:1664-1720), :splatnew: a struct
+// of type tv from the elements of a tuple, one per field.
+func (vm *VM) newStructT(tv, tup any) (any, error) {
+	tt, ok := tup.(*Tuple)
+	if !ok {
+		return nil, vm.typeError("new", "", core.AnyTupleType, tup)
+	}
+	t, ok := tv.(*core.DataType)
+	if !ok || !t.IsConcrete {
+		return nil, vm.typeError("new", "", core.DataTypeType, tv)
+	}
+	n := len(t.FieldNames())
+	if err := vm.nargs("new", tt.Elems, n, n); err != nil {
+		return nil, err
+	}
+	return vm.newStruct(t, tt.Elems)
 }
 
 // astNode is :new of an AST or IR node type as package expr's value, the

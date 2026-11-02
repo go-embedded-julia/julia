@@ -3,6 +3,7 @@ package interp
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -146,7 +147,12 @@ func (vm *VM) stringPtr(a []any) (any, error) {
 	if !ok {
 		return nil, vm.typeError("ccall", "", core.StringType, a[0])
 	}
-	return &Pointer{Type: vm.ptrType(core.UInt8Type), Target: s}, nil
+	return vm.stringPtrOf(s), nil
+}
+
+// stringPtrOf is a Ptr{UInt8} to s's first byte.
+func (vm *VM) stringPtrOf(s string) *Pointer {
+	return &Pointer{Type: vm.ptrType(core.UInt8Type), Target: s}
 }
 
 // streamOf is the output stream a Ptr{Cvoid} points at.
@@ -165,23 +171,54 @@ func (vm *VM) uvPuts(a []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	p, ok := a[1].(*Pointer)
-	str, ok2 := p.Target.(string)
-	if !ok || !ok2 {
-		return nil, fmt.Errorf("%w: jl_uv_puts of %s", ErrUnsupported, showValue(a[1]))
+	str, ok := stringBytes(a[1], a[2])
+	if !ok {
+		return nil, fmt.Errorf("%w: jl_uv_puts of %s bytes at %s", ErrUnsupported, showValue(a[2]), showValue(a[1]))
+	}
+	_, err = io.WriteString(s.w(), str)
+	return nil, err
+}
+
+// stringBytes is the n bytes a pointer into a String points at, false for
+// any other pointer, a count that is not an integer or a range past the
+// string.
+func stringBytes(ptr, count any) (string, bool) {
+	p, ok := ptr.(*Pointer)
+	if !ok {
+		return "", false
+	}
+	str, ok := p.Target.(string)
+	if !ok {
+		return "", false
 	}
 	var n int64
-	switch x := a[2].(type) {
+	switch x := count.(type) {
 	case int64:
 		n = x
 	case uint64:
+		if x > uint64(len(str)) {
+			return "", false
+		}
 		n = int64(x)
+	default:
+		return "", false
 	}
-	if n < 0 || p.Off < 0 || p.Off+n > int64(len(str)) {
-		return nil, vm.errorf("jl_uv_puts: %d bytes past the string", n)
+	if n < 0 || p.Off < 0 || p.Off > int64(len(str)) || n > int64(len(str))-p.Off {
+		return "", false
 	}
-	_, err = io.WriteString(s.w(), str[p.Off:p.Off+n])
-	return nil, err
+	return str[p.Off : p.Off+n], true
+}
+
+// symbolN is jl_symbol_n(str, len) (symbol.c:113-118).
+func (vm *VM) symbolN(a []any) (any, error) {
+	s, ok := stringBytes(a[0], a[1])
+	if !ok {
+		return nil, fmt.Errorf("%w: jl_symbol_n of %s bytes at %s", ErrUnsupported, showValue(a[1]), showValue(a[0]))
+	}
+	if strings.IndexByte(s, 0) >= 0 {
+		return nil, vm.exception(vm.tArgError, "Symbol name may not contain \\0")
+	}
+	return expr.Symbol(s), nil
 }
 
 // uvPutb is jl_uv_putb(stream, byte).
@@ -242,6 +279,9 @@ func biSizeof(vm *VM, args []any) (any, error) {
 			}
 		}
 		return nil, fmt.Errorf("%w: sizeof of a %s", ErrUnsupported, showValue(x.Type))
+	case *Struct, *Tuple:
+		// any other value's size is its type's layout size (builtins.c:563-569)
+		return biSizeof(vm, []any{vm.typeOf(x)})
 	case *core.DataType:
 		if x.Name.Abstract {
 			return nil, vm.errorf("Abstract type %s does not have a definite size.", x.Name.Name)

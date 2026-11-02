@@ -22,6 +22,9 @@ var (
 	TupleTypeName    *TypeName
 	AnyTupleType     *DataType
 	EmptyTupleType   *DataType
+	// NamedTupleType is Core.NamedTuple, NamedTupleTypeName its name
+	NamedTupleType     *UnionAll
+	NamedTupleTypeName *TypeName
 
 	NumberType, RealType, AbstractFloatType, IntegerType, SignedType, UnsignedType *DataType
 	Float16Type, Float32Type, Float64Type, BFloat16Type                            *DataType
@@ -157,6 +160,11 @@ func init() {
 
 	TypeofBottomType.Super = mustApply(TypeType, Bottom).(*DataType)
 	EmptyTupleType = instDatatypeInner(AnyTupleType, nil, nil, nil, false).(*DataType)
+	// jltypes.c:3742-3749: NamedTuple{names, T<:Tuple}, whose instances take
+	// their fields from the parameters (namedTupleFields)
+	NamedTupleType = define(spec{module: "Core", name: "NamedTuple",
+		vars: []*TypeVar{tv("names"), {Name: "T", LB: Bottom, UB: AnyTupleType}}}).(*UnionAll)
+	NamedTupleTypeName = NamedTupleType.Body.(*UnionAll).Body.(*DataType).Name
 
 	NumberType = core0("Number", AnyType, true)
 	RealType = core0("Real", NumberType, true)

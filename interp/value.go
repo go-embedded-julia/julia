@@ -18,10 +18,7 @@ import (
 var undef = &struct{ _ byte }{}
 
 // Tuple is an instance of a concrete Tuple type.
-type Tuple struct {
-	Type  *core.DataType
-	Elems []any
-}
+type Tuple = core.Tuple
 
 // Struct is an instance of a struct type the runtime created; a field that
 // was never set holds undef.

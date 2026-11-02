@@ -216,6 +216,10 @@ func Egal(a, b any) bool {
 	case *Instance:
 		y, ok := b.(*Instance)
 		return ok && x.Type == y.Type && x.Bits == y.Bits
+	case *Tuple:
+		// an immutable value: egal by type and elements
+		y, ok := b.(*Tuple)
+		return ok && x.Type == y.Type && egalSlices(x.Elems, y.Elems)
 	}
 	return false
 }

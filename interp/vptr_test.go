@@ -87,7 +87,7 @@ func TestPointersAndOutput(t *testing.T) {
 		{"jl_string_ptr of a non-string", []any{int64(1)}, "!TypeError(:ccall"},
 		{"jl_uv_puts to a non-stream", []any{int64(1), str, int64(1)}, "!ccall: not an output stream"},
 		{"jl_uv_puts of a non-string pointer", []any{stream, &Pointer{Type: u8}, int64(1)}, "!not ported yet: jl_uv_puts"},
-		{"jl_uv_puts past the string", []any{stream, str, int64(3)}, "!jl_uv_puts: 3 bytes past the string"},
+		{"jl_uv_puts past the string", []any{stream, str, int64(3)}, "!not ported yet: jl_uv_puts of 3 bytes at"},
 		{"jl_uv_puts of a UInt count", []any{stream, str, uint64(1)}, "nothing"},
 		{"jl_uv_putb to a non-stream", []any{int64(1), uint8(1)}, "!ccall: not an output stream"},
 		{"jl_uv_putc to a non-stream", []any{int64(1), expr.Char(0)}, "!ccall: not an output stream"},

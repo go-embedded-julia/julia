@@ -48,7 +48,8 @@ func structLayout(t *core.DataType) (layout, error) {
 	for _, f := range ft {
 		fs, fa := 8, 8 // a pointer to a boxed value
 		isptr := true
-		if d, ok := f.(*core.DataType); ok && d.Name.Isbits && d.IsConcrete {
+		// an isbits field is inline, a parametric one too (a NamedTuple's)
+		if d, ok := f.(*core.DataType); ok && d.IsBits() {
 			fl, err := structLayout(d)
 			if err != nil {
 				return layout{}, err
