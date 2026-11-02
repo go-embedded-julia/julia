@@ -52,6 +52,41 @@ func (vm *VM) refPtrOrOffset(r *MemoryRef) *Pointer {
 	return &Pointer{Type: vm.ptrType(core.NothingType), Target: r.Mem, Off: int64(r.Off * size)}
 }
 
+// memoryCopyto is jl_genericmemory_copyto(dest, destdata, src, srcdata, n)
+// (genericmemory.c:225-300): n elements moved, overlap allowed, between
+// memories of one type, each pointer one refPtrOrOffset made. What C leaves
+// undefined (a pointer outside its memory, a range past its end) is
+// refused.
+func (vm *VM) memoryCopyto(a []any) error {
+	dest, ok1 := a[0].(*Memory)
+	src, ok2 := a[2].(*Memory)
+	dp, ok3 := a[1].(*Pointer)
+	sp, ok4 := a[3].(*Pointer)
+	n, ok5 := a[4].(int64)
+	if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 {
+		return fmt.Errorf("%w: jl_genericmemory_copyto of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+	}
+	if dest.Type != src.Type {
+		return vm.exception(vm.tArgError, "jl_genericmemory_copyto requires source and dest to have same type")
+	}
+	di, ok1 := memIndexOf(dest, dp)
+	si, ok2 := memIndexOf(src, sp)
+	if !ok1 || !ok2 || n < 0 || di+n > int64(len(dest.Elems)) || si+n > int64(len(src.Elems)) {
+		return fmt.Errorf("%w: jl_genericmemory_copyto of %d elements outside its memories (undefined in C)", ErrUnsupported, n)
+	}
+	copy(dest.Elems[di:di+n], src.Elems[si:si+n])
+	return nil
+}
+
+// memIndexOf is the element index of a pointer refPtrOrOffset made into m.
+func memIndexOf(m *Memory, p *Pointer) (int64, bool) {
+	size, _, _, union := memElem(m.Type.Parameters[1])
+	if union || size == 0 {
+		return p.Off, p.Target == nil && p.Off >= 0
+	}
+	return p.Off / int64(size), p.Target == any(m) && p.Off >= 0 && p.Off%int64(size) == 0
+}
+
 // typeLayoutPtr is getfield(d, :layout): C_NULL for a type without a
 // layout (abstract, or with free parameters), else a pointer to it.
 func (vm *VM) typeLayoutPtr(d *core.DataType) *Pointer {

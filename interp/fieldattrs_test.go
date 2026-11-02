@@ -84,6 +84,8 @@ func TestFieldAttributes(t *testing.T) {
 		{set, []any{x, sym("n"), int64(2), sym("release")}, "!ConcurrencyViolationError(\"setfield!: non-atomic field cannot be written atomically\")"},
 		{set, []any{x, sym("n"), int64(2), sym("acquire")}, "!ConcurrencyViolationError(\"invalid atomic ordering\")"},
 		{set, []any{x, sym("n"), int64(2)}, "2"},
+		{get, []any{x, sym("n"), false}, "2"},
+		{get, []any{x, sym("q"), sym("acquire")}, "!FieldError(Main.L.LZ, :q)"},
 		{set, []any{x, sym("q"), int64(2)}, "!FieldError(Main.L.LZ, :q)"}, // julia's LZ is in Main
 		{set, []any{vm.newTuple([]any{int64(1)}), int64(1), int64(2), sym("release")}, "!setfield!: immutable struct of type Tuple cannot be changed"},
 		{set, []any{ex, sym("head"), sym("call"), sym("release")}, "!ConcurrencyViolationError(\"setfield!: non-atomic field cannot be written atomically\")"},
@@ -111,21 +113,25 @@ func TestImportBindings(t *testing.T) {
 	vm := New()
 	var stderr strings.Builder
 	vm.Stderr = &stderr
+	// P reaches add_int through its using, as Base reaches Core's Pair: the
+	// import finds it, without a warning
 	v, err := vm.NewSession().Eval(`module P
+using Core.Intrinsics
 f() = 1
 const k = 2
 module Q
+import ..add_int
 import ..f, ..k
 import ..f
 import ..nope
 import ...f
 g() = 3
 import ..g
-h() = (f(), k)
+h() = (f(), k, add_int(1, 2))
 end
 end
 getfield(getfield(P, :Q), :h)()`)
-	check(t, "the nest", v, err, "(1, 2)")
+	check(t, "the nest", v, err, "(1, 2, 3)")
 	want := `WARNING: Imported binding P.nope was undeclared at import time during import to Q.
 WARNING: Imported binding L.f was undeclared at import time during import to Q.
 WARNING: ignoring conflicting import of L.f into Q

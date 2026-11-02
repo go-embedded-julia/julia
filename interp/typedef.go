@@ -105,27 +105,74 @@ func (vm *VM) typeUnionAll(v *core.TypeVar, body any) (any, error) {
 	return core.TypeUnionAll(v, body), nil
 }
 
-// biApplyIterate is jl_f__apply_iterate (builtins.c:661-830) for the
-// arguments it spreads without calling iterate: tuples and simple vectors.
-// Spreading anything else calls Base.iterate, whose methods are Base's
-// code, not run yet.
+// biApplyIterate is jl_f__apply_iterate (builtins.c:661-875): f applied to
+// its arguments spread. Simple vectors, tuples, memories and arrays are
+// copied out; anything else is walked with the iterate function given
+// first, until it answers nothing. The spread is bounded by
+// VM.MaxMemoryElems, where julia's is bounded by memory alone.
 func biApplyIterate(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("_apply_iterate", args, 2, -1); err != nil {
 		return nil, err
 	}
-	f := args[1]
+	iterate, f := args[0], args[1]
 	var spread []any
+	add := func(xs ...any) error {
+		if len(spread)+len(xs) > vm.MaxMemoryElems {
+			return fmt.Errorf("%w: splatting more than %d values (VM.MaxMemoryElems)", ErrMemoryLimit, vm.MaxMemoryElems)
+		}
+		spread = append(spread, xs...)
+		return nil
+	}
+	// an element memory leaves undefined is an error to spread (#11772)
+	addElems := func(elems []any) error {
+		for _, e := range elems {
+			if e == undef {
+				return vm.exception(vm.tUndefRef)
+			}
+		}
+		return add(elems...)
+	}
 	for _, a := range args[2:] {
+		var err error
 		switch x := a.(type) {
 		case SVec:
-			spread = append(spread, x...)
+			err = add(x...)
 		case *Tuple:
-			spread = append(spread, x.Elems...)
+			err = add(x.Elems...)
+		case *Memory:
+			err = addElems(x.Elems)
 		default:
-			return nil, fmt.Errorf("%w: splatting a %s, which needs Base.iterate", ErrUnsupported, core.Show(vm.typeOf(a)))
+			if _, _, elems, ok := arrayOf(a); ok {
+				err = addElems(elems)
+			} else {
+				err = vm.spreadIterate(iterate, a, add)
+			}
+		}
+		if err != nil {
+			return nil, err
 		}
 	}
 	return vm.apply(f, spread)
+}
+
+// spreadIterate walks a with iterate (builtins.c:837-860): iterate(a), then
+// iterate(a, state) while the answer is a (value, state) and not nothing.
+func (vm *VM) spreadIterate(iterate, a any, add func(...any) error) error {
+	next, err := vm.apply(iterate, []any{a})
+	for err == nil && next != nil {
+		var value, state any
+		if value, err = biGetfield(vm, []any{next, int64(1)}); err != nil {
+			return err
+		}
+		if state, err = biGetfield(vm, []any{next, int64(2)}); err != nil {
+			return err
+		}
+		if err = add(value); err != nil {
+			return err
+		}
+		next, err = vm.apply(iterate, []any{a, state})
+	}
+	return err
 }
 
 // biTypevar is jl_f__typevar over jl_new_typevar (builtins.c:1688-1708).

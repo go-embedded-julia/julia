@@ -391,9 +391,11 @@ func (vm *VM) importPath(m *Module, v any, verb string) (*Module, error) {
 // declared and not assigned counts as undefined here: one value per
 // binding does not tell julia's guard from its declared kind.
 func (vm *VM) importName(to *Module, from *Module, name expr.Symbol) {
-	b := from.own(name)
+	// jl_get_binding then jl_walk_binding_inplace: from's own binding, or
+	// the one from reaches through its usings (Base's Pair is Core's);
+	// else the name becomes a binding of from, undefined
+	b := from.lookup(name, vm.taskWorld)
 	if b == nil {
-		// jl_get_binding makes the name a binding of from
 		b = from.declare(name, vm.taskWorld)
 		b.implicit = true
 	}

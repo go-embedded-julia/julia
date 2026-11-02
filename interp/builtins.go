@@ -425,8 +425,25 @@ func (vm *VM) atomicOrder(fname expr.Symbol, arg any, loading, storing bool) (ex
 }
 
 // biGetfield is jl_f_getfield (builtins.c:1023-1055): the order, then the
-// field, then whether the order suits the field.
+// field, then whether the order suits the field. A struct's field without
+// an order, the common case, takes the short path: any field suits no order.
 func biGetfield(vm *VM, args []any) (any, error) {
+	if len(args) == 2 {
+		if v, ok := args[0].(*Struct); ok {
+			i, err := vm.fieldIndex("getfield", v.Type, v.Type.Name.FieldNames, len(v.Fields), v, args[1])
+			if err != nil {
+				return nil, err
+			}
+			if v.Fields[i] == undef {
+				return nil, vm.exception(vm.tUndefRef)
+			}
+			return v.Fields[i], nil
+		}
+	}
+	return vm.getfieldOrdered(args)
+}
+
+func (vm *VM) getfieldOrdered(args []any) (any, error) {
 	if err := vm.nargs("getfield", args, 2, 4); err != nil {
 		return nil, err
 	}
@@ -538,8 +555,33 @@ func (vm *VM) getfieldOf(args []any) (any, error) {
 // biSetfield is jl_f_setfield (builtins.c:1057-1079) over
 // get_checked_fieldindex with mutabl set (:994-1021): the order, the
 // value's mutability, the field, its constness, then whether the order
-// suits it.
+// suits it. A mutable struct without const or atomic fields, written
+// without an order, the common case, takes the short path.
 func biSetfield(vm *VM, args []any) (any, error) {
+	if len(args) == 3 {
+		if v, ok := args[0].(*Struct); ok && v.Type.Name.Mutable && v.Type.Name.ConstFields == nil && v.Type.Name.AtomicFields == nil {
+			i, err := vm.fieldIndex("setfield!", v.Type, v.Type.Name.FieldNames, len(v.Fields), v, args[1])
+			if err != nil {
+				return nil, err
+			}
+			return vm.setStructField(v, i, args[2])
+		}
+	}
+	return vm.setfieldChecked(args)
+}
+
+// setStructField stores v in field i of a mutable struct, of the field's
+// type.
+func (vm *VM) setStructField(s *Struct, i int, v any) (any, error) {
+	if ft, _ := s.Type.FieldTypes(); ft != nil && !vm.isa(v, ft[i]) {
+		return nil, vm.typeError("setfield!", "", ft[i], v)
+	}
+	s.Fields[i] = v
+	syncArgs(s) // an Expr's args vector: the Expr follows it
+	return v, nil
+}
+
+func (vm *VM) setfieldChecked(args []any) (any, error) {
 	if err := vm.nargs("setfield!", args, 3, 4); err != nil {
 		return nil, err
 	}
@@ -580,12 +622,7 @@ func biSetfield(vm *VM, args []any) (any, error) {
 	}
 	switch v := args[0].(type) {
 	case *Struct:
-		if ft, _ := v.Type.FieldTypes(); ft != nil && !vm.isa(args[2], ft[i]) {
-			return nil, vm.typeError("setfield!", "", ft[i], args[2])
-		}
-		v.Fields[i] = args[2]
-		syncArgs(v) // an Expr's args vector: the Expr follows it
-		return args[2], nil
+		return vm.setStructField(v, i, args[2])
 	case *expr.Expr:
 		return vm.setExprField(v, i, args[2])
 	case *core.TypeName:

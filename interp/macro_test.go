@@ -31,7 +31,8 @@ func TestMacroExpansion(t *testing.T) {
 		{"macro r()\n    :(@r())\nend\n@r()", "!StackOverflowError()"},
 		{"tuple((1, 2)...)", "(1, 2)"},
 		{"import Core: svec\ntuple(svec(1, 2)...)", "(1, 2)"},
-		{"tuple(:abc...)", "!not ported yet: splatting a Symbol"},
+		// iterate has no method for a Symbol (julia: MethodError(iterate, (:abc,), …))
+		{"tuple(:abc...)", "!MethodError(iterate, (:abc,),"},
 		{"iterate((1,))", "!MethodError(iterate, ((1,),)"},
 		{"try\n    LineNumberNode(:x)\ncatch e\n    typeof(e)\nend", "MethodError"},
 		{"try\n    Expr(1)\ncatch e\n    e\nend", "TypeError(:Expr, \"\", Symbol, 1)"},

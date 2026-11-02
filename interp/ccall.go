@@ -81,6 +81,30 @@ func (vm *VM) bootShims() {
 			size, _, err := dataLayout(t)
 			return int64(size), err
 		},
+		// jl_get_LLVM_VERSION (intrinsics.cpp:120-126): 10000 major + 100
+		// minor + patch of the LLVM julia 1.12.6 pins (deps/llvm.version:
+		// 18.1.7), which Base reads as checked.jl's llvm_version; there is no
+		// LLVM here, so the reference's answer
+		"jl_get_LLVM_VERSION": func(vm *VM, a []any) (any, error) { return uint32(180107), nil },
+		// jl_types_equal (subtype.c:2319), operators.jl's ==(::Type, ::Type),
+		// as a Cint
+		"jl_types_equal": func(vm *VM, a []any) (any, error) {
+			if core.TypesEqual(a[0], a[1]) {
+				return int32(1), nil
+			}
+			return int32(0), nil
+		},
+		// jl_genericmemory_copyto (genericmemory.c:225-300), unsafe_copyto!
+		// of memories of boxed elements (mempointer.go)
+		"jl_genericmemory_copyto": func(vm *VM, a []any) (any, error) { return nil, vm.memoryCopyto(a) },
+		// c.jl's platform queries (sys.c:66, 568-571, 762-770), answered as
+		// the reference julia 1.12.6 answers on darwin/arm64, which the VM
+		// models (as fenvConsts and the division intrinsics do): Apple's
+		// arm64 char is signed, mode_t is 2 bytes
+		"jl_is_char_signed": func(vm *VM, a []any) (any, error) { return true, nil },
+		"jl_get_UNAME":      func(vm *VM, a []any) (any, error) { return expr.Symbol("Darwin"), nil },
+		"jl_get_ARCH":       func(vm *VM, a []any) (any, error) { return expr.Symbol("aarch64"), nil },
+		"jl_sizeof_mode_t":  func(vm *VM, a []any) (any, error) { return int32(2), nil },
 		// jl_get_fenv_consts (jl_uv.c), rounding.jl's first call
 		"jl_get_fenv_consts": func(vm *VM, a []any) (any, error) { return vm.fenvConsts(a) },
 		// jl_module_name (module.c)
