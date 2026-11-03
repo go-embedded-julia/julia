@@ -165,6 +165,8 @@ func (f *frame) evalBody(ip int) (any, error) {
 			}
 			f.locals[f.c.nslots+ip] = v
 		case sNop:
+		case sMeta:
+			moduleMeta(f.mod, s.args)
 		case sRaise:
 			return nil, vm.errorf("%s", s.msg)
 		}
@@ -409,7 +411,7 @@ func (vm *VM) declareConst(ref expr.GlobalRef, val any) error {
 	}
 	w := vm.newWorld()
 	b := m.declare(ref.Name, w)
-	b.Const, b.Value = true, val
+	b.Const, b.Value, b.implicit = true, val, false // a definition, no longer only export's
 	return nil
 }
 
@@ -429,7 +431,7 @@ func (vm *VM) declareFunction(m *Module, name expr.Symbol) (any, error) {
 	}
 	fn := vm.newFunction(m, name)
 	b := m.declare(name, vm.newWorld())
-	b.Const, b.Value = true, fn
+	b.Const, b.Value, b.implicit = true, fn, false
 	return fn, nil
 }
 

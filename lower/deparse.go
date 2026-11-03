@@ -5,10 +5,16 @@ package lower
 import (
 	"strconv"
 	"strings"
+
+	"github.com/go-embedded-julia/julia/expr"
 )
 
 var syntacticOperators = setOf(addDots(fields(`&& || = += -= *= /= //= \= ^= ÷= %= <<= >>= >>>= |= &= ⊻=`)),
 	fields(`:= $= . ... ->`))
+
+// IsOperator is jl_is_operator, flisp's operator? over the parser's
+// tables, as Base._isoperator asks it of a Symbol to show.
+func IsOperator(name expr.Symbol) bool { return isOperator(name) }
 
 func isOperator(x any) bool {
 	s, ok := x.(sym)

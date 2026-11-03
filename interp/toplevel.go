@@ -297,7 +297,7 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 				} else if err := vm.checkMacroRename(name, asname, verb); err != nil {
 					return err
 				}
-				vm.importName(m, from, name, asname)
+				vm.importName(m, from, name, asname, verb == "using")
 			}
 			return nil
 		}
@@ -324,7 +324,7 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 				} else if err := vm.checkMacroRename(name, asname, verb); err != nil {
 					return err
 				}
-				vm.importName(m, mod, name, asname)
+				vm.importName(m, mod, name, asname, false)
 				continue
 			}
 			if asname == "" {
@@ -433,8 +433,9 @@ func (vm *VM) importPath(m *Module, v any, verb string) (*Module, error) {
 // declared and not assigned counts as undefined here: one value per
 // binding does not tell julia's guard from its declared kind. The binding
 // in to is named asname (`import A: x as y`); the warnings name the
-// binding imported, as julia's do.
-func (vm *VM) importName(to *Module, from *Module, name, asname expr.Symbol) {
+// binding imported, as julia's do. using marks `using A: x`, whose
+// binding is of julia's explicit kind, not imported.
+func (vm *VM) importName(to *Module, from *Module, name, asname expr.Symbol, using bool) {
 	// jl_get_binding then jl_walk_binding_inplace: from's own binding, or
 	// the one from reaches through its usings (Base's Pair is Core's);
 	// else the name becomes a binding of from, undefined
@@ -452,7 +453,7 @@ func (vm *VM) importName(to *Module, from *Module, name, asname expr.Symbol) {
 		// importing a binding on top of itself: harmless
 	case bto == nil || bto.implicit && bto.Value == undef && bto.Alias == nil:
 		bto = to.declare(asname, vm.newWorld())
-		bto.Alias, bto.From = b, from
+		bto.Alias, bto.From, bto.explicit = b, from, using
 		bto.implicit = false // an export made it; the import defines it
 	case bto.resolve() == b.resolve():
 		// already imported

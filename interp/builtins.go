@@ -138,7 +138,7 @@ func (vm *VM) isa(v, t any) bool {
 		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char, Int128, UInt128,
 		Float16, BFloat16, *expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef,
 		expr.SSAValue, expr.SlotNumber, expr.Argument, expr.GotoNode, expr.GotoIfNot, expr.ReturnNode,
-		expr.Unreachable, expr.NewvarNode, expr.EnterNode, *expr.CodeInfo:
+		expr.Unreachable, expr.NewvarNode, expr.EnterNode, *expr.CodeInfo, *Binding:
 		return core.Subtype(vm.typeOf(v), t)
 	}
 	return core.Isa(v, t)
@@ -327,8 +327,20 @@ func (vm *VM) astField(v, arg any) (any, error) {
 			return x.File, true
 		}
 	case expr.GlobalRef:
+		// mod and binding as jl_module_globalref makes them (module.c)
 		names = []expr.Symbol{"mod", "name", "binding"}
-		get = func(i int) (any, bool) { return x.Name, i == 1 }
+		get = func(i int) (any, bool) {
+			m := vm.modules[x.Mod]
+			switch {
+			case i == 1:
+				return x.Name, true
+			case m == nil:
+				return nil, false
+			case i == 0:
+				return m, true
+			}
+			return vm.moduleBinding(m, x.Name, true), true
+		}
 	}
 	return vm.goField(v, t, names, get, arg)
 }
@@ -390,6 +402,14 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 				return x.Wrapper, true
 			case 14:
 				return typeNameFlags(x), true
+			case 12:
+				return x.MaxArgs.Load(), true
+			case 15:
+				return uint8(x.CacheEntryCount.Load()), true
+			case 16:
+				return uint8(x.MaxMethods.Load()), true
+			case 17:
+				return uint8(x.ConstpropHeuristic.Load()), true
 			}
 			return nil, false
 		}
@@ -550,6 +570,11 @@ func (vm *VM) getfieldOf(args []any) (any, error) {
 		return v.Elems[i], nil
 	case *expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
 		return vm.astField(v, args[1])
+	case expr.SSAValue, expr.SlotNumber, expr.Argument, expr.GotoNode, expr.GotoIfNot,
+		expr.ReturnNode, expr.Unreachable, expr.NewvarNode, expr.EnterNode:
+		return vm.irNodeField(v, args[1])
+	case *Binding:
+		return vm.bindingField(v, args[1])
 	case *core.DataType, *core.TypeName, *core.TypeVar, *core.UnionAll, *core.Union, *core.Vararg:
 		return vm.kindField(v, args[1])
 	case *Memory:
@@ -628,11 +653,30 @@ func (vm *VM) setfieldChecked(args []any) (any, error) {
 	case *expr.Expr:
 		return vm.setExprField(v, i, args[2])
 	case *core.TypeName:
-		// the fields that steer inference and method caches; there is no
-		// inference here, so a hint is accepted and kept nowhere
+		// the hints that steer inference and method caches, of their C
+		// types
+		n, isByte := args[2].(uint8)
 		switch t.FieldNames()[i] {
-		case "max_methods", "constprop_heuristic", "max_args", "cache_entry_count":
-			return args[2], nil
+		case "max_args":
+			if a, ok := args[2].(int32); ok {
+				v.MaxArgs.Store(a)
+				return args[2], nil
+			}
+		case "cache_entry_count":
+			if isByte {
+				v.CacheEntryCount.Store(uint32(n))
+				return args[2], nil
+			}
+		case "max_methods":
+			if isByte {
+				v.MaxMethods.Store(uint32(n))
+				return args[2], nil
+			}
+		case "constprop_heuristic":
+			if isByte {
+				v.ConstpropHeuristic.Store(uint32(n))
+				return args[2], nil
+			}
 		}
 	}
 	return nil, fmt.Errorf("%w: setfield! of a %s's %s", ErrUnsupported, t.Name.Name, t.FieldNames()[i])

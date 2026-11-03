@@ -52,6 +52,12 @@ type TypeName struct {
 	// when none is.
 	AtomicFields, ConstFields []bool
 
+	// MaxArgs, CacheEntryCount, MaxMethods and ConstpropHeuristic are the
+	// hints of jl_typename_t that Julia code sets and type inference reads
+	// (an Int32 and three UInt8s), 0 when made (datatype.c:92-95).
+	MaxArgs                                       atomic.Int32
+	CacheEntryCount, MaxMethods, ConstpropHeuristic atomic.Uint32
+
 	// typeofWrapper is Type{Wrapper}, cached on the name
 	// (jltypes.c:1115-1120).
 	typeofWrapper *DataType

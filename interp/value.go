@@ -70,6 +70,8 @@ type Module struct {
 	istopmod bool
 	// uuid is the module's package UUID (jl_module_t.uuid), zero for none.
 	uuid [2]uint64
+	// opts are the module's compiler options (modopts.go)
+	opts moduleOpts
 }
 
 // Binding is a module's global variable. julia 1.12 partitions a binding by
@@ -77,6 +79,7 @@ type Module struct {
 // binding was declared in, before which it does not exist, and one value.
 type Binding struct {
 	Name    expr.Symbol
+	Mod     *Module // the module that holds it (its globalref's)
 	World   uint64
 	Const   bool
 	Value   any // undef until assigned
@@ -85,6 +88,8 @@ type Binding struct {
 	// imported from (jl_binding_dbgmodule).
 	Alias *Binding
 	From  *Module
+	// explicit marks an Alias `using A: x` made (PARTITION_KIND_EXPLICIT)
+	explicit bool
 	// Type is a global's declared type (`global x::T`, the partition's
 	// restriction), nil for Any.
 	Type any
@@ -103,7 +108,7 @@ func (b *Binding) resolve() *Binding {
 }
 
 func newModule(name expr.Symbol, parent *Module) *Module {
-	return &Module{Name: name, Parent: parent, bindings: map[expr.Symbol]*Binding{}}
+	return &Module{Name: name, Parent: parent, bindings: map[expr.Symbol]*Binding{}, opts: newModuleOpts()}
 }
 
 // own returns the binding m itself holds for name, nil when it has none.
@@ -137,7 +142,7 @@ func (m *Module) declare(name expr.Symbol, w uint64) *Binding {
 	if b := m.bindings[name]; b != nil {
 		return b
 	}
-	b := &Binding{Name: name, World: w, Value: undef}
+	b := &Binding{Name: name, Mod: m, World: w, Value: undef}
 	m.bindings[name] = b
 	return b
 }

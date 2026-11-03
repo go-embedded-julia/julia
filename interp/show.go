@@ -11,6 +11,7 @@ import (
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 	"github.com/go-embedded-julia/julia/internal/unitab"
+	"github.com/go-embedded-julia/julia/lower"
 )
 
 // showValue is what julia's repr prints for the values this version makes,
@@ -19,9 +20,32 @@ import (
 // show is Julia code that does not run here yet; this is its output for
 // these values, not a port of it.
 func showValue(v any) string {
-	var b strings.Builder
+	var b showBuf
 	writeValue(&b, v)
 	return b.String()
+}
+
+// quotedSyms are the Symbols shown in parentheses (show.jl:1523).
+var quotedSyms = map[expr.Symbol]bool{":": true, "::": true, ":=": true, "=": true, "==": true, "===": true, "=>": true}
+
+// showBuf is a show's output and the structs it is inside of, innermost
+// last: the :SHOWN_SET entries of its IOContext (show.jl:441-453,
+// 496-497), which stop a cyclic value from being shown forever.
+type showBuf struct {
+	strings.Builder
+	shown []any
+}
+
+// circular is show_circular (show.jl:441-453): x already being shown, as
+// #= circular reference @-d =#, d counting outward from the innermost.
+func (b *showBuf) circular(x any) bool {
+	for i := len(b.shown) - 1; i >= 0; i-- {
+		if b.shown[i] == x {
+			fmt.Fprintf(b, "#= circular reference @-%d =#", len(b.shown)-i)
+			return true
+		}
+	}
+	return false
 }
 
 // showSym is show_sym (show.jl:1814-1823): an identifier as it is, any
@@ -57,7 +81,7 @@ func isIdentifier(s string) bool {
 // (a = 1, b = 2), NamedTuple() when empty. The construction checked each
 // value against its field type, so the value's type is the field's exactly
 // when that is concrete.
-func writeNamedTuple(b *strings.Builder, x *Struct) {
+func writeNamedTuple(b *showBuf, x *Struct) {
 	ft, _ := x.Type.FieldTypes()
 	for i := range x.Fields {
 		if i >= len(ft) || !core.IsConcrete(ft[i]) {
@@ -309,7 +333,7 @@ func modulePrefix(d *core.DataType) string {
 // writeTypeVar is show(io, ::TypeVar) (base/show.jl:2798-2830) for a type
 // variable shown on its own, outside a where clause: the lower bound when it
 // is not Union{}, the upper bound when it is not Any.
-func writeTypeVar(b *strings.Builder, tv *core.TypeVar) {
+func writeTypeVar(b *showBuf, tv *core.TypeVar) {
 	bound := func(v any) {
 		_, isUA := v.(*core.UnionAll)
 		paren := isUA && Repr(v) != showWrapperName(v)
@@ -350,7 +374,7 @@ func showWrapperName(v any) string {
 // Repr is showValue, exported for the notebook and the tests.
 func Repr(v any) string { return showValue(v) }
 
-func writeValue(b *strings.Builder, v any) {
+func writeValue(b *showBuf, v any) {
 	switch x := v.(type) {
 	case nil:
 		b.WriteString("nothing")
@@ -387,7 +411,15 @@ func writeValue(b *strings.Builder, v any) {
 	case string:
 		b.WriteString(quoteString(x))
 	case expr.Symbol:
-		b.WriteString(":" + string(x))
+		// show_unquoted_quote_expr (show.jl:1875-1886)
+		switch {
+		case quotedSyms[x]:
+			b.WriteString(":(" + string(x) + ")")
+		case isIdentifier(string(x)) || lower.IsOperator(x) && x != "'":
+			b.WriteString(":" + string(x))
+		default:
+			b.WriteString("Symbol(" + quoteString(string(x)) + ")")
+		}
 	case *Tuple:
 		b.WriteByte('(')
 		for i, e := range x.Elems {
@@ -469,6 +501,11 @@ func writeValue(b *strings.Builder, v any) {
 		// the instance's whole type, parameters included: Q{Int64}(1)
 		writeType(b, x.Type)
 		b.WriteByte('(')
+		if len(x.Fields) > 0 && b.circular(x) {
+			b.WriteByte(')')
+			return
+		}
+		b.shown = append(b.shown, x)
 		for i, f := range x.Fields {
 			if i > 0 {
 				b.WriteString(", ")
@@ -479,6 +516,7 @@ func writeValue(b *strings.Builder, v any) {
 			}
 			writeValue(b, f)
 		}
+		b.shown = b.shown[:len(b.shown)-1]
 		b.WriteByte(')')
 	case *Function:
 		b.WriteString(string(x.Name))

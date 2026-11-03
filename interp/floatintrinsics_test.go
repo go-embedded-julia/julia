@@ -3,7 +3,6 @@ package interp
 import (
 	"math"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -280,7 +279,7 @@ func TestShowFloat16(t *testing.T) {
 		t.Errorf("tuple: %s", got)
 	}
 	// Float16[1000, -0.0, Inf, NaN, 6.0e-8] shows Float16[1.0e3, -0.0, Inf, NaN, 6.0e-8]
-	var b strings.Builder
+	var b showBuf
 	for i, x := range []float64{1000, math.Copysign(0, -1), math.Inf(1), math.NaN(), 6.0e-8} {
 		if i > 0 {
 			b.WriteString(", ")

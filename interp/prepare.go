@@ -69,6 +69,7 @@ type (
 	sLatestWorld struct{}
 	sToplevel    struct{ e *expr.Expr } // import, using, export, module …: toplevel.go
 	sNop         struct{}               // line numbers and module-level :meta at top level
+	sMeta        struct{ args []any }   // a statement's :meta, the module's options (modopts.go)
 	sRaise       struct{ msg string }   // a statement julia rejects when it is reached
 )
 
@@ -251,7 +252,7 @@ func (c *code) prepExprStmt(x *expr.Expr) stmt {
 		case "toplevel", "import", "using", "export", "public", "module", "thunk", "global", "struct", "abstract", "primitive":
 			return sToplevel{x}
 		case "meta":
-			return sNop{}
+			return sMeta{x.Args}
 		}
 	}
 	return sValue{c.prepValue(x)}

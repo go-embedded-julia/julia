@@ -63,7 +63,7 @@ func halfLines() string {
 	}
 	s.section("showelem", 1<<16)
 	for i := 0; i < 1<<16; i++ {
-		var b strings.Builder
+		var b showBuf
 		writeIn(&b, Float16(i), core.Float16Type)
 		s.foldString(b.String())
 		s.next()

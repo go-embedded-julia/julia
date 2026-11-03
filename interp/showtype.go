@@ -1,8 +1,6 @@
 package interp
 
 import (
-	"strings"
-
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
@@ -13,12 +11,12 @@ import (
 // (show.jl:615-814) it keeps the aliases of the array and memory types of
 // Core and Base, matched by shape (Vector{Int64}, Memory, Matrix{T} where
 // T<:Integer); the general search for an alias needs type intersection.
-func writeType(b *strings.Builder, t any) { writeTypeIn(b, t, nil) }
+func writeType(b *showBuf, t any) { writeTypeIn(b, t, nil) }
 
 // writeTypeIn is writeType inside the where clauses of an enclosing
 // UnionAll: a variable they bind is shown by its name alone, as julia's
 // :unionall_env makes it.
-func writeTypeIn(b *strings.Builder, t any, bound []*core.TypeVar) {
+func writeTypeIn(b *showBuf, t any, bound []*core.TypeVar) {
 	switch x := t.(type) {
 	case *core.DataType:
 		writeDataType(b, x, nil, bound)
@@ -49,7 +47,7 @@ func writeTypeIn(b *strings.Builder, t any, bound []*core.TypeVar) {
 
 // writeParam shows a type parameter: a bound variable by its name, a type
 // in the same where context, any other value as itself.
-func writeParam(b *strings.Builder, p any, bound []*core.TypeVar) {
+func writeParam(b *showBuf, p any, bound []*core.TypeVar) {
 	switch x := p.(type) {
 	case *core.TypeVar:
 		for _, v := range bound {
@@ -124,7 +122,7 @@ func aliasOf(d *core.DataType) *typeAlias {
 // a trailing parameter that is the last of them, with its declared bounds,
 // is left out (show_typeparams, show.jl:689-733), and the caller drops it
 // from its clause.
-func writeDataType(b *strings.Builder, d *core.DataType, elide *[]*core.TypeVar, bound []*core.TypeVar) {
+func writeDataType(b *showBuf, d *core.DataType, elide *[]*core.TypeVar, bound []*core.TypeVar) {
 	params := d.Parameters
 	// @NamedTuple{a::Int64, b} when the names are a tuple and the types a
 	// DataType (show.jl:1201-1236). julia's show_sym then throws a
@@ -246,7 +244,7 @@ func usedElsewhere(tv *core.TypeVar, params []any) bool {
 // writeUnionAll is show(io, ::UnionAll) (show.jl:969-1010): a wrapper by its
 // name (an alias's wrapper by the alias), any other as its body and a where
 // clause over the variables the body does not elide.
-func writeUnionAll(b *strings.Builder, x *core.UnionAll, bound []*core.TypeVar) {
+func writeUnionAll(b *showBuf, x *core.UnionAll, bound []*core.TypeVar) {
 	if d, ok := core.UnwrapUnionAll(x).(*core.DataType); ok && d.Name.Wrapper == any(x) {
 		b.WriteString(modulePrefix(d) + d.Name.Name)
 		return
@@ -276,7 +274,7 @@ func writeUnionAll(b *strings.Builder, x *core.UnionAll, bound []*core.TypeVar) 
 			}
 		}
 	}
-	var inner strings.Builder
+	inner := showBuf{shown: b.shown}
 	inScope := append(append([]*core.TypeVar{}, bound...), vars...)
 	if d, ok := body.(*core.DataType); ok {
 		writeDataType(&inner, d, &vars, inScope)

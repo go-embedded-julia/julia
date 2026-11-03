@@ -147,7 +147,11 @@ func (vm *VM) methodObject(tab *dispatch.Table, m *dispatch.Method, ft any, name
 		f[1], f[2], f[3] = lam.mod, lam.file, lam.line
 		src := lam.c.src
 		f[10] = compressArgnames(src.SlotNames)
-		f[12], f[13] = src, src.DebugInfo
+		// the source jl_method_set_source keeps (method.c:959-976): its
+		// isva the method's
+		jsrc := vm.juliaCodeInfo(src)
+		jsrc.Fields[18] = f[26]
+		f[12], f[13] = jsrc, jsrc.Fields[1]
 		f[28], f[30], f[32] = src.NoSpecializeInfer, src.Constprop, src.Purity
 	}
 	s := &Struct{Type: vm.tMethod, Fields: f}

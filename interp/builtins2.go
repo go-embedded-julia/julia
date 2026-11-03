@@ -123,6 +123,10 @@ func biIsdefined(vm *VM, args []any) (any, error) {
 			names = t.FieldNames()
 			n = len(names)
 		}
+		_, fields, _ = irNodeFields(x)
+		if b, ok := x.(*Binding); ok {
+			fields = []any{nil, b.Value, nil, undef, nil} // bindingField's
+		}
 	}
 	idx := -1
 	switch a := args[1].(type) {

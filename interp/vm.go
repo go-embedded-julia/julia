@@ -110,7 +110,10 @@ type VM struct {
 	// object (reflect.go).
 	reflected                              map[*dispatch.Method]*reflected
 	reflectedOf                            map[*Struct]*reflected
-	tMethod, tMethodInstance, tMethodMatch *core.DataType
+	tMethod, tMethodInstance, tMethodMatch, tCodeInstance *core.DataType
+	tBinding, tBindingPartition                           *core.DataType
+	// reservations are jl_engine_reserve's leases (codeinst.go)
+	reservations []reservation
 
 	// Stdout and Stderr receive what Julia code prints (Core.println,
 	// print): io.Discard unless the embedder sets them. cglobals are the C
@@ -438,6 +441,8 @@ func (vm *VM) typeOf(v any) any {
 		return vm.tNewvarNode
 	case *expr.CodeInfo:
 		return vm.tCodeInfo
+	case *Binding:
+		return vm.tBinding
 	}
 	if t := core.TypeOf(v); t != nil {
 		return t

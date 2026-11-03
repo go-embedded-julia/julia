@@ -282,11 +282,40 @@ func (vm *VM) bootShims() {
 		"jl_specializations_get_linfo": func(vm *VM, a []any) (any, error) { return vm.specializationsGetLinfo(a) },
 		"jl_gf_invoke_lookup_worlds":   func(vm *VM, a []any) (any, error) { return vm.gfInvokeLookupWorlds(a) },
 		"jl_method_table_disable":      func(vm *VM, a []any) (any, error) { return vm.methodTableDisable(a) },
+		// jl_get_fieldtypes (julia.h:1498): a DataType's field types, which
+		// core instantiates as it reads them (jl_compute_fieldtypes); its
+		// types field, undefined before _typebody!
+		"jl_get_fieldtypes": func(vm *VM, a []any) (any, error) {
+			d, ok := a[0].(*core.DataType)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.DataTypeType, a[0])
+			}
+			return vm.kindField(d, int64(4))
+		},
+		// jl_is_assertsbuild (jlapi.c:554-560): the official build is
+		// built without assertions (JL_NDEBUG)
+		"jl_is_assertsbuild": func(vm *VM, a []any) (any, error) { return int8(0), nil },
+		"jl_copy_code_info":       func(vm *VM, a []any) (any, error) { return vm.copyCodeInfo(a) },
+		"jl_scan_method_source_now": func(vm *VM, a []any) (any, error) { return vm.scanMethodSourceNow(a) },
+		// the code cache (codeinst.go)
+		"jl_new_codeinst":     func(vm *VM, a []any) (any, error) { return vm.newCodeinst(a) },
+		"jl_mi_cache_insert":  func(vm *VM, a []any) (any, error) { return vm.miCacheInsert(a) },
+		"jl_rettype_inferred": func(vm *VM, a []any) (any, error) { return vm.rettypeInferred(a) },
+		"jl_engine_reserve":   func(vm *VM, a []any) (any, error) { return vm.engineReserve(a) },
+		"jl_engine_fulfill":   func(vm *VM, a []any) (any, error) { return vm.engineFulfill(a) },
+		"jl_fill_codeinst":    func(vm *VM, a []any) (any, error) { return vm.fillCodeinst(a) },
+		"jl_update_codeinst":  func(vm *VM, a []any) (any, error) { return vm.updateCodeinst(a) },
+		// jl_push_newly_inferred (staticdata_utils.c:117-131): a no-op
+		// unless the image being written collects them (jl_set_newly_inferred,
+		// which is not ported)
+		"jl_push_newly_inferred": func(vm *VM, a []any) (any, error) { return nil, nil },
 		// jl_get_world_counter (gf.c:32-38): the newest world, a UInt;
 		// there are no pure callbacks here
 		"jl_get_world_counter": func(vm *VM, a []any) (any, error) { return vm.World(), nil },
 	}
 	vm.bootEqtableShims()
+	vm.bootModuleOptShims()
+	vm.bootBindingShims()
 }
 
 // sessionFor is the session that evaluates code in module m: its lowering
