@@ -35,15 +35,20 @@ func (vm *VM) typeInstance(d *core.DataType) any {
 	if !d.IsConcrete || d.Name.Mutable {
 		return undef
 	}
-	if fn := vm.funcs[d]; fn != nil {
-		return fn
-	}
-	// the answer, undef included, is kept: :new asks it of every struct
-	if v, ok := vm.singletons[d]; ok {
+	// the answer, undef included, is kept on the type, as julia's
+	// dt->instance: :new asks it of every immutable struct
+	if v, ok := d.CachedInstance(); ok {
 		return v
 	}
-	v := vm.makeSingleton(d)
-	vm.singletons[d] = v
+	var v any
+	if fn := vm.funcs[d]; fn != nil {
+		v = fn
+	} else if b, ok := vm.singletons[d]; ok {
+		v = b // a builtin's
+	} else {
+		v = vm.makeSingleton(d)
+	}
+	d.SetCachedInstance(v)
 	return v
 }
 

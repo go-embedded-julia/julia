@@ -14,6 +14,7 @@ package core
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-embedded-julia/julia/expr"
 )
@@ -83,7 +84,27 @@ type DataType struct {
 	// from its parameters (jltypes.c:2327-2373); nil for any other type.
 	ntNames []Symbol
 	ntTypes []any
+
+	// instance is the type's instance (jl_datatype_t.instance) once the
+	// interpreter has worked it out (CachedInstance); core only carries it.
+	// Atomic: types are shared by every VM of the process.
+	instance atomic.Pointer[instanceBox]
 }
+
+type instanceBox struct{ v any }
+
+// CachedInstance is the instance SetCachedInstance recorded, and whether
+// one was: a recorded nil is the instance nothing.
+func (d *DataType) CachedInstance() (any, bool) {
+	if b := d.instance.Load(); b != nil {
+		return b.v, true
+	}
+	return nil, false
+}
+
+// SetCachedInstance records v as d's instance; a type has one, so every
+// caller records the same.
+func (d *DataType) SetCachedInstance(v any) { d.instance.Store(&instanceBox{v}) }
 
 // Union is Union{A, B} (jl_uniontype_t).
 type Union struct{ A, B any }
