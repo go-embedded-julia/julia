@@ -61,7 +61,8 @@ func (vm *VM) jlLoad(a []any) (any, error) {
 			// a Julia exception comes out as LoadError(file, line, error)
 			// once post_boot_hooks has found LoadError; before that, as is
 			if t, ok := err.(*Thrown); ok && vm.tLoadError != nil {
-				return nil, vm.exception(vm.tLoadError, name, int64(line), t.Value)
+				// the LoadError keeps the backtrace of what it wraps
+				return nil, &Thrown{Value: &Struct{Type: vm.tLoadError, Fields: []any{name, int64(line), t.Value}}, Trace: t.Trace}
 			}
 			if _, ok := err.(*Thrown); ok {
 				return nil, err

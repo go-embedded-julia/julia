@@ -1,6 +1,6 @@
-# jl_matching_methods (gf.c:3113-3127) where subtyping decides the
-# intersection: each query printed as its MethodMatches, in order, as
-# (spec_types, sparams, method's sig, fully_covers), or `nothing`.
+# jl_matching_methods (gf.c:3113-3127): each query printed as its
+# MethodMatches, in order, as (spec_types, sparams, method's sig,
+# fully_covers), or `nothing`.
 ROOT() = nothing
 g(x::Int) = 1
 g(x::Integer) = 2
@@ -26,6 +26,11 @@ for (name, tt, lim) in [
         ("k Int", Tuple{typeof(k), Int}, -1),
         ("m2 all", Tuple{typeof(m2), Vararg{Any}}, -1),
         ("m2 Int", Tuple{typeof(m2), Vector{Int}}, -1),
+        # intersections neither side of which is a subtype of the other
+        ("h Int Any", Tuple{typeof(h), Int, Any}, -1),
+        ("g Real", Tuple{typeof(g), Real}, -1),
+        ("m2 AbstractVector", Tuple{typeof(m2), AbstractVector}, -1),
+        ("m2 Vector Number", Tuple{typeof(m2), Vector{<:Number}}, -1),
         ("empty tuple", Tuple{}, -1),
         ("not a tuple", Int, -1),
     ]

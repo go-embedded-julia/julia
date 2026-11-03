@@ -100,7 +100,7 @@ with `lower.ErrLimit`; `FuzzLower` runs on every pull request.
 
 ### Types and subtyping (core)
 
-core — Julia's type objects, apply_type, and subtyping (a port of jltypes.c and subtype.c of 1.12.6, without intersection): identical to julia on 20 000 random pairs and 4 902 cases from test/subtype.jl; and method specificity (jl_type_morespecific), identical to Base.morespecific on the same corpus.
+core — Julia's type objects, apply_type, subtyping and type intersection (a port of jltypes.c and subtype.c of 1.12.6): subtyping identical to julia on 20 000 random pairs and 4 902 cases from test/subtype.jl; intersection (`typeintersect`, `jl_type_intersection_with_env`, `jl_has_empty_intersection`) identical to julia on 20 000 other random pairs and 4 738 cases, most of them from test/subtype.jl's intersection tests; and method specificity (jl_type_morespecific), identical to Base.morespecific on the subtyping corpus.
 
 core/dispatch — method tables with world ages, and the method a call with concrete argument types runs (the most specific applicable one, or an ambiguity), with its static parameters: identical to julia's `which` and dispatch environment on 1 500 random method tables and 9 000 calls (4 675 method choices, 1 968 of them with static parameters, 87 ambiguities). Not yet ported: the interference sets julia 1.12 computes at method insertion, which need type intersection.
 

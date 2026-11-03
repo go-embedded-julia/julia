@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -251,6 +252,10 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 		return vm.errorf("%s: invalid pointer", fname)
 	}
 	ety := p.Type.Parameters[0]
+	if k, ok := vm.unsetThrough(p, m, x, i); ok {
+		m.Elems[k] = undef
+		return nil
+	}
 	if ety != any(core.AnyType) && vm.typeOf(x) != ety {
 		return vm.typeError(expr.Symbol(fname), "", ety, x)
 	}
@@ -260,6 +265,35 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 	}
 	m.Elems[k] = x
 	return nil
+}
+
+// unsetThrough is _unsetindex! (genericmemory.jl:78-101): C_NULL stored
+// through a Ptr{Ptr{Cvoid}} over a boxed slot, or over any word of an
+// inline element with pointers, leaves the element #undef. It returns the
+// element, and whether the store is one.
+func (vm *VM) unsetThrough(p *Pointer, m *Memory, x any, i int64) (int, bool) {
+	np, ok := x.(*Pointer)
+	eltype := m.Type.Parameters[1]
+	voidp := any(vm.ptrType(core.NothingType))
+	if !ok || np.Target != nil || np.Off != 0 || p.Type.Parameters[0] != voidp || eltype == voidp {
+		return 0, false
+	}
+	size, _, boxed, union := memElem(eltype)
+	if union || size == 0 {
+		return 0, false
+	}
+	if !boxed {
+		// memElem stores inline only DataTypes and isbits unions
+		l, err := structLayout(eltype.(*core.DataType))
+		if err != nil || !slices.Contains(l.pointers, true) {
+			return 0, false
+		}
+	}
+	off := p.Off + (i-1)*8
+	if off < 0 || off/int64(size) >= int64(len(m.Elems)) {
+		return 0, false
+	}
+	return int(off / int64(size)), true
 }
 
 // ptrArith is add_ptr and sub_ptr (runtime_intrinsics.c:1742-1758): a

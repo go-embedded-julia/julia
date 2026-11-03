@@ -512,9 +512,30 @@ func TestBindingPartitions(t *testing.T) {
 		{[]any{vm.tBinding}, "svec(Any, Any, BindingPartition, Any, UInt8)"},
 		{[]any{core.IntegerType}, "svec()"},
 		{[]any{int64(1)}, "!TypeError(:ccall"},
-		{[]any{core.NewIncompleteType("Main", "Inc", nil, false, false, nil)}, "!UndefRefError()"},
+		// julia 1.12.6, of Core._structtype(Main, :Inc, svec(), svec(),
+		// svec(), false, 0)
+		{[]any{core.NewIncompleteType("Main", "Inc", nil, false, false, nil)}, `!ErrorException("cannot determine field types of incomplete type Inc")`},
+		{[]any{core.SymbolType}, "svec()"},
 	} {
 		v, err := vm.shims["jl_get_fieldtypes"](vm, c.args)
 		check(t, "jl_get_fieldtypes", v, err, c.want)
+	}
+	// isdefined of a type's fields is what getfield reads (julia 1.12.6:
+	// isdefined(Inc, :types), isdefined(Int, :instance) false,
+	// isdefined(Nothing, :instance) true)
+	for _, c := range []struct {
+		t     any
+		field expr.Symbol
+		want  bool
+	}{
+		{core.NewIncompleteType("Main", "Inc", nil, false, false, nil), "types", false},
+		{core.Int64Type, "instance", false},
+		{core.NothingType, "instance", true},
+		{core.Int64Type.Name, "name", true},
+	} {
+		v, err := biIsdefined(vm, []any{c.t, c.field})
+		if err != nil || v != c.want {
+			t.Errorf("isdefined(%s, :%s) = %v %v, want %v", showValue(c.t), c.field, v, err, c.want)
+		}
 	}
 }

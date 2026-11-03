@@ -3,6 +3,7 @@ package interp
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -350,6 +351,28 @@ func (vm *VM) astField(v, arg any) (any, error) {
 // TypeVar :3081-3084, UnionAll :3096-3099, Union :3104-3107, and Vararg
 // (T, N). The fields of runtime bookkeeping (layout, hash, flags, caches)
 // have no value here.
+// fieldMaskPtr is a TypeName's atomicfields or constfields: C_NULL when no
+// field is marked, else a pointer to the UInt32 words of the bit mask,
+// field i in bit i%32 of word i÷32 (jltypes.c:3014, runtime_internals.jl:
+// 450-477 read it so).
+func (vm *VM) fieldMaskPtr(mask []bool) *Pointer {
+	voidp := vm.ptrType(core.NothingType)
+	if !slices.Contains(mask, true) {
+		return &Pointer{Type: voidp}
+	}
+	words := make([]any, (len(mask)+31)/32)
+	for i := range words {
+		words[i] = uint32(0)
+	}
+	for i, on := range mask {
+		if on {
+			words[i/32] = words[i/32].(uint32) | 1<<(i%32)
+		}
+	}
+	mt := must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), core.UInt32Type, core.CPU)).(*core.DataType)
+	return &Pointer{Type: voidp, Target: &Memory{Type: mt, Elems: words}}
+}
+
 func (vm *VM) kindField(v, arg any) (any, error) {
 	t := vm.typeOf(v).(*core.DataType)
 	var names []expr.Symbol
@@ -398,6 +421,10 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 					fs[j] = n
 				}
 				return fs, true
+			case 4:
+				return vm.fieldMaskPtr(x.AtomicFields), true
+			case 5:
+				return vm.fieldMaskPtr(x.ConstFields), true
 			case 6:
 				return x.Wrapper, true
 			case 14:

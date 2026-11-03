@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -32,4 +33,8 @@ func TestBaseProgress(t *testing.T) {
 	vm.Args = []string{"sysimg.jl"}
 	_, err = vm.jlLoad([]any{vm.Main, "sysimg.jl"})
 	t.Logf("sysimg.jl: %v\nprinted:\n%s", err, out.String())
+	var th *Thrown
+	if errors.As(err, &th) {
+		t.Logf("unwound:\n%s", strings.Join(th.Trace, "\n"))
+	}
 }

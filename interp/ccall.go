@@ -147,6 +147,23 @@ func (vm *VM) bootShims() {
 			}
 			return int32(0), nil
 		},
+		// type intersection (subtype.c:4430-4677)
+		"jl_type_intersection": func(vm *VM, a []any) (any, error) { return core.TypeIntersection(a[0], a[1]) },
+		"jl_intersect_types":   func(vm *VM, a []any) (any, error) { return core.IntersectTypes(a[0], a[1]) },
+		"jl_type_intersection_with_env": func(vm *VM, a []any) (any, error) {
+			ti, env, _, err := core.TypeIntersectionEnv(a[0], a[1])
+			if err != nil {
+				return nil, err
+			}
+			return SVec{ti, SVec(env)}, nil
+		},
+		"jl_has_empty_intersection": func(vm *VM, a []any) (any, error) {
+			empty, err := core.HasEmptyIntersection(a[0], a[1])
+			if err != nil || !empty {
+				return int32(0), err
+			}
+			return int32(1), nil
+		},
 		// jl_symbol_n (symbol.c:113-118), boot.jl's Symbol(::String): the
 		// bytes a pointer into a String points at
 		"jl_symbol_n": func(vm *VM, a []any) (any, error) { return vm.symbolN(a) },
@@ -281,22 +298,68 @@ func (vm *VM) bootShims() {
 		"jl_matching_methods":          func(vm *VM, a []any) (any, error) { return vm.matchingMethods(a) },
 		"jl_specializations_get_linfo": func(vm *VM, a []any) (any, error) { return vm.specializationsGetLinfo(a) },
 		"jl_gf_invoke_lookup_worlds":   func(vm *VM, a []any) (any, error) { return vm.gfInvokeLookupWorlds(a) },
+		"jl_gf_invoke_lookup":          func(vm *VM, a []any) (any, error) { return vm.gfInvokeLookupMethod(a) },
+		"jl_argument_datatype":         argumentDatatype,
 		"jl_method_table_disable":      func(vm *VM, a []any) (any, error) { return vm.methodTableDisable(a) },
 		// jl_get_fieldtypes (julia.h:1498): a DataType's field types, which
-		// core instantiates as it reads them (jl_compute_fieldtypes); its
-		// types field, undefined before _typebody!
+		// core instantiates as it reads them (jl_compute_fieldtypes,
+		// jltypes.c:2847-2870); a struct before _typebody! has none
 		"jl_get_fieldtypes": func(vm *VM, a []any) (any, error) {
 			d, ok := a[0].(*core.DataType)
 			if !ok {
 				return nil, vm.typeError("ccall", "", core.DataTypeType, a[0])
 			}
-			return vm.kindField(d, int64(4))
+			if ft, ok := d.FieldTypes(); ok {
+				return SVec(ft), nil
+			}
+			if d.Name.Abstract || d.Name.Bits > 0 {
+				return SVec{}, nil
+			}
+			return nil, vm.errorf("cannot determine field types of incomplete type %s", d.Name.Name)
 		},
 		// jl_is_assertsbuild (jlapi.c:554-560): the official build is
 		// built without assertions (JL_NDEBUG)
 		"jl_is_assertsbuild": func(vm *VM, a []any) (any, error) { return int8(0), nil },
-		"jl_copy_code_info":       func(vm *VM, a []any) (any, error) { return vm.copyCodeInfo(a) },
-		"jl_scan_method_source_now": func(vm *VM, a []any) (any, error) { return vm.scanMethodSourceNow(a) },
+		"jl_copy_code_info":  func(vm *VM, a []any) (any, error) { return vm.copyCodeInfo(a) },
+		// a DebugInfo's code locations (ircode.c:1425-1566), lowering's
+		// encoding
+		"jl_compress_codelocs": func(vm *VM, a []any) (any, error) {
+			first, ok1 := a[0].(int32)
+			n, ok2 := a[2].(int64)
+			_, _, elems, ok3 := arrayOf(a[1])
+			if !ok1 || !ok2 || !ok3 {
+				return nil, fmt.Errorf("%w: jl_compress_codelocs of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+			}
+			locs := make([]int32, len(elems))
+			for i, e := range elems {
+				v, ok := e.(int32)
+				if !ok {
+					return nil, vm.typeError("ccall", "", core.Int32Type, e)
+				}
+				locs[i] = v
+			}
+			if len(locs) != 0 && n*3 != int64(len(locs)) {
+				return nil, vm.errorf("jl_compress_codelocs: %d statements for %d locations", n, len(locs))
+			}
+			return lower.CompressCodelocs(first, locs), nil
+		},
+		"jl_uncompress1_codeloc": func(vm *VM, a []any) (any, error) {
+			cl, ok1 := a[0].(string)
+			pc, ok2 := a[1].(int64)
+			if !ok1 || !ok2 {
+				return nil, fmt.Errorf("%w: jl_uncompress1_codeloc of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+			}
+			line, to, at := lower.UncompressCodeloc(cl, int(min(max(pc, -1), 1<<31)))
+			return vm.newTuple([]any{line, to, at}), nil
+		},
+		// a source's flags and slots (ircode.c:1213-1303)
+		"jl_ir_flag_inlining":            irFlag("jl_ir_flag_inlining", "inlining"),
+		"jl_ir_flag_has_fcall":           irFlag("jl_ir_flag_has_fcall", "has_fcall"),
+		"jl_ir_flag_has_image_globalref": irFlag("jl_ir_flag_has_image_globalref", "has_image_globalref"),
+		"jl_ir_inlining_cost":            func(vm *VM, a []any) (any, error) { return vm.irInliningCost(a) },
+		"jl_ir_nslots":                   func(vm *VM, a []any) (any, error) { return vm.irNslots(a) },
+		"jl_ir_slotflag":                 func(vm *VM, a []any) (any, error) { return vm.irSlotflag(a) },
+		"jl_scan_method_source_now":      func(vm *VM, a []any) (any, error) { return vm.scanMethodSourceNow(a) },
 		// the code cache (codeinst.go)
 		"jl_new_codeinst":     func(vm *VM, a []any) (any, error) { return vm.newCodeinst(a) },
 		"jl_mi_cache_insert":  func(vm *VM, a []any) (any, error) { return vm.miCacheInsert(a) },

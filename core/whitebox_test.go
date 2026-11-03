@@ -167,10 +167,10 @@ func TestWhiteboxInstType(t *testing.T) {
 	}); err == nil {
 		t.Error("NTuple{-1,Int} did not raise")
 	}
-	if try(func() { tupletypeFill(2, VarargType, true) }) == nil {
+	if try(func() { tupletypeFill(2, VarargType, true, 0) }) == nil {
 		t.Error("NTuple{2,Vararg} did not raise")
 	}
-	if try(func() { tupletypeFill(maxTupleFill+1, Int64Type, false) }) == nil {
+	if try(func() { tupletypeFill(maxTupleFill+1, Int64Type, false, 0) }) == nil {
 		t.Error("tupletypeFill over the bound did not raise")
 	}
 	if _, err := Apply(AnyTupleType, Int64Type, &Vararg{T: Int64Type, N: int64(maxTupleFill + 1)}); err == nil {
@@ -225,11 +225,11 @@ func TestWhiteboxCache(t *testing.T) {
 	// the stack of types under construction answers first
 	T := fresh("T")
 	ref := mk(t, RefType, T).(*DataType)
-	if instDatatypeInner(RefType.Body.(*DataType), []any{T}, &typeStack{ref, nil}, nil, false) != ref {
+	if instDatatypeInner(RefType.Body.(*DataType), []any{T}, &typeStack{ref, nil}, nil, false, 0) != ref {
 		t.Error("type stack lookup")
 	}
 	// zero parameters outside a check: the empty tuple (jltypes.c:2188-2192)
-	if instDatatypeInner(RefType.Body.(*DataType), []any{}, nil, nil, false) != any(EmptyTupleType) {
+	if instDatatypeInner(RefType.Body.(*DataType), []any{}, nil, nil, false, 0) != any(EmptyTupleType) {
 		t.Error("empty parameter list")
 	}
 	if hasConcreteSupertype(int64(1)) {
@@ -511,7 +511,7 @@ func TestWhiteboxVars(t *testing.T) {
 		t.Error("a variable in a bound")
 	}
 	// unalias_unionall through innervars (subtype.c:936-944)
-	e = &stenv{vars: &varBinding{v: B, lb: B.LB, ub: B.UB, innervars: []*TypeVar{C}}}
+	e = &stenv{vars: &varBinding{v: B, lb: B.LB, ub: B.UB, innervars: &[]*TypeVar{C}}}
 	u := &UnionAll{Var: C, Body: mk(t, RefType, C)}
 	if e.unaliasUnionAll(u) == u {
 		t.Error("an inner variable was not renamed")

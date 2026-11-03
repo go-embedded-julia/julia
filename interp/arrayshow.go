@@ -229,7 +229,7 @@ func writeIn(b *showBuf, v any, ctx any) {
 		if d, ok := ctx.(*core.DataType); ok && d.Name == x.Type.Name {
 			inner = d.Parameters[1]
 		}
-		writeArray(b, x, x.Type, x.Type.Parameters[1],[]int64{int64(len(x.Elems))}, x.Elems, inner)
+		writeArray(b, x, x.Type, x.Type.Parameters[1], []int64{int64(len(x.Elems))}, x.Elems, inner)
 		return
 	}
 	writeValue(b, v)

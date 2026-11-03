@@ -24,8 +24,22 @@ const (
 
 type goldenCase struct{ x, y, want string }
 
-func drawPairs(n int) ([]any, []any) {
-	g := newTypeGen(goldenSeed)
+// The random pairs are drawn once, before any test builds types (TestMain
+// runs after the package's init, which boots the types): the type cache
+// returns an equal type built earlier (typekey_eq), so a pair drawn after
+// other tests can come back spelled as one of theirs. Subtyping's pairs come
+// first, as in the julia session of subtype.golden; julia builds them again
+// before intersection's (TestIntersectAgainstJulia).
+var subtypeXs, subtypeYs, intersectXs, intersectYs []any
+
+func TestMain(m *testing.M) {
+	subtypeXs, subtypeYs = drawPairs(goldenSeed, goldenPairs)
+	intersectXs, intersectYs = drawPairs(intersectSeed, intersectPairs)
+	os.Exit(m.Run())
+}
+
+func drawPairs(seed uint64, n int) ([]any, []any) {
+	g := newTypeGen(seed)
 	xs, ys := make([]any, n), make([]any, n)
 	for i := range xs {
 		xs[i], ys[i] = g.pair()
@@ -117,10 +131,47 @@ func askJulia(t *testing.T, xs, ys []any) []goldenCase {
 	return cs
 }
 
-var (
-	whereVar = regexp.MustCompile(`where \{(?:[^{}<>]*<:)?([A-Za-z_][A-Za-z0-9_]*)`)
-	ident    = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
-)
+// ident is a name: an identifier or an anonymous variable's #name (#s6, #0).
+var ident = regexp.MustCompile(`#[A-Za-z0-9_]+|[A-Za-z_][A-Za-z0-9_]*`)
+
+// whereVars are the variables of the where clauses Show writes: `where {V}`,
+// `where {V<:U}`, `where {V>:L}`, `where {L<:V<:U}`, the bounds being any
+// type, braces included.
+func whereVars(s string) []string {
+	var out []string
+	for i := strings.Index(s, "where {"); i >= 0; {
+		start := i + len("where {")
+		depth, end := 0, start
+		var cuts []int // depth-0 positions of <: and >:
+		for ; end < len(s); end++ {
+			c := s[end]
+			if c == '{' || c == '(' {
+				depth++
+			} else if c == '}' || c == ')' {
+				if depth == 0 {
+					break
+				}
+				depth--
+			} else if depth == 0 && (c == '<' || c == '>') && end+1 < len(s) && s[end+1] == ':' {
+				cuts = append(cuts, end)
+			}
+		}
+		v := s[start:end]
+		switch len(cuts) {
+		case 1:
+			v = s[start:cuts[0]]
+		case 2:
+			v = s[cuts[0]+2 : cuts[1]]
+		}
+		out = append(out, v)
+		next := strings.Index(s[start:], "where {")
+		if next < 0 {
+			break
+		}
+		i = start + next
+	}
+	return out
+}
 
 // alphaRename renames the variables bound by where clauses to V1, V2 … in
 // order of first appearance. julia's Type{T} cache returns an equal type
@@ -129,8 +180,8 @@ var (
 // variable is named T: equal, and named differently.
 func alphaRename(s string) string {
 	bound := map[string]bool{}
-	for _, m := range whereVar.FindAllStringSubmatch(s, -1) {
-		bound[m[1]] = true
+	for _, v := range whereVars(s) {
+		bound[v] = true
 	}
 	names := map[string]string{}
 	return ident.ReplaceAllStringFunc(s, func(w string) string {
@@ -192,7 +243,7 @@ func goAnswer(x, y any) string {
 }
 
 func TestSubtypeAgainstJulia(t *testing.T) {
-	xs, ys := drawPairs(goldenPairs)
+	xs, ys := subtypeXs, subtypeYs
 	if os.Getenv("JLGO_ORACLE") != "" && os.Getenv("JLGO_UPDATE_CORE") != "" {
 		var b strings.Builder
 		for _, c := range askJulia(t, xs, ys) {

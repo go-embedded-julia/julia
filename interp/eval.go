@@ -18,6 +18,7 @@ type frame struct {
 	locals     []any
 	sparams    []any
 	continueAt int
+	ip         int // the statement running, for Thrown.Trace
 }
 
 // leaveSignal carries a :leave up through the evalBody calls of the try
@@ -49,6 +50,7 @@ func (f *frame) evalBody(ip int) (any, error) {
 			}
 		}
 		next := ip + 1
+		f.ip = ip
 		switch s := f.c.stmts[ip].(type) {
 		case sGoto:
 			next = s.to
@@ -610,8 +612,20 @@ func ctorTypeName(ft any) *core.TypeName {
 	if !ok || !core.IsTypeType(d) {
 		return nil
 	}
-	t, ok := core.UnwrapUnionAll(d.TParam0()).(*core.DataType)
-	if !ok {
+	p := d.TParam0()
+	// Type{S} where S<:X for a struct X: every S is an X{…}, so the method
+	// is one of X's constructors (function (T::Type{<:X})() … end); under
+	// an abstract X it is not
+	bounded := false
+	for {
+		v, ok := p.(*core.TypeVar)
+		if !ok {
+			break
+		}
+		p, bounded = v.UB, true
+	}
+	t, ok := core.UnwrapUnionAll(p).(*core.DataType)
+	if !ok || (bounded && t.Name.Abstract) {
 		return nil
 	}
 	return t.Name
@@ -671,7 +685,17 @@ func (vm *VM) callLambda(l *lambda, self any, args []any, sparams []any) (any, e
 	} else {
 		copy(f.locals, all[:n])
 	}
-	return f.evalBody(0)
+	v, err := f.evalBody(0)
+	if t, ok := err.(*Thrown); ok && len(t.Trace) < maxTrace {
+		at := ""
+		if code := l.c.src; code != nil && f.ip < len(code.Code) {
+			if at = showValue(code.Code[f.ip]); len(at) > 160 {
+				at = at[:160] + "…"
+			}
+		}
+		t.Trace = append(t.Trace, fmt.Sprintf("%s:%d, statement %d: %s", l.file, l.line, f.ip+1, at))
+	}
+	return v, err
 }
 
 // newStruct is jl_new_structv (datatype.c:1627-1659) for the struct types

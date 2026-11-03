@@ -115,13 +115,13 @@ func ApplyType(tc any, params ...any) (t any, err error) {
 			if len(params) == 2 {
 				n = params[1]
 			}
-			return wrapVararg(params[0], n, true), nil
+			return wrapVararg(params[0], n, true, 0), nil
 		}
 		if vm.N == nil {
 			if len(params) != 1 {
 				throwf("apply_type: too few or too many arguments")
 			}
-			return wrapVararg(vm.T, params[0], true), nil
+			return wrapVararg(vm.T, params[0], true, 0), nil
 		}
 	}
 	if _, ok := tc.(*UnionAll); ok {

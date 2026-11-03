@@ -48,10 +48,13 @@ func (vm *VM) bootCTypes() {
 		vm.setCore(expr.Symbol(name), t.Name.Wrapper)
 		return t
 	}
-	for _, name := range []string{"MethodTable", "MethodCache",
-		"TypeMapEntry", "TypeMapLevel", "Task"} {
+	for _, name := range []string{"MethodCache", "TypeMapEntry", "TypeMapLevel", "Task"} {
 		opaque(name)
 	}
+	// julia 1.12's one method table, Core.methodtable (jltypes.c:2959,
+	// builtins.c:2508); inference compares edges against it by identity
+	vm.methodTable = &Struct{Type: opaque("MethodTable")}
+	vm.setCore("methodtable", vm.methodTable)
 	vm.bootBindingTypes()
 	vm.bootReflectionTypes()
 	vm.bootCodeInstanceType()

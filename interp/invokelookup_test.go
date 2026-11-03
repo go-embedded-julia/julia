@@ -69,6 +69,19 @@ func TestInvokeLookup(t *testing.T) {
 	if v, err := lookup(vm, []any{ty("Tuple{typeof(g), Int}"), nil, vm.World() + 1, null, null}); v != nil || err != nil {
 		t.Errorf("a future world: %v %v", v, err)
 	}
+	// jl_gf_invoke_lookup: the match's Method, or nothing; Core.methodtable
+	// is every function's table, as nothing is
+	method := vm.shims["jl_gf_invoke_lookup"]
+	m8, err := method(vm, []any{ty("Tuple{typeof(g), Int8}"), ty("Core.methodtable"), vm.World()})
+	if err != nil || m8 == nil || showValue(m8.(*Struct).Fields[7]) != "Tuple{Main.L.#g, Integer}" {
+		t.Errorf("jl_gf_invoke_lookup of g(::Int8): %v %v", m8, err)
+	}
+	if v, err := method(vm, []any{ty("Tuple{typeof(g), Int, Int}"), nil, vm.World()}); v != nil || err != nil {
+		t.Errorf("jl_gf_invoke_lookup of no method: %v %v", v, err)
+	}
+	if _, err := method(vm, []any{ty("Tuple{typeof(g), Int}"), nil, int64(1)}); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("jl_gf_invoke_lookup of a world not a UInt: %v", err)
+	}
 	// past the work bound: an error from subtyping or from specificity
 	if _, err := s.Eval("hp(x::T, y::Array{T, 1}) where {T<:Integer} = 1"); err != nil {
 		t.Fatal(err)

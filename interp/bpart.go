@@ -16,16 +16,16 @@ import (
 
 // The partition kinds and flags (julia.h, runtime_internals.jl:203-221).
 const (
-	bkConst         = 0x0
+	bkConst          = 0x0
 	bkImplicitGlobal = 0x3
-	bkImplicitConst = 0x4
-	bkExplicit      = 0x5
-	bkImported      = 0x6
-	bkDeclared      = 0x8
-	bkGlobal        = 0x2
-	bkGuard         = 0x9
-	bkUndefConst    = 0xa
-	bkFlagExported  = 0x10
+	bkImplicitConst  = 0x4
+	bkExplicit       = 0x5
+	bkImported       = 0x6
+	bkDeclared       = 0x8
+	bkGlobal         = 0x2
+	bkGuard          = 0x9
+	bkUndefConst     = 0xa
+	bkFlagExported   = 0x10
 )
 
 // bootBindingTypes defines Binding and BindingPartition with julia's

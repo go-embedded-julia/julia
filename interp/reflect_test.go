@@ -10,6 +10,50 @@ import (
 	"github.com/go-embedded-julia/julia/expr"
 )
 
+// The intersection ccalls answer as core does (core's answers are checked
+// against julia), and an exhausted work bound is an error.
+func TestIntersectionShims(t *testing.T) {
+	vm := New()
+	T := &core.TypeVar{Name: "T", LB: core.Bottom, UB: core.RealType}
+	vecT := &core.UnionAll{Var: T, Body: must(core.Apply(core.ArrayType, T, int64(1)))}
+	vecInt := must(core.Apply(core.ArrayType, core.Int64Type, int64(1)))
+	vecStr := must(core.Apply(core.ArrayType, core.StringType, int64(1)))
+	call := func(name expr.Symbol, a, b any) any {
+		v, err := vm.shims[name](vm, []any{a, b})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return v
+	}
+	if v := call("jl_type_intersection", vecT, vecInt); v != vecInt {
+		t.Errorf("jl_type_intersection: %s", showValue(v))
+	}
+	if v := call("jl_intersect_types", vecT, vecStr); v != any(core.Bottom) {
+		t.Errorf("jl_intersect_types: %s", showValue(v))
+	}
+	if v := call("jl_type_intersection_with_env", vecInt, vecT).(SVec); len(v) != 2 || v[0] != vecInt || showValue(v[1]) != "svec(Int64)" {
+		t.Errorf("jl_type_intersection_with_env: %s", showValue(v))
+	}
+	if v := call("jl_has_empty_intersection", vecT, vecStr); v != int32(1) {
+		t.Errorf("jl_has_empty_intersection of disjoint types: %v", v)
+	}
+	if v := call("jl_has_empty_intersection", vecT, vecInt); v != int32(0) {
+		t.Errorf("jl_has_empty_intersection of overlapping types: %v", v)
+	}
+	// Tuple{T,T} where T against a union pair needs more than one step
+	S := &core.TypeVar{Name: "S", LB: core.Bottom, UB: core.AnyType}
+	diag := &core.UnionAll{Var: S, Body: must(core.Apply(core.AnyTupleType, S, S))}
+	u := must(core.Apply(core.UnionType, core.Int64Type, core.StringType))
+	pair := must(core.Apply(core.AnyTupleType, u, u))
+	old := core.SetMaxSubtypeSteps(1)
+	defer core.SetMaxSubtypeSteps(old)
+	for _, name := range []expr.Symbol{"jl_type_intersection", "jl_intersect_types", "jl_type_intersection_with_env", "jl_has_empty_intersection"} {
+		if _, err := vm.shims[name](vm, []any{diag, pair}); err == nil {
+			t.Errorf("%s past the work bound: no error", name)
+		}
+	}
+}
+
 // jl_matching_methods where subtyping decides, each want julia 1.12.6's
 // (testdata/matching.jl): the matches as (spec_types, sparams, the
 // method's sig, fully_covers), session types shown under Main.L.
@@ -68,6 +112,10 @@ func TestMatchingMethods(t *testing.T) {
 		{"k Int", "Tuple{typeof(k), Int}", -1, "[]"},
 		{"m2 all", "Tuple{typeof(m2), Vararg{Any}}", -1, "[(Tuple{Main.L.#m2, Vector{T}} where T<:Real, svec(T<:Real), Tuple{Main.L.#m2, Vector{T}} where T<:Real, false)]"},
 		{"m2 Int", "Tuple{typeof(m2), Array{Int, 1}}", -1, "[(Tuple{Main.L.#m2, Vector{Int64}}, svec(Int64), Tuple{Main.L.#m2, Vector{T}} where T<:Real, true)]"},
+		{"h Int Any", "Tuple{typeof(h), Int, Any}", -1, "[(Tuple{Main.L.#h, Int64, Int64}, svec(Int64), Tuple{Main.L.#h, T, T} where T, false)]"},
+		{"g Real", "Tuple{typeof(g), Real}", -1, fmt.Sprintf("[(Tuple{%[1]s, Int64}, svec(), Tuple{%[1]s, Int64}, false), (Tuple{%[1]s, Integer}, svec(), Tuple{%[1]s, Integer}, false), (Tuple{%[1]s, Real}, svec(), Tuple{%[1]s, Any}, true)]", g)},
+		{"m2 AbstractVector", "Tuple{typeof(m2), AbstractArray{T, 1} where T}", -1, "[(Tuple{Main.L.#m2, Vector{T}} where T<:Real, svec(T<:Real), Tuple{Main.L.#m2, Vector{T}} where T<:Real, false)]"},
+		{"m2 Vector Number", "Tuple{typeof(m2), Array{T, 1} where T<:Number}", -1, "[(Tuple{Main.L.#m2, Vector{T}} where T<:Real, svec(T<:Real), Tuple{Main.L.#m2, Vector{T}} where T<:Real, false)]"},
 		{"empty tuple", "Tuple{}", -1, "[]"},
 		{"not a tuple", "Int", -1, "[]"},
 	} {
@@ -87,6 +135,11 @@ func TestMatchingMethods(t *testing.T) {
 			t.Errorf("%s: valid %v..%v around %d", c.name, mn.Fields[0], mx.Fields[0], w)
 		}
 	}
+	// Core.methodtable is the table of every function, as nothing is
+	if v, err := shim(vm, []any{ty("Tuple{typeof(g), Int}"), ty("Core.methodtable"), int32(-1), false, vm.World(), null, null, null}); err != nil ||
+		show(v) != fmt.Sprintf("[(Tuple{%[1]s, Int64}, svec(), Tuple{%[1]s, Int64}, true)]", g) {
+		t.Errorf("in Core.methodtable: %s %v", show(v), err)
+	}
 	// the same Method object every time, and its fields
 	v1, _ := shim(vm, []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), false, vm.World(), null, null, null})
 	v2, _ := shim(vm, []any{ty("Tuple{typeof(g), Vararg{Any}}"), nil, int32(-1), false, vm.World(), null, null, null})
@@ -103,15 +156,13 @@ func TestMatchingMethods(t *testing.T) {
 		check(t, string(name), v, err, want)
 	}
 
-	// what is refused: an intersection subtyping does not decide, two
-	// matches neither more specific, a callee no table holds, a table of
-	// its own, a future world
+	// what is refused: two matches neither more specific, a callee no table
+	// holds, a table of its own, a future world
 	for _, c := range []struct {
 		name string
 		args []any
 		want string
 	}{
-		{"an undecided intersection", []any{ty("Tuple{typeof(h), Int, Any}"), nil, int32(-1), false, vm.World(), null, null, null}, "type intersection"},
 		{"an ambiguity", []any{ty("Tuple{typeof(amb), Vararg{Any}}"), nil, int32(-1), false, vm.World(), null, null, null}, "neither more specific"},
 		{"a callee of no table", []any{ty("Tuple{Any, Vararg{Any}}"), nil, int32(-1), false, vm.World(), null, null, null}, "the methods of Any"},
 		{"a table of its own", []any{ty("Tuple{typeof(g)}"), int64(1), int32(-1), false, vm.World(), null, null, null}, "a method table of its own"},

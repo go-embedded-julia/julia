@@ -108,12 +108,15 @@ type VM struct {
 	intrinsics []*Intrinsic
 	// reflected are the Method objects reflection made, by method and by
 	// object (reflect.go).
-	reflected                              map[*dispatch.Method]*reflected
-	reflectedOf                            map[*Struct]*reflected
+	reflected                                             map[*dispatch.Method]*reflected
+	reflectedOf                                           map[*Struct]*reflected
 	tMethod, tMethodInstance, tMethodMatch, tCodeInstance *core.DataType
 	tBinding, tBindingPartition                           *core.DataType
 	// reservations are jl_engine_reserve's leases (codeinst.go)
 	reservations []reservation
+	// methodTable is Core.methodtable, julia's one method table; the VM
+	// keeps methods in per-function tables (methodTableOf)
+	methodTable *Struct
 
 	// Stdout and Stderr receive what Julia code prints (Core.println,
 	// print): io.Discard unless the embedder sets them. cglobals are the C

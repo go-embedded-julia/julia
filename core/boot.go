@@ -81,6 +81,10 @@ func define(s spec) any {
 
 func tv(name string) *TypeVar { return &TypeVar{Name: name, LB: Bottom, UB: AnyType} }
 
+// noFields is the field list of a type without fields: empty, which is not
+// the absent list of a type whose fields core does not record.
+func noFields([]any) []any { return []any{} }
+
 func core0(name string, super *DataType, abstract bool) *DataType {
 	return define(spec{module: "Core", name: name, abstract: abstract, super: func([]any) any { return super }}).(*DataType)
 }
@@ -142,7 +146,8 @@ func init() {
 
 	DataTypeType = define(spec{module: "Core", name: "DataType", mutable: true, super: func([]any) any { return typeTypePrimary }}).(*DataType)
 	TypeNameType = define(spec{module: "Core", name: "TypeName", mutable: true}).(*DataType)
-	SymbolType = define(spec{module: "Core", name: "Symbol", mutable: true}).(*DataType)
+	// Symbol and String have no fields (Symbol.types === svec())
+	SymbolType = define(spec{module: "Core", name: "Symbol", mutable: true, fields: noFields}).(*DataType)
 	SimpleVectorType = define(spec{module: "Core", name: "SimpleVector", mutable: true}).(*DataType)
 	NothingType = define(spec{module: "Core", name: "Nothing", singleton: true, isbits: true}).(*DataType)
 	TypeVarType = define(spec{module: "Core", name: "TypeVar", mutable: true}).(*DataType)
@@ -159,7 +164,7 @@ func init() {
 	TupleTypeName.Wrapper, TupleTypeName.Primary = AnyTupleType, AnyTupleType
 
 	TypeofBottomType.Super = mustApply(TypeType, Bottom).(*DataType)
-	EmptyTupleType = instDatatypeInner(AnyTupleType, nil, nil, nil, false).(*DataType)
+	EmptyTupleType = instDatatypeInner(AnyTupleType, nil, nil, nil, false, 0).(*DataType)
 	// jltypes.c:3742-3749: NamedTuple{names, T<:Tuple}, whose instances take
 	// their fields from the parameters (namedTupleFields)
 	NamedTupleType = define(spec{module: "Core", name: "NamedTuple",
@@ -190,7 +195,7 @@ func init() {
 	Int128Type = primitive("Int128", SignedType)
 	UInt128Type = primitive("UInt128", UnsignedType)
 	AbstractStringType = core0("AbstractString", AnyType, true)
-	StringType = define(spec{module: "Core", name: "String", mutable: true, super: func([]any) any { return AbstractStringType }}).(*DataType)
+	StringType = define(spec{module: "Core", name: "String", mutable: true, fields: noFields, super: func([]any) any { return AbstractStringType }}).(*DataType)
 	FunctionType = core0("Function", AnyType, true)
 	ModuleType = define(spec{module: "Core", name: "Module", mutable: true}).(*DataType)
 	ExceptionType = core0("Exception", AnyType, true)

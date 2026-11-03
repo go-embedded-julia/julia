@@ -81,6 +81,82 @@ func (vm *VM) copyCodeInfo(a []any) (any, error) {
 	return nil, vm.typeError("ccall", "", vm.tCodeInfo, a[0])
 }
 
+// irField is the named field of a source for the jl_ir_* accessors
+// (ircode.c:1213-1303). The VM never compresses IR, so a source is a
+// CodeInfo; a compressed String is refused.
+func (vm *VM) irField(fn string, data any, name expr.Symbol) (any, error) {
+	src, ok := data.(*Struct)
+	if !ok || src.Type != vm.tCodeInfo {
+		if _, isStr := data.(string); isStr {
+			return nil, fmt.Errorf("%w: %s of compressed IR", ErrUnsupported, fn)
+		}
+		return nil, vm.typeError("ccall", "", vm.tCodeInfo, data)
+	}
+	for i, n := range vm.tCodeInfo.FieldNames() {
+		if n == name {
+			return src.Fields[i], nil
+		}
+	}
+	panic("interp: CodeInfo has no field " + string(name))
+}
+
+// irFlag is jl_ir_flag_inlining, _has_fcall and _has_image_globalref
+// (ircode.c:1213-1244): a CodeInfo flag as a UInt8.
+func irFlag(fn string, name expr.Symbol) func(*VM, []any) (any, error) {
+	return func(vm *VM, a []any) (any, error) {
+		v, err := vm.irField(fn, a[0], name)
+		switch x := v.(type) {
+		case bool:
+			if x {
+				return uint8(1), nil
+			}
+			return uint8(0), nil
+		case uint8:
+			return x, nil
+		}
+		if err == nil {
+			err = vm.typeError("ccall", "", core.UInt8Type, v)
+		}
+		return nil, err
+	}
+}
+
+// irInliningCost is jl_ir_inlining_cost (ircode.c:1246-1253).
+func (vm *VM) irInliningCost(a []any) (any, error) {
+	v, err := vm.irField("jl_ir_inlining_cost", a[0], "inlining_cost")
+	if c, ok := v.(uint16); ok {
+		return c, nil
+	}
+	if err == nil {
+		err = vm.typeError("ccall", "", core.UInt16Type, v)
+	}
+	return nil, err
+}
+
+// irNslots and irSlotflag are jl_ir_nslots and jl_ir_slotflag
+// (ircode.c:1281-1303): the slot count, and slot i's flags (0-based).
+func (vm *VM) irNslots(a []any) (any, error) {
+	v, err := vm.irField("jl_ir_nslots", a[0], "slotnames")
+	if err != nil {
+		return nil, err
+	}
+	_, _, elems, _ := arrayOf(v)
+	return int64(len(elems)), nil
+}
+
+func (vm *VM) irSlotflag(a []any) (any, error) {
+	v, err := vm.irField("jl_ir_slotflag", a[0], "slotflags")
+	if err != nil {
+		return nil, err
+	}
+	_, _, elems, _ := arrayOf(v)
+	i, ok := a[1].(uint64)
+	if !ok || i >= uint64(len(elems)) {
+		return nil, vm.errorf("jl_ir_slotflag: slot %s out of range", showValue(a[1]))
+	}
+	return elems[i], nil
+}
+
 // methodDidScanSource is Method's did_scan_source field (jltypes.c:3570).
 const methodDidScanSource = 29
 

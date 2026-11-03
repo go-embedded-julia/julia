@@ -195,6 +195,43 @@ func (vm *VM) methodTableOf(ft any) (*dispatch.Table, any, expr.Symbol, bool) {
 	return nil, nil, "", false
 }
 
+// nthArgDatatype is nth_arg_datatype (rtutils.c:641-669): the DataType of
+// a's n-th tuple element (a itself for 0), nil when it cannot be
+// determined.
+func nthArgDatatype(a any, n int) *core.DataType {
+	switch x := a.(type) {
+	case *core.DataType:
+		if n == 0 {
+			return x
+		}
+		if core.IsTupleType(x) && len(x.Parameters) >= n {
+			return nthArgDatatype(x.Parameters[n-1], 0)
+		}
+	case *core.TypeVar:
+		return nthArgDatatype(x.UB, n)
+	case *core.UnionAll:
+		return nthArgDatatype(x.Body, n)
+	case *core.Union:
+		d1 := nthArgDatatype(x.A, n)
+		if d1 == nil {
+			return nil
+		}
+		if d2 := nthArgDatatype(x.B, n); d2 != nil && d1.Name == d2.Name {
+			return d1
+		}
+	}
+	return nil
+}
+
+// argumentDatatype is jl_argument_datatype (rtutils.c:678-684): the
+// DataType a single type implies, or nothing.
+func argumentDatatype(vm *VM, a []any) (any, error) {
+	if d := nthArgDatatype(a[0], 0); d != nil {
+		return d, nil
+	}
+	return nil, nil
+}
+
 // match is one MethodMatch in the making.
 type match struct {
 	m           *dispatch.Method
@@ -204,15 +241,13 @@ type match struct {
 }
 
 // matchingMethods is jl_matching_methods(types, mt, lim, include_ambiguous,
-// world, min_valid, max_valid, ambig) where subtyping decides the
-// intersection of the query with each signature: the signature is a
-// subtype of the query, or the query of the signature, or the two are
-// obviously disjoint. In order, most specific first, a match the
-// fully-covering most specific one dominates left out (the minmax rule,
-// gf.c:4745-4838; check_interferences_covers, gf.c:2662-2692, leaves out
-// nothing more here). Two matches neither
-// more specific than the other are ordered by julia's typemap, which is not
-// ported: they are refused, as is any intersection subtyping cannot decide.
+// world, min_valid, max_valid, ambig): the intersection of the query with
+// each signature (ml_matches_visitor, gf.c:4406-4442). In order, most
+// specific first, a match the fully-covering most specific one dominates
+// left out (the minmax rule, gf.c:4745-4838; check_interferences_covers,
+// gf.c:2662-2692, leaves out nothing more here). Two matches neither more
+// specific than the other are ordered by julia's typemap, which is not
+// ported: they are refused.
 func (vm *VM) matchingMethods(a []any) (any, error) {
 	tt, lim, world := a[0], a[2], a[4]
 	n, ok1 := lim.(int32)
@@ -231,7 +266,7 @@ func (vm *VM) matchingMethods(a []any) (any, error) {
 	if w > vm.World() {
 		return nil, nil // the future is not enumerable (gf.c:4607-4608)
 	}
-	if a[1] != nil {
+	if a[1] != nil && a[1] != any(vm.methodTable) {
 		return nil, fmt.Errorf("%w: jl_matching_methods in a method table of its own", ErrUnsupported)
 	}
 	tab, ft, name, ok := vm.methodTableOf(unw.Parameters[0])
@@ -242,27 +277,18 @@ func (vm *VM) matchingMethods(a []any) (any, error) {
 	var ms []match
 	for _, m := range tab.Methods(w) {
 		sig := fullSig(m.Sig, ft)
-		mt := match{m: m, sig: sig}
-		env := make([]any, envSize(sig))
-		// past the work bound, an error, never a panic
-		sub, err := core.SubtypeEnv(tt, sig, env)
-		within := false
-		if err == nil && !sub {
-			within, err = core.SubtypeChecked(sig, tt)
-		}
+		// jl_typemap_intersection_node_visitor (typemap.c:538-552); past
+		// the work bound, an error, never a panic
+		ti, env, issubty, err := core.TypeIntersectionEnv(tt, sig)
 		if err != nil {
 			return nil, err
 		}
-		switch {
-		case sub:
-			mt.ti, mt.env, mt.fullyCovers = tt, SVec(env), true
-		case within:
-			mt.ti, mt.env = sig, typeVarsOf(sig)
-		case core.ObviouslyDisjoint(tt, sig):
+		// intersection is conservative in corner cases: a dispatch tuple
+		// that is not a subtype matches nothing (issue #30394)
+		if d, ok := tt.(*core.DataType); ti == any(core.Bottom) || (!issubty && ok && d.IsDispatchTuple) {
 			continue
-		default:
-			return nil, fmt.Errorf("%w: jl_matching_methods: the intersection of %s and %s (type intersection)", ErrUnsupported, showValue(tt), showValue(sig))
 		}
+		mt := match{m: m, sig: sig, ti: ti, env: SVec(env), fullyCovers: issubty}
 		minValid = max(minValid, m.PrimaryWorld)
 		maxValid = min(maxValid, m.MaxWorld)
 		ms = append(ms, mt)
@@ -294,38 +320,8 @@ func (vm *VM) matchingMethods(a []any) (any, error) {
 // the answer is the one more specific than all the others (the minmax,
 // gf.c:4755-4775), nothing when there is none or no unique one.
 func (vm *VM) gfInvokeLookupWorlds(a []any) (any, error) {
-	w, ok := a[2].(uint64)
-	if !ok {
-		return nil, fmt.Errorf("%w: jl_gf_invoke_lookup_worlds of %s", ErrUnsupported, showValue(vm.newTuple(a)))
-	}
-	if a[1] != nil {
-		return nil, fmt.Errorf("%w: jl_gf_invoke_lookup_worlds in a method table of its own", ErrUnsupported)
-	}
-	tt := a[0]
-	unw, ok := core.UnwrapUnionAll(tt).(*core.DataType)
-	if !ok || !core.IsTupleType(unw) || len(unw.Parameters) == 0 || unw.Parameters[0] == any(core.Bottom) || w > vm.World() {
-		return nil, nil
-	}
-	tab, ft, name, ok := vm.methodTableOf(unw.Parameters[0])
-	if !ok {
-		return nil, fmt.Errorf("%w: jl_gf_invoke_lookup_worlds of the methods of %s", ErrUnsupported, showValue(unw.Parameters[0]))
-	}
-	var covering []match
-	minValid, maxValid := uint64(0), ^uint64(0)
-	for _, m := range tab.Methods(w) {
-		sig := fullSig(m.Sig, ft)
-		env := make([]any, envSize(sig))
-		sub, err := core.SubtypeEnv(tt, sig, env)
-		if err != nil {
-			return nil, err
-		}
-		if sub {
-			covering = append(covering, match{m: m, sig: sig, ti: tt, env: SVec(env), fullyCovers: true})
-			minValid, maxValid = max(minValid, m.PrimaryWorld), min(maxValid, m.MaxWorld)
-		}
-	}
-	i, err := mostSpecific(covering)
-	if err != nil || i < 0 {
+	m, minValid, maxValid, err := vm.gfInvokeLookup("jl_gf_invoke_lookup_worlds", a)
+	if err != nil || m == nil {
 		return nil, err
 	}
 	if err := vm.storeThrough("jl_gf_invoke_lookup_worlds", a[3], core.UInt64Type, minValid); err != nil {
@@ -334,8 +330,59 @@ func (vm *VM) gfInvokeLookupWorlds(a []any) (any, error) {
 	if err := vm.storeThrough("jl_gf_invoke_lookup_worlds", a[4], core.UInt64Type, maxValid); err != nil {
 		return nil, err
 	}
+	return m, nil
+}
+
+// gfInvokeLookupMethod is jl_gf_invoke_lookup(types, mt, world)
+// (gf.c:4232-4243), deprecated in julia for the worlds variant: the
+// match's Method, or nothing.
+func (vm *VM) gfInvokeLookupMethod(a []any) (any, error) {
+	m, _, _, err := vm.gfInvokeLookup("jl_gf_invoke_lookup", a)
+	if err != nil || m == nil {
+		return nil, err
+	}
+	return m.Fields[2], nil
+}
+
+// gfInvokeLookup is _gf_invoke_lookup (gf.c:4217-4230) for the two entry
+// points: the MethodMatch, nil for none, and its valid worlds.
+func (vm *VM) gfInvokeLookup(fn string, a []any) (*Struct, uint64, uint64, error) {
+	w, ok := a[2].(uint64)
+	if !ok {
+		return nil, 0, 0, fmt.Errorf("%w: %s of %s", ErrUnsupported, fn, showValue(vm.newTuple(a)))
+	}
+	if a[1] != nil && a[1] != any(vm.methodTable) {
+		return nil, 0, 0, fmt.Errorf("%w: %s in a method table of its own", ErrUnsupported, fn)
+	}
+	tt := a[0]
+	unw, ok := core.UnwrapUnionAll(tt).(*core.DataType)
+	if !ok || !core.IsTupleType(unw) || len(unw.Parameters) == 0 || unw.Parameters[0] == any(core.Bottom) || w > vm.World() {
+		return nil, 0, 0, nil
+	}
+	tab, ft, name, ok := vm.methodTableOf(unw.Parameters[0])
+	if !ok {
+		return nil, 0, 0, fmt.Errorf("%w: %s of the methods of %s", ErrUnsupported, fn, showValue(unw.Parameters[0]))
+	}
+	var covering []match
+	minValid, maxValid := uint64(0), ^uint64(0)
+	for _, m := range tab.Methods(w) {
+		sig := fullSig(m.Sig, ft)
+		env := make([]any, envSize(sig))
+		sub, err := core.SubtypeEnv(tt, sig, env)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		if sub {
+			covering = append(covering, match{m: m, sig: sig, ti: tt, env: SVec(env), fullyCovers: true})
+			minValid, maxValid = max(minValid, m.PrimaryWorld), min(maxValid, m.MaxWorld)
+		}
+	}
+	i, err := mostSpecific(covering)
+	if err != nil || i < 0 {
+		return nil, 0, 0, err
+	}
 	c := covering[i]
-	return &Struct{Type: vm.tMethodMatch, Fields: []any{c.ti, c.env, vm.methodObject(tab, c.m, ft, name), true}}, nil
+	return &Struct{Type: vm.tMethodMatch, Fields: []any{c.ti, c.env, vm.methodObject(tab, c.m, ft, name), true}}, minValid, maxValid, nil
 }
 
 // mostSpecific is the index of the match more specific than every other,

@@ -454,17 +454,81 @@ func linetableToDebugInfo(codelocsAny []int64, linetable []LineInfo) *expr.Debug
 		out := make(expr.Vector, len(list))
 		for i, e := range list {
 			out[i] = &expr.DebugInfo{Def: e.file, Linetable: nil, Edges: alloc(*e.sub),
-				Codelocs: compressCodelocs(0, e.locs)}
+				Codelocs: CompressCodelocs(0, e.locs)}
 		}
 		return out
 	}
 	return &expr.DebugInfo{Def: top.File, Linetable: nil, Edges: alloc(edges),
-		Codelocs: compressCodelocs(top.Line, codelocs)}
+		Codelocs: CompressCodelocs(top.Line, codelocs)}
 }
 
-// compressCodelocs is jl_compress_codelocs (little-endian, as julia writes
-// it on the platforms the goldens come from).
-func compressCodelocs(firstline int32, codelocs []int32) string {
+// UncompressCodeloc is jl_uncompress1_codeloc (ircode.c:1425-1433, over
+// codelocs_parseheader and unpack_codeloc, 956-981 and 1352-1420): the
+// (line, to, pc) of statement pc (0 the first line), (-1, 0, 0) out of
+// range. julia reads past a malformed string; a short one is out of range
+// here. With 4-byte entries julia's switch never assigns pc (it has case 3
+// for 4): pc is 0 then.
+func UncompressCodeloc(cl string, pc int) (line, to, at int32) {
+	if len(cl) == 0 {
+		return 0, 0, 0
+	}
+	if len(cl) < 12 {
+		return -1, 0, 0
+	}
+	header := func(i int) int32 { return int32(binary.LittleEndian.Uint32([]byte(cl[4*i : 4*i+4]))) }
+	lineOffset := header(0)
+	lineBytes, toBytes := 4, 4
+	switch h := header(1); {
+	case h < 255:
+		lineBytes = 1
+	case h < 65535:
+		lineBytes = 2
+	}
+	switch h := header(2); {
+	case h == 0:
+		toBytes = 0
+	case h < 255:
+		toBytes = 1
+	case h < 65535:
+		toBytes = 2
+	}
+	if len(cl) < 12+lineBytes {
+		return -1, 0, 0
+	}
+	nstmts := (len(cl) - 12 - lineBytes) / (lineBytes + toBytes*2)
+	if pc < 0 || pc > nstmts {
+		return -1, 0, 0
+	}
+	// pc ≤ nstmts keeps every read inside cl
+	off := 12
+	if pc == 0 {
+		toBytes = 0
+	} else {
+		off += lineBytes + (pc-1)*(lineBytes+toBytes*2)
+	}
+	read := func(n int) int32 {
+		var v uint32
+		for i := n - 1; i >= 0; i-- {
+			v = v<<8 | uint32(cl[off+i])
+		}
+		off += n
+		return int32(v)
+	}
+	if line = read(lineBytes); line > 0 {
+		line += lineOffset - 1
+	}
+	to = read(toBytes)
+	if at = read(toBytes); toBytes == 4 {
+		at = 0
+	}
+	return line, to, at
+}
+
+// CompressCodelocs is jl_compress_codelocs (ircode.c:1446-1566): a
+// DebugInfo's codelocs, three Int32 per statement, as julia's compressed
+// string (little-endian, as julia writes it on the platforms the goldens
+// come from).
+func CompressCodelocs(firstline int32, codelocs []int32) string {
 	nstmts := len(codelocs) / 3
 	allzero := true
 	for _, v := range codelocs {
