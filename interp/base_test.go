@@ -23,4 +23,13 @@ func TestBaseProgress(t *testing.T) {
 	vm.Stdout = &out
 	_, err := vm.jlLoad([]any{vm.Main, "Base_compiler.jl"})
 	t.Logf("Base_compiler.jl: %v\nprinted:\n%s", err, out.String())
+	if err != nil {
+		return
+	}
+	// the second stage (sysimage.mk:82): sysimg.jl in Main, which finishes
+	// Base with Base.jl
+	out.Reset()
+	vm.Args = []string{"sysimg.jl"}
+	_, err = vm.jlLoad([]any{vm.Main, "sysimg.jl"})
+	t.Logf("sysimg.jl: %v\nprinted:\n%s", err, out.String())
 }

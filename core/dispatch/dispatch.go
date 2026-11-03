@@ -95,6 +95,19 @@ func (t *Table) Define(sig any, w uint64, def any) (*Method, error) {
 	return m, nil
 }
 
+// Disable makes m, a current method of the table, invisible after world w
+// (jl_method_table_disable, gf.c:2585-2606), false when it was not current.
+// The caller then moves its world counter past w.
+func (t *Table) Disable(m *Method, w uint64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if m.MaxWorld != ^uint64(0) {
+		return false
+	}
+	m.MaxWorld = w
+	return true
+}
+
 // Methods returns the methods visible in world w, in definition order
 // (julia's methods(f) in that world).
 func (t *Table) Methods(w uint64) []*Method {

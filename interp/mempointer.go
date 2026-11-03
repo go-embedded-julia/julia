@@ -131,6 +131,28 @@ func memIndexOf(m *Memory, p *Pointer) (int64, bool) {
 	return p.Off / int64(size), p.Target == any(m) && p.Off >= 0 && p.Off%int64(size) == 0
 }
 
+// ptrArgs is the n values a C function's jl_value_t **args, n names: the
+// elements of a Memory{Any} from where the pointer points (a Vector{Any}
+// passed as Ptr{Any}), at least one.
+func (vm *VM) ptrArgs(fname string, p, count any) ([]any, error) {
+	ptr, ok1 := p.(*Pointer)
+	n, ok2 := count.(int32)
+	if ok1 && ok2 && n > 0 {
+		if m, ok := ptr.Target.(*Memory); ok && m.Type == memAnyType && ptr.Off%8 == 0 && ptr.Off >= 0 {
+			if i := ptr.Off / 8; i <= int64(len(m.Elems)) && int64(n) <= int64(len(m.Elems))-i {
+				args := m.Elems[i : i+int64(n)]
+				for _, x := range args {
+					if x == undef {
+						return nil, vm.exception(vm.tUndefRef)
+					}
+				}
+				return args, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("%w: %s of %s", ErrUnsupported, fname, showValue(vm.newTuple([]any{p, count})))
+}
+
 // typeLayoutPtr is getfield(d, :layout): C_NULL for a type without a
 // layout (abstract, or with free parameters), else a pointer to it.
 func (vm *VM) typeLayoutPtr(d *core.DataType) *Pointer {

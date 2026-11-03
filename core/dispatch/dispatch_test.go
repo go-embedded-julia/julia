@@ -34,6 +34,20 @@ func TestWorldAges(t *testing.T) {
 	}
 }
 
+// A disabled method is visible up to the world it was disabled in, and
+// only once disabled.
+func TestDisable(t *testing.T) {
+	tab := &Table{Name: "f"}
+	m, _ := tab.Add(mustApply(t, core.AnyTupleType, core.Int64Type))
+	w := tab.World()
+	if !tab.Disable(m, w) || tab.Disable(m, w) {
+		t.Fatal("Disable")
+	}
+	if len(tab.Methods(w)) != 1 || len(tab.Methods(w+1)) != 0 {
+		t.Error("visibility of a disabled method")
+	}
+}
+
 // Define takes the world from the caller's global counter and carries the
 // body; a world that is not newer than the table's is refused.
 func TestDefineInAGlobalWorld(t *testing.T) {

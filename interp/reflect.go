@@ -90,6 +90,24 @@ func (vm *VM) bootReflectionTypes() {
 type reflected struct {
 	method *Struct
 	specs  []*Struct // its MethodInstances
+	m      *dispatch.Method
+	tab    *dispatch.Table
+}
+
+// methodTableDisable is jl_method_table_disable (gf.c:2585-2606),
+// Base.delete_method: the method invisible after the current world, then
+// a new world.
+func (vm *VM) methodTableDisable(a []any) (any, error) {
+	ms, ok := a[0].(*Struct)
+	if !ok || ms.Type != vm.tMethod {
+		return nil, vm.typeError("ccall", "", vm.tMethod, a[0])
+	}
+	r := vm.reflectedOf[ms]
+	if !r.tab.Disable(r.m, vm.World()) {
+		return nil, vm.errorf("Method of %s already disabled", ms.Fields[0])
+	}
+	vm.newWorld()
+	return nil, nil
 }
 
 // fullSig is m's signature as julia keeps it, typeof(f) first: a generic
@@ -109,7 +127,7 @@ func fullSig(sig, ft any) any {
 // Fields set from the parts of a method this VM does not keep (the
 // specializations cache, roots, nospecialize and nkw from the body's
 // meta) hold jl_new_method_uninit's defaults.
-func (vm *VM) methodObject(m *dispatch.Method, ft any, name expr.Symbol) *Struct {
+func (vm *VM) methodObject(tab *dispatch.Table, m *dispatch.Method, ft any, name expr.Symbol) *Struct {
 	if r := vm.reflected[m]; r != nil {
 		return r.method
 	}
@@ -133,7 +151,7 @@ func (vm *VM) methodObject(m *dispatch.Method, ft any, name expr.Symbol) *Struct
 		f[28], f[30], f[32] = src.NoSpecializeInfer, src.Constprop, src.Purity
 	}
 	s := &Struct{Type: vm.tMethod, Fields: f}
-	r := &reflected{method: s}
+	r := &reflected{method: s, m: m, tab: tab}
 	vm.reflected[m], vm.reflectedOf[s] = r, r
 	return s
 }
@@ -160,6 +178,15 @@ func (vm *VM) methodTableOf(ft any) (*dispatch.Table, any, expr.Symbol, bool) {
 	}
 	if name := ctorTypeName(ft); name != nil && vm.ctors[name] != nil {
 		return vm.ctors[name], nil, expr.Symbol(name.Name), true
+	}
+	// the table methodDef puts any other callee in, which keeps the
+	// callee's type first; only for one callee type, a type's Type{…} or a
+	// concrete callable, as the other callees' methods are elsewhere
+	if name := ctorTypeName(ft); name != nil {
+		return vm.others, nil, expr.Symbol(name.Name), true
+	}
+	if d, ok := ft.(*core.DataType); ok && d.IsConcrete {
+		return vm.others, nil, expr.Symbol(d.Name.Name), true
 	}
 	return nil, nil, "", false
 }
@@ -252,9 +279,84 @@ func (vm *VM) matchingMethods(a []any) (any, error) {
 	}
 	out := make([]any, len(ms))
 	for i, mt := range ms {
-		out[i] = &Struct{Type: vm.tMethodMatch, Fields: []any{mt.ti, mt.env, vm.methodObject(mt.m, ft, name), mt.fullyCovers}}
+		out[i] = &Struct{Type: vm.tMethodMatch, Fields: []any{mt.ti, mt.env, vm.methodObject(tab, mt.m, ft, name), mt.fullyCovers}}
 	}
 	return vm.newVector(core.AnyType, out), nil
+}
+
+// gfInvokeLookupWorlds is jl_gf_invoke_lookup_worlds(types, mt, world,
+// min_world, max_world) (gf.c:4217-4254): ml_matches with intersections
+// off, so only the methods whose signature covers the query count, and
+// the answer is the one more specific than all the others (the minmax,
+// gf.c:4755-4775), nothing when there is none or no unique one.
+func (vm *VM) gfInvokeLookupWorlds(a []any) (any, error) {
+	w, ok := a[2].(uint64)
+	if !ok {
+		return nil, fmt.Errorf("%w: jl_gf_invoke_lookup_worlds of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+	}
+	if a[1] != nil {
+		return nil, fmt.Errorf("%w: jl_gf_invoke_lookup_worlds in a method table of its own", ErrUnsupported)
+	}
+	tt := a[0]
+	unw, ok := core.UnwrapUnionAll(tt).(*core.DataType)
+	if !ok || !core.IsTupleType(unw) || len(unw.Parameters) == 0 || unw.Parameters[0] == any(core.Bottom) || w > vm.World() {
+		return nil, nil
+	}
+	tab, ft, name, ok := vm.methodTableOf(unw.Parameters[0])
+	if !ok {
+		return nil, fmt.Errorf("%w: jl_gf_invoke_lookup_worlds of the methods of %s", ErrUnsupported, showValue(unw.Parameters[0]))
+	}
+	var covering []match
+	minValid, maxValid := uint64(0), ^uint64(0)
+	for _, m := range tab.Methods(w) {
+		sig := fullSig(m.Sig, ft)
+		env := make([]any, envSize(sig))
+		sub, err := core.SubtypeEnv(tt, sig, env)
+		if err != nil {
+			return nil, err
+		}
+		if sub {
+			covering = append(covering, match{m: m, sig: sig, ti: tt, env: SVec(env), fullyCovers: true})
+			minValid, maxValid = max(minValid, m.PrimaryWorld), min(maxValid, m.MaxWorld)
+		}
+	}
+	i, err := mostSpecific(covering)
+	if err != nil || i < 0 {
+		return nil, err
+	}
+	if err := vm.storeThrough("jl_gf_invoke_lookup_worlds", a[3], core.UInt64Type, minValid); err != nil {
+		return nil, err
+	}
+	if err := vm.storeThrough("jl_gf_invoke_lookup_worlds", a[4], core.UInt64Type, maxValid); err != nil {
+		return nil, err
+	}
+	c := covering[i]
+	return &Struct{Type: vm.tMethodMatch, Fields: []any{c.ti, c.env, vm.methodObject(tab, c.m, ft, name), true}}, nil
+}
+
+// mostSpecific is the index of the match more specific than every other,
+// -1 when none is.
+func mostSpecific(ms []match) (int, error) {
+	for i, c := range ms {
+		best := true
+		for j, o := range ms {
+			if i == j {
+				continue
+			}
+			more, err := core.MoreSpecific(c.sig, o.sig)
+			if err != nil {
+				return -1, err
+			}
+			if !more {
+				best = false
+				break
+			}
+		}
+		if best {
+			return i, nil
+		}
+	}
+	return -1, nil
 }
 
 // orderMatches sorts the matches most specific first and leaves out the

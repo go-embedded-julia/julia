@@ -82,9 +82,20 @@ type VM struct {
 
 	// RunCompilerBootstrap runs Base_compiler.jl's Compiler.bootstrap!()
 	// (Base_compiler.jl:380), which infers the compiler's own entry points
-	// and turns code generation on (Compiler/src/bootstrap.jl). There is no
-	// code generation here, so the form is skipped unless this is set.
+	// and then turns code generation on (Compiler/src/bootstrap.jl). There
+	// is no code generation here, so unless this is set only the last step,
+	// activate_codegen!(), runs: it records the inference world.
 	RunCompilerBootstrap bool
+
+	// typeinfFunc and typeinfWorld are jl_typeinf_func and
+	// jl_typeinf_world (gf.c:954-961).
+	typeinfFunc  any
+	typeinfWorld uint64
+
+	// gsCtr is gs_ctr (symbol.c:125), Base.gensym's counter.
+	gsCtr uint32
+	// typeinfTiming is the task's reentrant_timing bit 0 (gf.c:4944-4958).
+	typeinfTiming bool
 
 	// MaxMemoryElems bounds the elements of one memorynew; past it the
 	// allocation stops with ErrMemoryLimit instead of exhausting the host.
@@ -149,6 +160,7 @@ func New() *VM {
 		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard,
 		addrs: addrSpace{byTarget: map[any]uint64{}, byID: map[uint64]any{}}}
 	vm.world.Store(1)
+	vm.typeinfWorld = 1 // jl_typeinf_world's initial value (gf.c:955)
 	vm.Core = vm.addModule("Core", nil)
 	// Core lowers against itself, as boot.jl needs (it marks Core a top
 	// module itself at its end)

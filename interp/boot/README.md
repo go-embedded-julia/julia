@@ -10,7 +10,13 @@ under julia's `base/`:
   evaluates it in Core as julia does.
 - `optimized_generics.jl` is the file `boot.jl` includes into Core
   (`include(Core, "optimized_generics.jl")`, boot.jl:1084).
-- `Base_compiler.jl` and the files it includes, from `coreio.jl` on.
+- `Base_compiler.jl`, `sysimg.jl`, `Base.jl` and every other file of
+  julia's `base/` (julia's build scripts left out: `Makefile`,
+  `.gitignore`, `version_git.sh`).
+- `build_h.jl` and `version_git.jl` are the two files julia's build
+  generates into `base/` (from `base/Makefile` and `base/version_git.sh`).
+  They are the official julia 1.12.6 darwin/arm64 build's, copied from its
+  `share/julia/base/`: the platform the interpreter models.
 - `julia/Compiler/src/` is julia's `Compiler/src/`, the type-inference
   compiler that `Base_compiler.jl` includes. During the bootstrap the
   Compiler's includes are relative to `base/`, under `DATAROOT *

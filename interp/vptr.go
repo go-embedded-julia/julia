@@ -227,6 +227,38 @@ func (vm *VM) symbolN(a []any) (any, error) {
 	return expr.Symbol(s), nil
 }
 
+// gensym is jl_gensym and jl_tagged_gensym(str, len) (symbol.c:129-163):
+// ##ctr, or ##str#ctr, from one counter starting at 0 (gs_ctr); str is a
+// pointer into a String and len its length, or -1 for a NUL-ended one.
+func (vm *VM) gensym(a []any) (any, error) {
+	ctr := vm.gsCtr
+	vm.gsCtr++
+	if len(a) == 0 {
+		return expr.Symbol(fmt.Sprintf("##%d", ctr)), nil
+	}
+	var s string
+	ok := false
+	if n, isU := a[1].(uint64); isU && n == ^uint64(0) {
+		// strlen: to the first NUL from where the pointer points
+		if s, ok = stringBytes(a[0], int64(0)); ok {
+			p := a[0].(*Pointer)
+			rest := p.Target.(string)[p.Off:]
+			s, _, _ = strings.Cut(rest, "\x00")
+		}
+	} else {
+		s, ok = stringBytes(a[0], a[1])
+		if ok && strings.IndexByte(s, 0) >= 0 {
+			vm.gsCtr--
+			return nil, vm.exception(vm.tArgError, "Symbol name may not contain \\0")
+		}
+	}
+	if !ok {
+		vm.gsCtr--
+		return nil, fmt.Errorf("%w: jl_tagged_gensym of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+	}
+	return expr.Symbol(fmt.Sprintf("##%s#%d", s, ctr)), nil
+}
+
 // uvPutb is jl_uv_putb(stream, byte).
 func (vm *VM) uvPutb(a []any) (any, error) {
 	s, err := vm.streamOf(a[0])

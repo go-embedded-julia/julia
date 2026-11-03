@@ -229,12 +229,59 @@ func (vm *VM) bootShims() {
 			}
 			return prefix + str, nil
 		},
+		// jl_gensym and jl_tagged_gensym (symbol.c:129-163), Base.gensym
+		"jl_gensym":        func(vm *VM, a []any) (any, error) { return vm.gensym(nil) },
+		"jl_tagged_gensym": func(vm *VM, a []any) (any, error) { return vm.gensym(a) },
+		// jl_symbol_name (symbol.c): a pointer to the name's bytes, read only
+		"jl_symbol_name": func(vm *VM, a []any) (any, error) {
+			s, ok := a[0].(expr.Symbol)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.SymbolType, a[0])
+			}
+			return vm.stringPtrOf(string(s)), nil
+		},
 		// jl_hrtime (sys.c, uv_hrtime): a monotonic clock in nanoseconds
 		// from an arbitrary origin, here the process's start
 		"jl_hrtime": func(vm *VM, a []any) (any, error) { return uint64(time.Since(hrtimeOrigin)), nil },
+		// jl_typeinf_timing_begin and _end (gf.c:4944-4966): the task's
+		// reentrancy flag; compile time is not measured (it is off unless
+		// enabled), so the clock is only read
+		"jl_typeinf_timing_begin": func(vm *VM, a []any) (any, error) {
+			if vm.typeinfTiming {
+				return uint64(0), nil
+			}
+			vm.typeinfTiming = true
+			return uint64(time.Since(hrtimeOrigin)) | 1, nil
+		},
+		"jl_typeinf_timing_end": func(vm *VM, a []any) (any, error) {
+			if a[0] != uint64(0) {
+				vm.typeinfTiming = false
+			}
+			return nil, nil
+		},
+		// jl_set_typeinf_func (gf.c:957-961): the inference entry point and
+		// the world it runs in, the task's now
+		"jl_set_typeinf_func": func(vm *VM, a []any) (any, error) {
+			vm.typeinfFunc, vm.typeinfWorld = a[0], vm.taskWorld
+			return nil, nil
+		},
+		// jl_call_in_typeinf_world (gf.c:552-563): args[1](args[2:]...) in
+		// the inference world, the args a Ptr{Any} into a Vector's memory
+		"jl_call_in_typeinf_world": func(vm *VM, a []any) (any, error) {
+			args, err := vm.ptrArgs("jl_call_in_typeinf_world", a[0], a[1])
+			if err != nil {
+				return nil, err
+			}
+			last := vm.taskWorld
+			vm.taskWorld = vm.typeinfWorld
+			defer func() { vm.taskWorld = last }()
+			return vm.apply(args[0], args[1:])
+		},
 		// method reflection (reflect.go)
 		"jl_matching_methods":          func(vm *VM, a []any) (any, error) { return vm.matchingMethods(a) },
 		"jl_specializations_get_linfo": func(vm *VM, a []any) (any, error) { return vm.specializationsGetLinfo(a) },
+		"jl_gf_invoke_lookup_worlds":   func(vm *VM, a []any) (any, error) { return vm.gfInvokeLookupWorlds(a) },
+		"jl_method_table_disable":      func(vm *VM, a []any) (any, error) { return vm.methodTableDisable(a) },
 		// jl_get_world_counter (gf.c:32-38): the newest world, a UInt;
 		// there are no pure callbacks here
 		"jl_get_world_counter": func(vm *VM, a []any) (any, error) { return vm.World(), nil },

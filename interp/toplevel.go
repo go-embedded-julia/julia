@@ -250,9 +250,12 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 		if _, ok := form.(expr.LineNumberNode); ok {
 			continue
 		}
-		// the bootstrap Base's Compiler.bootstrap!() (VM.RunCompilerBootstrap)
+		// the bootstrap Base's Compiler.bootstrap!() without its inference of
+		// the compiler's entry points: only the activate_codegen!() it ends
+		// with (bootstrap.jl:77), which records the inference world
+		// (VM.RunCompilerBootstrap)
 		if bootstrapBase && !vm.RunCompilerBootstrap && isCompilerBootstrap(form) {
-			continue
+			form = expr.New("call", expr.New(".", expr.Symbol("Compiler"), expr.QuoteNode{Value: expr.Symbol("activate_codegen!")}))
 		}
 		vm.taskWorld = vm.World()
 		if _, err := s.evalForm(form); err != nil {
