@@ -72,3 +72,18 @@ func (vm *VM) jlLoad(a []any) (any, error) {
 	}
 	return v, nil
 }
+
+// isCompilerBootstrap reports the form Compiler.bootstrap!() (see
+// VM.RunCompilerBootstrap).
+func isCompilerBootstrap(form any) bool {
+	call, ok := form.(*expr.Expr)
+	if !ok || call.Head != "call" || len(call.Args) != 1 {
+		return false
+	}
+	dot, ok := call.Args[0].(*expr.Expr)
+	if !ok || dot.Head != "." || len(dot.Args) != 2 || dot.Args[0] != any(expr.Symbol("Compiler")) {
+		return false
+	}
+	q, ok := dot.Args[1].(expr.QuoteNode)
+	return ok && q.Value == any(expr.Symbol("bootstrap!"))
+}

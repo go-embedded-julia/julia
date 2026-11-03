@@ -80,6 +80,12 @@ type VM struct {
 	// first, which Boot makes Core.ARGS (jl_set_ARGS, jlapi.c:53-74).
 	Args []string
 
+	// RunCompilerBootstrap runs Base_compiler.jl's Compiler.bootstrap!()
+	// (Base_compiler.jl:380), which infers the compiler's own entry points
+	// and turns code generation on (Compiler/src/bootstrap.jl). There is no
+	// code generation here, so the form is skipped unless this is set.
+	RunCompilerBootstrap bool
+
 	// MaxMemoryElems bounds the elements of one memorynew; past it the
 	// allocation stops with ErrMemoryLimit instead of exhausting the host.
 	// emptyMemory holds each memory type's zero-length instance.
@@ -89,6 +95,11 @@ type VM struct {
 	singletons map[*core.DataType]any
 	// intrinsics are the intrinsics by number (intrinsicid.go).
 	intrinsics []*Intrinsic
+	// reflected are the Method objects reflection made, by method and by
+	// object (reflect.go).
+	reflected                              map[*dispatch.Method]*reflected
+	reflectedOf                            map[*Struct]*reflected
+	tMethod, tMethodInstance, tMethodMatch *core.DataType
 
 	// Stdout and Stderr receive what Julia code prints (Core.println,
 	// print): io.Discard unless the embedder sets them. cglobals are the C
@@ -134,6 +145,7 @@ func New() *VM {
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
 		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources,
 		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{}, singletons: map[*core.DataType]any{},
+		reflected: map[*dispatch.Method]*reflected{}, reflectedOf: map[*Struct]*reflected{},
 		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard,
 		addrs: addrSpace{byTarget: map[any]uint64{}, byID: map[uint64]any{}}}
 	vm.world.Store(1)

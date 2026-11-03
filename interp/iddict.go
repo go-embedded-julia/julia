@@ -161,28 +161,6 @@ func (vm *VM) tablePeek(a *Memory, key any) int {
 	}
 }
 
-// storeCint writes v through a Ptr{Cint} made from a Ref{Cint}
-// (refvalue.jl:38-54: pointer_from_objref of the RefValue, whose only
-// field is at offset 0), C's *p = v.
-func (vm *VM) storeCint(fname string, p any, v int32) error {
-	ptr, ok := p.(*Pointer)
-	if !ok {
-		return fmt.Errorf("%w: %s's result through %s", ErrUnsupported, fname, showValue(p))
-	}
-	if ptr.Target == nil && ptr.Off == 0 {
-		return nil // C_NULL: no result wanted (iddict.c:147, 171)
-	}
-	s, ok := ptr.Target.(*Struct)
-	if !ok || ptr.Off != 0 || !s.Type.Name.Mutable || len(s.Fields) == 0 {
-		return fmt.Errorf("%w: %s's result through %s", ErrUnsupported, fname, showValue(p))
-	}
-	if ft, _ := s.Type.FieldTypes(); len(ft) == 0 || ft[0] != any(core.Int32Type) {
-		return fmt.Errorf("%w: %s's result through %s", ErrUnsupported, fname, showValue(p))
-	}
-	s.Fields[0] = v
-	return nil
-}
-
 // valuePtr is jl_value_ptr (Ptr{Cvoid}, (Any,)), pointer_from_objref: a
 // pointer to the object itself.
 func (vm *VM) valuePtr(a []any) (any, error) {
@@ -216,7 +194,7 @@ func (vm *VM) bootEqtableShims() {
 		if inserted {
 			n = 1
 		}
-		return t, vm.storeCint("jl_eqtable_put", a[3], n)
+		return t, vm.storeThrough("jl_eqtable_put", a[3], core.Int32Type, n)
 	}
 	vm.shims["jl_eqtable_get"] = func(vm *VM, a []any) (any, error) {
 		t, err := vm.eqTable("jl_eqtable_get", a[0])
@@ -238,7 +216,7 @@ func (vm *VM) bootEqtableShims() {
 		if i >= 0 {
 			found = 1
 		}
-		if err := vm.storeCint("jl_eqtable_pop", a[3], found); err != nil {
+		if err := vm.storeThrough("jl_eqtable_pop", a[3], core.Int32Type, found); err != nil {
 			return nil, err
 		}
 		if i < 0 {

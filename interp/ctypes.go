@@ -48,11 +48,11 @@ func (vm *VM) bootCTypes() {
 		vm.setCore(expr.Symbol(name), t.Name.Wrapper)
 		return t
 	}
-	for _, name := range []string{"Method", "MethodInstance", "CodeInstance", "MethodTable", "MethodCache",
-		"TypeMapEntry", "TypeMapLevel", "Task", "Binding", "BindingPartition", "Const", "PartialStruct",
-		"PartialOpaque", "InterConditional", "MethodMatch"} {
+	for _, name := range []string{"CodeInstance", "MethodTable", "MethodCache",
+		"TypeMapEntry", "TypeMapLevel", "Task", "Binding", "BindingPartition"} {
 		opaque(name)
 	}
+	vm.bootReflectionTypes()
 	vm.tCodeInfo = opaque("CodeInfo")
 	vm.setCore("NamedTuple", core.NamedTupleType)
 	opaque("OpaqueClosure", "A", "R")

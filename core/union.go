@@ -486,6 +486,10 @@ func simpleUnion(a, b any) any {
 // differential test measures what it costs.
 func hasEmptyIntersection(a, b any) bool { return obviouslyDisjoint(a, b, false) }
 
+// ObviouslyDisjoint is obviously_disjoint (subtype.c): true only when a and
+// b certainly have no common subtype; false says nothing.
+func ObviouslyDisjoint(a, b any) bool { return obviouslyDisjoint(a, b, false) }
+
 // simpleIntersect is simple_intersect (jltypes.c:799-903).
 func simpleIntersect(a, b any, overesi bool) any {
 	temp := make([]any, 0, countUnionComponents([]any{a}, false)+countUnionComponents([]any{b}, false))

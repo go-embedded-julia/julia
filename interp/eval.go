@@ -439,6 +439,10 @@ type lambda struct {
 	nargs int
 	isva  bool
 	mod   *Module
+	// file and line are the definition's location (functionloc,
+	// method.c:1229-1233), Method.file and .line
+	file expr.Symbol
+	line int32
 }
 
 // definitionEffects is resolve_definition_effects with binding effects
@@ -557,8 +561,26 @@ func (f *frame) methodDef(s sMethodDef) error {
 	if last := argtypes[len(argtypes)-1]; last != nil {
 		_, isva = last.(*core.Vararg)
 	}
-	_, err = tab.Define(sig, vm.newWorld(), &lambda{c: c, nargs: len(argtypes), isva: isva, mod: f.mod})
+	lam := &lambda{c: c, nargs: len(argtypes), isva: isva, mod: f.mod}
+	if len(parts) > 2 {
+		lam.file, lam.line = functionLoc(parts[2])
+	}
+	_, err = tab.Define(sig, vm.newWorld(), lam)
 	return err
+}
+
+// functionLoc is the file and line of a method's location node, the empty
+// symbol for a file that is not a symbol (method.c:1229-1233).
+func functionLoc(v any) (expr.Symbol, int32) {
+	if q, ok := v.(expr.QuoteNode); ok {
+		v = q.Value
+	}
+	ln, ok := v.(expr.LineNumberNode)
+	if !ok {
+		return "", 0
+	}
+	file, _ := ln.File.(expr.Symbol)
+	return file, int32(ln.Line)
 }
 
 // apply is jl_apply: a builtin or intrinsic runs in Go; a generic function

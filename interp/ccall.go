@@ -2,11 +2,16 @@ package interp
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 	"github.com/go-embedded-julia/julia/lower"
 )
+
+// hrtimeOrigin is jl_hrtime's origin.
+var hrtimeOrigin = time.Now()
 
 // foreigncall is where julia's interpreter gives up ("`ccall` requires the
 // compiler", interpreter.c:356-358): julia never meets it because Base is
@@ -209,6 +214,27 @@ func (vm *VM) bootShims() {
 		"jl_has_free_typevars": func(vm *VM, a []any) (any, error) { return core.HasFreeTypeVars(a[0]), nil },
 		// jl_get_tls_world_age (task.c): the task's world, a UInt
 		"jl_get_tls_world_age": func(vm *VM, a []any) (any, error) { return vm.taskWorld, nil },
+		// jl_prepend_string (toplevel.c:1252-1264): prefix and str as C
+		// strings, each to its first NUL, in a 1024-byte buffer
+		"jl_prepend_string": func(vm *VM, a []any) (any, error) {
+			prefix, ok1 := a[0].(string)
+			str, ok2 := a[1].(string)
+			if !ok1 || !ok2 {
+				return nil, fmt.Errorf("%w: jl_prepend_string of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+			}
+			prefix, _, _ = strings.Cut(prefix, "\x00")
+			str, _, _ = strings.Cut(str, "\x00")
+			if len(prefix)+len(str) >= 1024 {
+				return nil, vm.errorf("use a bigger buffer for jl_fullpath")
+			}
+			return prefix + str, nil
+		},
+		// jl_hrtime (sys.c, uv_hrtime): a monotonic clock in nanoseconds
+		// from an arbitrary origin, here the process's start
+		"jl_hrtime": func(vm *VM, a []any) (any, error) { return uint64(time.Since(hrtimeOrigin)), nil },
+		// method reflection (reflect.go)
+		"jl_matching_methods":          func(vm *VM, a []any) (any, error) { return vm.matchingMethods(a) },
+		"jl_specializations_get_linfo": func(vm *VM, a []any) (any, error) { return vm.specializationsGetLinfo(a) },
 		// jl_get_world_counter (gf.c:32-38): the newest world, a UInt;
 		// there are no pure callbacks here
 		"jl_get_world_counter": func(vm *VM, a []any) (any, error) { return vm.World(), nil },

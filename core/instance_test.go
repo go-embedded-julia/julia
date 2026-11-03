@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+// ObviouslyDisjoint answers true only for types without a common subtype.
+func TestObviouslyDisjoint(t *testing.T) {
+	if !ObviouslyDisjoint(Int64Type, StringType) || ObviouslyDisjoint(Int64Type, AnyType) {
+		t.Error("ObviouslyDisjoint")
+	}
+}
+
 // A type's cached instance: none until set, a set nothing told from none,
 // and safe to set from the VMs of several goroutines at once.
 func TestCachedInstance(t *testing.T) {

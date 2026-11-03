@@ -245,8 +245,13 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 	b := parent.declare(name, vm.newWorld())
 	b.Value, b.Const = newm, true
 	s := vm.sessionFor(newm)
+	bootstrapBase := parent == vm.Main && name == "Base" && newm == vm.baseModule
 	for _, form := range body.Args {
 		if _, ok := form.(expr.LineNumberNode); ok {
+			continue
+		}
+		// the bootstrap Base's Compiler.bootstrap!() (VM.RunCompilerBootstrap)
+		if bootstrapBase && !vm.RunCompilerBootstrap && isCompilerBootstrap(form) {
 			continue
 		}
 		vm.taskWorld = vm.World()
