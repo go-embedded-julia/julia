@@ -361,6 +361,10 @@ func biSizeof(vm *VM, args []any) (any, error) {
 	case *Struct, *Tuple:
 		// any other value's size is its type's layout size (builtins.c:563-569)
 		return biSizeof(vm, []any{vm.typeOf(x)})
+	case *Module:
+		// Module's layout is opaque, of size 0 (builtins.c:566): julia gives
+		// 0 for a module, and refuses the type itself
+		return int64(0), nil
 	case *core.DataType:
 		if x.Name.Abstract {
 			return nil, vm.errorf("Abstract type %s does not have a definite size.", x.Name.Name)

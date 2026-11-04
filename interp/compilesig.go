@@ -266,12 +266,11 @@ func (vm *VM) compilationSig(tt *core.DataType, sparams SVec, def *Struct, maxVa
 				// Type{Type{...}}: compiled as Type{T} unless something more
 				// specific was declared
 				if isva, _ := def.Fields[methodIsva].(bool); i < nargs || !isva {
+					// julia widens a kind di to Type (gf.c:1210); di is none here:
+					// a kind holding di holds elt, so typeof(p0) is under it
+					// and the kind case above made elt that kind already
 					di, _ := core.TypeIntersection(typeI, core.TypeType)
-					if core.IsKind(di) {
-						set(i, core.TypeType)
-					} else {
-						set(i, di)
-					}
+					set(i, di)
 				} else {
 					set(i, core.TypeType)
 				}
@@ -412,10 +411,9 @@ func (vm *VM) isaCompileableSig(typ any, sparams SVec, def *Struct) bool {
 				return false
 			}
 			p0 := ed.Parameters[0]
+			// julia first refuses a kind of Union{} (gf.c:1409), which no value's
+			// type is: Type{Union{}} is typeof(Union{}), never a Type{T} here
 			kind := vm.typeOf(p0)
-			if kind == any(core.Bottom) {
-				return false // Type{Union{}} is typeof(Union{})
-			}
 			if core.Subtype(kind, typeI) && !core.Subtype(core.TypeType, typeI) {
 				return false // gets turned into a kind
 			}

@@ -124,8 +124,8 @@ func TestSizeofCorners(t *testing.T) {
 	}
 	v, err = biSizeof(vm, []any{fn})
 	check(t, "sizeof a function", v, err, "0")
-	_, err = biSizeof(vm, []any{vm.Core})
-	check(t, "sizeof a module", nil, err, "!sizeof of a Module")
+	v, err = biSizeof(vm, []any{vm.Core})
+	check(t, "sizeof a module", v, err, "0") // julia 1.12.6: Core.sizeof(Main) == 0
 }
 
 // jl_cstr_to_string of a String and of a memory of bytes.

@@ -322,6 +322,82 @@ func (s *irEncoder) encodeAsIndexedRoot(v any) {
 	}
 }
 
+// encodeTag writes v as its tag when it has one: in ser_tag, or a common
+// symbol (jl_encode_value_'s first cases, ircode.c:253-268).
+func (s *irEncoder) encodeTag(v any) bool {
+	if k, ok := irKey(v); ok {
+		if t8, ok := s.tables.ser[k]; ok {
+			if t8 <= irLastTag {
+				s.u8(0)
+			}
+			s.u8(t8)
+			return true
+		}
+	}
+	if sym, ok := v.(expr.Symbol); ok {
+		if tag, ok := s.tables.symTag[sym]; ok {
+			s.u8(irCommonsym)
+			s.u8(tag)
+			return true
+		}
+	}
+	return false
+}
+
+// The values whose encoding cannot fail, encoded as encode would.
+
+func (s *irEncoder) encodeNothing() { s.encodeTag(nil) }
+
+func (s *irEncoder) encodeSymbol(sym expr.Symbol) {
+	if !s.encodeTag(sym) {
+		s.encodeAsIndexedRoot(sym)
+	}
+}
+
+func (s *irEncoder) encodeModule(m *Module) {
+	switch {
+	case s.encodeTag(m):
+	case m == s.vm.Core:
+		s.u8(irCore)
+	case s.vm.baseModule != nil && m == s.vm.baseModule:
+		s.u8(irBase)
+	case m == s.mod:
+		s.u8(irNearbyModule)
+	default:
+		s.encodeAsIndexedRoot(m)
+	}
+}
+
+func (s *irEncoder) encodeInt64(x int64) {
+	switch {
+	case s.encodeTag(x):
+	case x >= math.MinInt16 && x <= math.MaxInt16:
+		s.u8(irShorterInt64)
+		s.u16(uint16(x))
+	case x >= math.MinInt32 && x <= math.MaxInt32:
+		s.u8(irShortInt64)
+		s.u32(uint32(x))
+	default:
+		s.u8(irInt64)
+		s.u64(uint64(x))
+	}
+}
+
+func (s *irEncoder) encodeInt32Value(x int32) {
+	if !s.encodeTag(x) {
+		s.encodeInt32(x)
+	}
+}
+
+// encodeLiteralString is a String encoded as a literal.
+func (s *irEncoder) encodeLiteralString(str string) {
+	if !s.encodeTag(str) {
+		s.u8(irString)
+		s.u32(uint32(len(str)))
+		s.b = append(s.b, str...)
+	}
+}
+
 // encode is jl_encode_value_ (ircode.c:243-548); lit is as_literal.
 func (s *irEncoder) encode(v any, lit bool) error {
 	vm := s.vm
@@ -329,14 +405,8 @@ func (s *irEncoder) encode(v any, lit bool) error {
 		s.u8(irNull)
 		return nil
 	}
-	if k, ok := irKey(v); ok {
-		if t8, ok := s.tables.ser[k]; ok {
-			if t8 <= irLastTag {
-				s.u8(0)
-			}
-			s.u8(t8)
-			return nil
-		}
+	if s.encodeTag(v) {
+		return nil
 	}
 	switch x := v.(type) {
 	case SVec:
@@ -349,23 +419,11 @@ func (s *irEncoder) encode(v any, lit bool) error {
 			s.u8(irLastTag + 1 + uint8(irEmptyTuple))
 			return nil
 		}
-	}
-	if sym, ok := v.(expr.Symbol); ok {
-		if tag, ok := s.tables.symTag[sym]; ok {
-			s.u8(irCommonsym)
-			s.u8(tag)
-			return nil
-		}
-	}
-	switch {
-	case v == any(vm.Core):
-		s.u8(irCore)
+	case expr.Symbol:
+		s.encodeSymbol(x)
 		return nil
-	case vm.baseModule != nil && v == any(vm.baseModule):
-		s.u8(irBase)
-		return nil
-	case v == any(s.mod):
-		s.u8(irNearbyModule)
+	case *Module:
+		s.encodeModule(x)
 		return nil
 	}
 	if d, ok := v.(*core.DataType); ok && !d.HasFreeTypeVars {
@@ -398,10 +456,9 @@ func (s *irEncoder) encode(v any, lit bool) error {
 			return s.encode(x.Name, false)
 		}
 		s.u8(irGlobalref)
-		if err := s.encode(m, false); err != nil {
-			return err
-		}
-		return s.encode(x.Name, false)
+		s.encodeModule(m)
+		s.encodeSymbol(x.Name)
+		return nil
 	case expr.SSAValue:
 		id := int(x)
 		switch d := s.ssaid - id; {
@@ -437,9 +494,7 @@ func (s *irEncoder) encode(v any, lit bool) error {
 			s.u8(irLongExpr)
 			s.u32(uint32(l))
 		}
-		if err := s.encode(x.Head, false); err != nil {
-			return err
-		}
+		s.encodeSymbol(x.Head)
 		return s.encodeAll(x.Args)
 	case *Struct:
 		switch any(x.Type) {
@@ -458,9 +513,7 @@ func (s *irEncoder) encode(v any, lit bool) error {
 				// julia tests e <= 0 && e <= 20 for its one-byte encodings
 				// (ircode.c:373); either way a 0..20 is one byte
 				if e := e.(int32); e <= 0 {
-					if err := s.encode(e, false); err != nil {
-						return err
-					}
+					s.encodeInt32Value(e)
 				} else {
 					s.encodeInt32(e)
 				}
@@ -488,9 +541,7 @@ func (s *irEncoder) encode(v any, lit bool) error {
 		return s.encode(int64(x.Dest), false)
 	case expr.EnterNode:
 		s.u8(irEnternode)
-		if err := s.encode(int64(x.Catch), false); err != nil {
-			return err
-		}
+		s.encodeInt64(int64(x.Catch))
 		if !x.HasScope {
 			return s.encode(undef, false)
 		}
@@ -517,17 +568,7 @@ func (s *irEncoder) encode(v any, lit bool) error {
 		}
 		return s.encode(x.Value, false)
 	case int64:
-		switch {
-		case x >= math.MinInt16 && x <= math.MaxInt16:
-			s.u8(irShorterInt64)
-			s.u16(uint16(x))
-		case x >= math.MinInt32 && x <= math.MaxInt32:
-			s.u8(irShortInt64)
-			s.u32(uint32(x))
-		default:
-			s.u8(irInt64)
-			s.u64(uint64(x))
-		}
+		s.encodeInt64(x)
 		return nil
 	case int32:
 		s.encodeInt32(x)
@@ -543,18 +584,14 @@ func (s *irEncoder) encode(v any, lit bool) error {
 		return s.encode(t, false)
 	}
 	if str, ok := v.(string); ok && lit {
-		s.u8(irString)
-		s.u32(uint32(len(str)))
-		s.b = append(s.b, str...)
+		s.encodeLiteralString(str)
 		return nil
 	}
 	if lit {
 		if _, _, elems, ok := arrayOf(v); ok {
 			if st, ok := v.(*Struct); ok && st.Type.Name == typeNameOf(core.ArrayType) {
 				s.u8(irArray1D)
-				if err := s.encode(int64(len(elems)), false); err != nil {
-					return err
-				}
+				s.encodeInt64(int64(len(elems)))
 				if err := s.encode(st.Type, false); err != nil {
 					return err
 				}
@@ -566,9 +603,7 @@ func (s *irEncoder) encode(v any, lit bool) error {
 			if err := s.encode(m.Type, false); err != nil {
 				return err
 			}
-			if err := s.encode(int64(len(m.Elems)), false); err != nil {
-				return err
-			}
+			s.encodeInt64(int64(len(m.Elems)))
 			return s.encodeSlice(m.Type.Parameters[1], m.Elems)
 		}
 	}
@@ -825,11 +860,9 @@ func (vm *VM) compressIR(m *Struct, codev any) (string, error) {
 		// generated functions keep their slot names
 		names := vm.ciField(code, "slotnames")
 		_, _, ns, _ := arrayOf(names)
-		if err := s.encode(compressArgnames(ns), true); err != nil {
-			return "", err
-		}
-	} else if err := s.encode(nil, false); err != nil {
-		return "", err
+		s.encodeLiteralString(compressArgnames(ns))
+	} else {
+		s.encodeNothing()
 	}
 	s.u8(s.reloc)
 	if _, _, rs, _ := arrayOf(m.Fields[methodRoots]); len(rs) == 0 {
