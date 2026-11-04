@@ -37,7 +37,7 @@ func TestIRFlagsAgainstJulia(t *testing.T) {
 		{"jl_ir_slotflag", []any{src, uint64(1)}, "0x08"},
 		// refusals: compressed IR the VM never writes, not a CodeInfo, a
 		// slot out of range
-		{"jl_ir_flag_inlining", []any{"\x00"}, "!not ported yet: jl_ir_flag_inlining of compressed IR"},
+		{"jl_ir_flag_inlining", []any{"\x00"}, `!ErrorException("jl_ir_flag_inlining: malformed compressed IR")`},
 		{"jl_ir_nslots", []any{int64(1)}, "!TypeError(:ccall"},
 		{"jl_ir_slotflag", []any{int64(1), uint64(0)}, "!TypeError(:ccall"},
 		{"jl_ir_slotflag", []any{src, uint64(2)}, `!ErrorException("jl_ir_slotflag: slot 0x0000000000000002 out of range")`},

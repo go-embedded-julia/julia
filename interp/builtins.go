@@ -431,6 +431,8 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 				return typeNameFlags(x), true
 			case 12:
 				return x.MaxArgs.Load(), true
+			case 13:
+				return x.NUninitialized, true
 			case 15:
 				return uint8(x.CacheEntryCount.Load()), true
 			case 16:

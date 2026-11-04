@@ -215,6 +215,123 @@ func (vm *VM) engineFulfill(a []any) (any, error) {
 	return nil, nil
 }
 
+// promoteCIToCurrent is jl_promote_ci_to_current (gf.c:1776-1809): a
+// CodeInstance validated in the current world, and the CodeInstances among
+// its edges, valid in every later world.
+func (vm *VM) promoteCIToCurrent(a []any) (any, error) {
+	ci, err := vm.codeInstanceArg(a[0])
+	if err != nil {
+		return nil, err
+	}
+	w, ok := a[1].(uint64)
+	if !ok {
+		return nil, vm.typeError("ccall", "", core.UInt64Type, a[1])
+	}
+	if vm.World() == w {
+		vm.promoteCI(ci, w)
+	}
+	return nil, nil
+}
+
+func (vm *VM) promoteCI(ci *Struct, w uint64) {
+	if ci.Fields[ciMaxWorld] != any(w) {
+		return
+	}
+	ci.Fields[ciMaxWorld] = ^uint64(0)
+	edges, _ := ci.Fields[ciEdges].(SVec)
+	for _, e := range edges {
+		if s, ok := e.(*Struct); ok && s.Type == vm.tCodeInstance {
+			vm.promoteCI(s, w)
+		}
+	}
+}
+
+// invokeAPI is jl_invoke_api (gf.c:3643-3658): which of the runtime's
+// calling conventions a CodeInstance's invoke pointer is, 0 for none, -1
+// for one it does not name.
+func (vm *VM) invokeAPI(a []any) (any, error) {
+	ci, err := vm.codeInstanceArg(a[0])
+	if err != nil {
+		return nil, err
+	}
+	switch f := ci.Fields[ciInvoke]; f {
+	case nil, undef:
+		return int32(0), nil
+	case cfunc("jl_fptr_args"):
+		return int32(1), nil
+	case fptrConstReturn:
+		return int32(2), nil
+	case cfunc("jl_fptr_sparam"):
+		return int32(3), nil
+	case cfunc("jl_fptr_interpret_call"):
+		return int32(4), nil
+	default:
+		if p, ok := f.(*Pointer); ok && p.Target == nil && p.Off == 0 {
+			return int32(0), nil
+		}
+	}
+	return int32(-1), nil
+}
+
+// methodInstanceAddBackedge is jl_method_instance_add_backedge(callee,
+// invokesig, caller) (gf.c:2239-2261, push_edge, method.c:1068-1074): the
+// caller recorded on the callee's backedges, after its invoke signature
+// when it has one. The VM keeps them; it invalidates nothing yet.
+func (vm *VM) methodInstanceAddBackedge(a []any) (any, error) {
+	callee, err := vm.methodInstanceArg(a[0])
+	if err != nil {
+		return nil, err
+	}
+	caller, err := vm.codeInstanceArg(a[2])
+	if err != nil {
+		return nil, err
+	}
+	if a[1] != nil && !core.IsType(a[1]) {
+		return nil, vm.typeError("ccall", "", core.TypeType, a[1])
+	}
+	if callee.Fields[3] == undef {
+		callee.Fields[3] = vm.newVector(core.AnyType, nil)
+	}
+	backedges := callee.Fields[3].(*Struct)
+	if a[1] != nil {
+		vm.vectorPush(backedges, a[1])
+	}
+	vm.vectorPush(backedges, caller)
+	return nil, nil
+}
+
+// methodSigLatestOnly is METHOD_SIG_LATEST_ONLY (julia_internal.h:678).
+const methodSigLatestOnly = 0b0010
+
+// promoteMIToCurrent is jl_promote_mi_to_current (gf.c:1811-1829): a
+// MethodInstance whose method has no other signature in force, marked so
+// in the world it was validated in.
+func (vm *VM) promoteMIToCurrent(a []any) (any, error) {
+	mi, err := vm.methodInstanceArg(a[0])
+	if err != nil {
+		return nil, err
+	}
+	minW, ok1 := a[1].(uint64)
+	w, ok2 := a[2].(uint64)
+	if !ok1 || !ok2 {
+		return nil, fmt.Errorf("%w: jl_promote_mi_to_current of %s", ErrUnsupported, vm.argTypes(a))
+	}
+	if vm.World() != w {
+		return nil, nil
+	}
+	m, ok := mi.Fields[0].(*Struct)
+	if !ok || m.Type != vm.tMethod {
+		return nil, nil
+	}
+	mstatus, _ := m.Fields[4].(uint8)
+	mistatus, _ := mi.Fields[7].(uint8)
+	if mstatus&methodSigLatestOnly != 0 || m.Fields[6] != any(minW) || mistatus&methodSigLatestOnly != 0 {
+		return nil, nil
+	}
+	mi.Fields[7] = uint8(methodSigLatestOnly)
+	return nil, nil
+}
+
 // fillCodeinst is jl_fill_codeinst (gf.c:707-743): an uninferred
 // CodeInstance's results, its inferred field nothing.
 func (vm *VM) fillCodeinst(a []any) (any, error) {

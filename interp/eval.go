@@ -569,8 +569,15 @@ func (f *frame) methodDef(s sMethodDef) error {
 	if len(parts) > 2 {
 		lam.file, lam.line = functionLoc(parts[2])
 	}
-	_, err = tab.Define(sig, vm.newWorld(), lam)
-	return err
+	if _, err = tab.Define(sig, vm.newWorld(), lam); err != nil {
+		return err
+	}
+	// jl_method_table_insert's update_max_args, of the full signature
+	// (gf.c:2624-2625)
+	if full, err := core.ApplyType(core.AnyTupleType, argtypes...); err == nil {
+		vm.updateMaxArgs(full)
+	}
+	return nil
 }
 
 // functionLoc is the file and line of a method's location node, the empty
@@ -699,9 +706,7 @@ func (vm *VM) callLambda(l *lambda, self any, args []any, sparams []any) (any, e
 }
 
 // newStruct is jl_new_structv (datatype.c:1627-1659) for the struct types
-// of this VM. The count of fields a constructor must initialise
-// (n_uninitialized) is not recorded yet, so any prefix of the fields is
-// accepted.
+// of this VM: at least the fields n_uninitialized does not leave undefined.
 func (vm *VM) newStruct(tv any, fields []any) (any, error) {
 	t, ok := tv.(*core.DataType)
 	if !ok || !t.IsConcrete {
@@ -712,7 +717,7 @@ func (vm *VM) newStruct(tv any, fields []any) (any, error) {
 		return nil, fmt.Errorf("%w: :new of %s", ErrUnsupported, core.Show(tv))
 	}
 	n := len(t.FieldNames())
-	if len(fields) > n {
+	if n-int(t.Name.NUninitialized) > len(fields) || len(fields) > n {
 		return nil, vm.errorf("invalid struct allocation")
 	}
 	// the field types of this instance: Q{Int64}'s in terms of Int64

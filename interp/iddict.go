@@ -169,6 +169,7 @@ func (vm *VM) valuePtr(a []any) (any, error) {
 
 // The jl_eqtable_* entry points (iddict.c:143-192).
 func (vm *VM) bootEqtableShims() {
+	vm.bootIdSet()
 	vm.shims["jl_value_ptr"] = func(vm *VM, a []any) (any, error) { return vm.valuePtr(a) }
 	vm.shims["jl_idtable_rehash"] = func(vm *VM, a []any) (any, error) {
 		t, err := vm.eqTable("jl_idtable_rehash", a[0])

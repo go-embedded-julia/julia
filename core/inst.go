@@ -652,6 +652,26 @@ func withinTypeVar(t, vlb, vub any) bool {
 	return (HasFreeTypeVars(vlb) || Subtype(vlb, lb)) && (HasFreeTypeVars(vub) || Subtype(ub, vub))
 }
 
+// InstantiateTypeInEnv is jl_instantiate_type_in_env (jltypes.c:2772-
+// 2784): t with the variables of env's UnionAlls, outermost first, set to
+// vals; Union{} when that builds no valid type (julia's JL_TRY).
+func InstantiateTypeInEnv(t any, env any, vals []any) any {
+	var e *typeEnv
+	for i := 0; ; i++ {
+		u, ok := env.(*UnionAll)
+		if !ok || i >= len(vals) {
+			break
+		}
+		e = &typeEnv{u.Var, vals[i], e}
+		env = u.Body
+	}
+	res := t
+	if try(func() { res = instType(t, e, nil, true) }) != nil {
+		return Bottom
+	}
+	return res
+}
+
 // substituteVar is jl_substitute_var.
 func substituteVar(t any, v *TypeVar, val any) any {
 	if val == any(v) {

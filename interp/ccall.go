@@ -297,10 +297,22 @@ func (vm *VM) bootShims() {
 		// method reflection (reflect.go)
 		"jl_matching_methods":          func(vm *VM, a []any) (any, error) { return vm.matchingMethods(a) },
 		"jl_specializations_get_linfo": func(vm *VM, a []any) (any, error) { return vm.specializationsGetLinfo(a) },
+		"jl_specializations_lookup":    func(vm *VM, a []any) (any, error) { return vm.specializationsLookup(a) },
 		"jl_gf_invoke_lookup_worlds":   func(vm *VM, a []any) (any, error) { return vm.gfInvokeLookupWorlds(a) },
 		"jl_gf_invoke_lookup":          func(vm *VM, a []any) (any, error) { return vm.gfInvokeLookupMethod(a) },
 		"jl_argument_datatype":         argumentDatatype,
-		"jl_method_table_disable":      func(vm *VM, a []any) (any, error) { return vm.methodTableDisable(a) },
+		"jl_normalize_to_compilable_sig": func(vm *VM, a []any) (any, error) {
+			return vm.normalizeToCompilableSig(a)
+		},
+		"jl_isa_compileable_sig": func(vm *VM, a []any) (any, error) {
+			m, ok1 := a[2].(*Struct)
+			sp, ok2 := a[1].(SVec)
+			if !ok1 || m.Type != vm.tMethod || !ok2 {
+				return nil, fmt.Errorf("%w: jl_isa_compileable_sig of %s", ErrUnsupported, vm.argTypes(a))
+			}
+			return boolBit32(vm.isaCompileableSig(a[0], sp, m)), nil
+		},
+		"jl_method_table_disable": func(vm *VM, a []any) (any, error) { return vm.methodTableDisable(a) },
 		// jl_get_fieldtypes (julia.h:1498): a DataType's field types, which
 		// core instantiates as it reads them (jl_compute_fieldtypes,
 		// jltypes.c:2847-2870); a struct before _typebody! has none
@@ -352,6 +364,22 @@ func (vm *VM) bootShims() {
 			line, to, at := lower.UncompressCodeloc(cl, int(min(max(pc, -1), 1<<31)))
 			return vm.newTuple([]any{line, to, at}), nil
 		},
+		// compressed IR (ircode.go)
+		"jl_compress_ir": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Struct)
+			if !ok || m.Type != vm.tMethod {
+				return nil, vm.typeError("ccall", "", vm.tMethod, a[0])
+			}
+			return vm.compressIR(m, a[1])
+		},
+		"jl_uncompress_ir": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Struct)
+			if !ok || m.Type != vm.tMethod {
+				return nil, vm.typeError("ccall", "", vm.tMethod, a[0])
+			}
+			return vm.uncompressIR(m, a[1], a[2])
+		},
+		"jl_uncompress_argnames": func(vm *VM, a []any) (any, error) { return vm.uncompressArgnames(a[0]) },
 		// a source's flags and slots (ircode.c:1213-1303)
 		"jl_ir_flag_inlining":            irFlag("jl_ir_flag_inlining", "inlining"),
 		"jl_ir_flag_has_fcall":           irFlag("jl_ir_flag_has_fcall", "has_fcall"),
@@ -361,13 +389,19 @@ func (vm *VM) bootShims() {
 		"jl_ir_slotflag":                 func(vm *VM, a []any) (any, error) { return vm.irSlotflag(a) },
 		"jl_scan_method_source_now":      func(vm *VM, a []any) (any, error) { return vm.scanMethodSourceNow(a) },
 		// the code cache (codeinst.go)
-		"jl_new_codeinst":     func(vm *VM, a []any) (any, error) { return vm.newCodeinst(a) },
-		"jl_mi_cache_insert":  func(vm *VM, a []any) (any, error) { return vm.miCacheInsert(a) },
-		"jl_rettype_inferred": func(vm *VM, a []any) (any, error) { return vm.rettypeInferred(a) },
-		"jl_engine_reserve":   func(vm *VM, a []any) (any, error) { return vm.engineReserve(a) },
-		"jl_engine_fulfill":   func(vm *VM, a []any) (any, error) { return vm.engineFulfill(a) },
-		"jl_fill_codeinst":    func(vm *VM, a []any) (any, error) { return vm.fillCodeinst(a) },
-		"jl_update_codeinst":  func(vm *VM, a []any) (any, error) { return vm.updateCodeinst(a) },
+		"jl_new_codeinst":          func(vm *VM, a []any) (any, error) { return vm.newCodeinst(a) },
+		"jl_mi_cache_insert":       func(vm *VM, a []any) (any, error) { return vm.miCacheInsert(a) },
+		"jl_rettype_inferred":      func(vm *VM, a []any) (any, error) { return vm.rettypeInferred(a) },
+		"jl_engine_reserve":        func(vm *VM, a []any) (any, error) { return vm.engineReserve(a) },
+		"jl_engine_fulfill":        func(vm *VM, a []any) (any, error) { return vm.engineFulfill(a) },
+		"jl_promote_ci_to_current": func(vm *VM, a []any) (any, error) { return vm.promoteCIToCurrent(a) },
+		"jl_invoke_api":            func(vm *VM, a []any) (any, error) { return vm.invokeAPI(a) },
+		"jl_method_instance_add_backedge": func(vm *VM, a []any) (any, error) {
+			return vm.methodInstanceAddBackedge(a)
+		},
+		"jl_promote_mi_to_current": func(vm *VM, a []any) (any, error) { return vm.promoteMIToCurrent(a) },
+		"jl_fill_codeinst":         func(vm *VM, a []any) (any, error) { return vm.fillCodeinst(a) },
+		"jl_update_codeinst":       func(vm *VM, a []any) (any, error) { return vm.updateCodeinst(a) },
 		// jl_push_newly_inferred (staticdata_utils.c:117-131): a no-op
 		// unless the image being written collects them (jl_set_newly_inferred,
 		// which is not ported)

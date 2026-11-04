@@ -150,7 +150,7 @@ func TestMatchingMethods(t *testing.T) {
 		t.Error("two Methods for one method")
 	}
 	for name, want := range map[expr.Symbol]string{"name": ":g", "module": "Main.L", "nargs": "2",
-		"isva": "false", "slot_syms": `"#self#\0x\0"`, "line": "1", "file": ":none", "called": "255",
+		"isva": "false", "slot_syms": `"#self#\0x\0"`, "line": "1", "file": ":none", "called": "0",
 		"external_mt": "!UndefRefError", "invokes": "nothing", "max_varargs": "0xff"} {
 		v, err := biGetfield(vm, []any{meth, name})
 		check(t, string(name), v, err, want)

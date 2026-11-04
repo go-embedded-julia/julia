@@ -153,6 +153,7 @@ func (vm *VM) methodObject(tab *dispatch.Table, m *dispatch.Method, ft any, name
 		jsrc.Fields[18] = f[26]
 		f[12], f[13] = jsrc, jsrc.Fields[1]
 		f[28], f[30], f[32] = src.NoSpecializeInfer, src.Constprop, src.Purity
+		f[23] = calledArgs(src, len(params))
 	}
 	s := &Struct{Type: vm.tMethod, Fields: f}
 	r := &reflected{method: s, m: m, tab: tab}
@@ -161,6 +162,22 @@ func (vm *VM) methodObject(tab *dispatch.Table, m *dispatch.Method, ft any, name
 }
 
 func isVararg(v any) bool { _, ok := v.(*core.Vararg); return ok }
+
+// calledArgs is jl_method_set_source's called (method.c:856-873): bit j-1
+// for each of the first eight arguments whose slot lowering flags as
+// called (64), the #unused# ones left out.
+func calledArgs(src *expr.CodeInfo, nargs int) int32 {
+	var called int32
+	for j := 1; j < nargs && j <= 32 && j < len(src.SlotNames) && j < len(src.SlotFlags); j++ {
+		if src.SlotNames[j] == any(expr.Symbol("#unused#")) {
+			continue
+		}
+		if f, _ := src.SlotFlags[j].(uint8); j <= 8 && f&64 != 0 {
+			called |= 1 << (j - 1)
+		}
+	}
+	return called
+}
 
 // compressArgnames is jl_compress_argnames (ircode.c:1255-1277): the slot
 // names, each ended by a NUL, in one String.
@@ -462,23 +479,51 @@ func envSize(t any) int { return len(typeVarsOf(t)) }
 
 // specializationsGetLinfo is jl_specializations_get_linfo(m, type,
 // sparams) (gf.c:268): the MethodInstance of the Method m for these
-// argument types, the same one for types egal to an earlier call's.
+// argument types, the same one for types equal to an earlier call's.
 func (vm *VM) specializationsGetLinfo(a []any) (any, error) {
-	ms, ok := a[0].(*Struct)
-	if !ok || ms.Type != vm.tMethod {
-		return nil, vm.typeError("ccall", "", vm.tMethod, a[0])
-	}
 	sp, ok := a[2].(SVec)
 	if !ok {
 		return nil, vm.typeError("ccall", "", core.SimpleVectorType, a[2])
 	}
+	mi, err := vm.specialization(a[0], a[1], sp, true)
+	if err != nil {
+		return nil, err
+	}
+	return mi, nil
+}
+
+// specializationsLookup is jl_specializations_lookup(m, type)
+// (gf.c:281-287): the MethodInstance m already has for type, or nothing.
+func (vm *VM) specializationsLookup(a []any) (any, error) {
+	mi, err := vm.specialization(a[0], a[1], nil, false)
+	if mi == nil || err != nil {
+		return nil, err
+	}
+	return mi, nil
+}
+
+// specialization is jl_specializations_get_linfo_ (gf.c:151-266): m's
+// MethodInstance whose specTypes equals type (speccache_eq,
+// jl_types_equal), a new one with sparams when insert (julia's sparams
+// not NULL), else nil.
+func (vm *VM) specialization(m, typ any, sparams SVec, insert bool) (*Struct, error) {
+	ms, ok := m.(*Struct)
+	if !ok || ms.Type != vm.tMethod {
+		return nil, vm.typeError("ccall", "", vm.tMethod, m)
+	}
+	if _, ok := core.UnwrapUnionAll(typ).(*core.DataType); !ok {
+		return nil, vm.typeError("specializations", "", core.DataTypeType, core.UnwrapUnionAll(typ))
+	}
 	r := vm.reflectedOf[ms] // every Method is methodObject's
 	for _, mi := range r.specs {
-		if vm.egal(mi.Fields[1], a[1]) {
+		if mi.Fields[1] == typ || core.TypesEqual(mi.Fields[1], typ) {
 			return mi, nil
 		}
 	}
-	mi := &Struct{Type: vm.tMethodInstance, Fields: []any{ms, a[1], sp, undef, undef, false, false, uint8(0)}}
+	if !insert {
+		return nil, nil
+	}
+	mi := &Struct{Type: vm.tMethodInstance, Fields: []any{ms, typ, sparams, undef, undef, false, false, uint8(0)}}
 	r.specs = append(r.specs, mi)
 	return mi, nil
 }

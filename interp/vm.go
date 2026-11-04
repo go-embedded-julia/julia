@@ -117,6 +117,9 @@ type VM struct {
 	// methodTable is Core.methodtable, julia's one method table; the VM
 	// keeps methods in per-function tables (methodTableOf)
 	methodTable *Struct
+	// irTags are the compressed IR's tag tables (ircode.go), made on first
+	// use
+	irTags *irTables
 
 	// Stdout and Stderr receive what Julia code prints (Core.println,
 	// print): io.Discard unless the embedder sets them. cglobals are the C

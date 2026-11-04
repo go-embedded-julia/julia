@@ -51,6 +51,10 @@ type TypeName struct {
 	// const fields by index (jl_typename_t.atomicfields, .constfields), nil
 	// when none is.
 	AtomicFields, ConstFields []bool
+	// NUninitialized is how many trailing fields `new` may leave undefined
+	// (jl_typename_t.n_uninitialized): the field count less the
+	// constructor's minimum (datatype.c:898).
+	NUninitialized int32
 
 	// MaxArgs, CacheEntryCount, MaxMethods and ConstpropHeuristic are the
 	// hints of jl_typename_t that Julia code sets and type inference reads

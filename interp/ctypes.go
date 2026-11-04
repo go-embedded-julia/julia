@@ -65,4 +65,19 @@ func (vm *VM) bootCTypes() {
 		{Name: "T", LB: core.Bottom, UB: core.AnyType}, {Name: "AS", LB: core.Bottom, UB: core.AnyType}}, 64)
 	must(0, llvm.SetSuper(core.AnyType))
 	vm.setCore("LLVMPtr", llvm.Name.Wrapper)
+	// the n_uninitialized of the runtime's types, as julia 1.12.6 reports
+	// them (jltypes.c gives each its count; boot.jl's types get theirs from
+	// _structtype, the VM's own definitions of BoundsError, UndefVarError
+	// and Box julia's)
+	for name, n := range map[string]int32{"BoundsError": 2, "UndefVarError": 1, "Box": 1,
+		"Binding": 5, "BindingPartition": 5, "CodeInfo": 1,
+		"CodeInstance": 20, "DataType": 5, "EnterNode": 1, "Method": 23, "MethodCache": 2,
+		"MethodInstance": 5, "ReturnNode": 1, "Task": 21, "TypeMapEntry": 6, "TypeName": 16,
+		"TypeofVararg": 2, "UpsilonNode": 1} {
+		if b := vm.Core.own(expr.Symbol(name)); b != nil {
+			if d, ok := core.UnwrapUnionAll(b.Value).(*core.DataType); ok {
+				d.Name.NUninitialized = n
+			}
+		}
+	}
 }

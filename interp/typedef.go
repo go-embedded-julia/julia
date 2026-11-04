@@ -278,7 +278,7 @@ func biStructtype(vm *VM, args []any) (any, error) {
 	if err := vm.typechk("_structtype", core.BoolType, args[5], ok); err != nil {
 		return nil, err
 	}
-	_, ok = args[6].(int64)
+	ninit, ok := args[6].(int64)
 	if err := vm.typechk("_structtype", core.Int64Type, args[6], ok); err != nil {
 		return nil, err
 	}
@@ -296,6 +296,8 @@ func biStructtype(vm *VM, args []any) (any, error) {
 	}
 	dt := core.NewIncompleteType(string(m.Name), string(name), params, false, mutable, names)
 	dt.Name.AtomicFields, dt.Name.ConstFields = atomic, cnst
+	// jl_new_datatype's int32 difference, unchecked (datatype.c:898)
+	dt.Name.NUninitialized = int32(len(names)) - int32(ninit)
 	return dt.Name.Wrapper, nil
 }
 
