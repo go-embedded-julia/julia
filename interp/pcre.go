@@ -189,13 +189,20 @@ func (vm *VM) pcreCompile(a []any) (any, error) {
 	}
 	opts, _ := a[2].(uint32)
 	code, errcode, erroff := pcre2.Compile([]byte(pat), opts, nil)
+	// the error code and offset are stored either way: ERROR_NOERROR (100)
+	// and 0 on success, as pcre2_compile does (pcre2_compile.c: *errorptr =
+	// ERROR_NOERROR at the start)
+	stored := int32(errcode)
+	if code != nil {
+		stored = 100 // ERROR_NOERROR
+	}
+	if err := vm.storeAs("pcre2_compile", a[3], stored); err != nil {
+		return nil, err
+	}
+	if err := vm.storeAs("pcre2_compile", a[4], erroff); err != nil {
+		return nil, err
+	}
 	if code == nil {
-		if err := vm.storeAs("pcre2_compile", a[3], int32(errcode)); err != nil {
-			return nil, err
-		}
-		if err := vm.storeAs("pcre2_compile", a[4], erroff); err != nil {
-			return nil, err
-		}
 		return &Pointer{Type: vm.ptrType(core.NothingType)}, nil
 	}
 	return &Pointer{Type: vm.ptrType(core.NothingType), Target: code}, nil
