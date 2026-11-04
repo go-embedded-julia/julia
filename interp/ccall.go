@@ -459,11 +459,13 @@ func (vm *VM) replaceBase(m *Module) {
 	vm.Main.mu.Unlock()
 }
 
-// oForeign is a prepared :foreigncall: the callee's literal name, the
-// return and argument types, and the arguments (julia's GC roots after the
-// declared arguments are left out).
+// oForeign is a prepared :foreigncall: the callee's literal name and, for
+// a library-qualified one, its library, the return and argument types, and
+// the arguments (julia's GC roots after the declared arguments are left
+// out).
 type oForeign struct {
 	name   expr.Symbol
+	lib    op // nil when the callee names no library
 	ret    op
 	atypes op
 	args   []op
@@ -474,12 +476,27 @@ func (c *code) prepForeign(x *expr.Expr) op {
 	if len(x.Args) < 5 {
 		return oRaise{"Invalid IR: malformed :foreigncall"}
 	}
-	q, ok := x.Args[0].(expr.QuoteNode)
+	f := oForeign{ret: c.prepValue(x.Args[1]), atypes: c.prepValue(x.Args[2]), args: c.prepArgs(x.Args[5:])}
+	// a literal name, or (name, lib) as lowering leaves ccall((:f, LIB), …):
+	// a call of Core.tuple on the quoted name and the library's value
+	callee := x.Args[0]
+	if t, ok := callee.(*expr.Expr); ok && t.Head == "call" && len(t.Args) == 3 && t.Args[0] == any(expr.GlobalRef{Mod: "Core", Name: "tuple"}) {
+		callee, f.lib = t.Args[1], c.prepValue(t.Args[2])
+	}
+	q, ok := callee.(expr.QuoteNode)
 	name, ok2 := q.Value.(expr.Symbol)
 	if !ok || !ok2 {
-		return oUnsupported{"a ccall to a computed or library-qualified function: " + showValue(x.Args[0])}
+		return oUnsupported{"a ccall to a computed function: " + showValue(x.Args[0])}
 	}
-	return oForeign{name: name, ret: c.prepValue(x.Args[1]), atypes: c.prepValue(x.Args[2]), args: c.prepArgs(x.Args[5:])}
+	f.name = name
+	return f
+}
+
+// refArg is whether v is a Ptr{T} passed for a Ref{T} argument.
+func refArg(at, v any) bool {
+	d, ok1 := at.(*core.DataType)
+	p, ok2 := v.(*Pointer)
+	return ok1 && ok2 && d.Name == typeNameOf(core.RefType) && p.Type.Parameters[0] == d.Parameters[0]
 }
 
 func (f *frame) evalForeign(x oForeign) (any, error) {
@@ -502,11 +519,24 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 			return nil, err
 		}
 		// an Any argument is passed boxed; a primitive one by value, which
-		// lowering has already converted (cconvert/unsafe_convert) to it
-		if atypes[i] != any(core.AnyType) && atypes[i] != any(vm.typeOf(v)) {
+		// lowering has already converted (cconvert/unsafe_convert) to it; a
+		// Ref{T} one as the Ptr{T} unsafe_convert(Ref{T}, x) made
+		// (refpointer.jl:110-111)
+		if atypes[i] != any(core.AnyType) && atypes[i] != any(vm.typeOf(v)) && !refArg(atypes[i], v) {
 			return nil, fmt.Errorf("%w: a ccall argument of type %s", ErrUnsupported, showValue(atypes[i]))
 		}
 		args[i] = v
+	}
+	if x.lib != nil {
+		lib, err := f.evalValue(x.lib)
+		if err != nil {
+			return nil, err
+		}
+		name, _ := lib.(string)
+		if sh := vm.libShims[name][x.name]; sh != nil {
+			return sh(vm, args)
+		}
+		return nil, fmt.Errorf("%w: ccall((:%s, %s))", ErrUnsupported, x.name, showValue(lib))
 	}
 	sh := vm.shims[x.name]
 	if sh == nil {

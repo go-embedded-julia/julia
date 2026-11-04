@@ -251,14 +251,17 @@ func init() {
 	// the kinds' layouts, which refer to one another: DataType
 	// (jltypes.c:2979-2996), TypeName (:3008-3030, its MethodCache field
 	// typed Any here, that type being made after core), TypeVar (:3081-3084),
-	// UnionAll (:3096-3099), Union (:3104-3107)
+	// UnionAll (:3096-3099), Union (:3104-3107), with the field types julia
+	// sets once the types they name exist ("complete builtin type
+	// metadata", jltypes.c:3839-3855)
+	typ := typeTypePrimary.Name.Wrapper
 	layout(DataTypeType, []Symbol{"name", "super", "parameters", "types", "instance", "layout", "hash", "flags"},
-		TypeNameType, DataTypeType, SimpleVectorType, SimpleVectorType, AnyType, AnyType, AnyType, AnyType)
+		TypeNameType, DataTypeType, SimpleVectorType, SimpleVectorType, AnyType, voidPtr, Int32Type, UInt16Type)
 	layout(TypeNameType, []Symbol{"name", "module", "singletonname", "names", "atomicfields", "constfields",
 		"wrapper", "Typeofwrapper", "cache", "linearcache", "partial", "hash", "max_args", "n_uninitialized",
 		"flags", "cache_entry_count", "max_methods", "constprop_heuristic"},
-		SymbolType, AnyType, SymbolType, SimpleVectorType, AnyType, AnyType, typeTypePrimary.Name.Wrapper,
-		SimpleVectorType, SimpleVectorType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType, AnyType)
+		SymbolType, ModuleType, SymbolType, SimpleVectorType, voidPtr, voidPtr, typ,
+		typ, SimpleVectorType, AnyType, AnyType, Int64Type, Int32Type, Int32Type, UInt8Type, UInt8Type, UInt8Type, UInt8Type)
 	// typename_constfields and typename_atomicfields (jltypes.c:3014-3015)
 	TypeNameType.Name.ConstFields = fieldMask(18, 0, 1, 3, 6, 11, 13, 14)
 	TypeNameType.Name.AtomicFields = fieldMask(18, 7, 8, 9, 12, 15)

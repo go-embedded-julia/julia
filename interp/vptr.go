@@ -137,6 +137,14 @@ func (vm *VM) ptrLoad(fname string, p *Pointer, i int64) (any, error) {
 			return nil, vm.errorf("%s: invalid pointer", fname)
 		}
 		return t.val, nil
+	case *Struct:
+		if !vm.firstFieldAt(p, t, i) {
+			return nil, vm.errorf("%s: invalid pointer", fname)
+		}
+		if t.Fields[0] == undef {
+			return nil, vm.exception(vm.tUndefRef)
+		}
+		return t.Fields[0], nil
 	case string:
 		if p.Type.Parameters[0] != any(core.UInt8Type) {
 			return nil, fmt.Errorf("%w: %s of a String as %s", ErrUnsupported, fname, showValue(p.Type))
@@ -465,11 +473,13 @@ func biSizeof(vm *VM, args []any) (any, error) {
 		if x.Name.Abstract {
 			return nil, vm.errorf("Abstract type %s does not have a definite size.", x.Name.Name)
 		}
-		size, _, err := dataLayout(x)
-		if err != nil {
-			return nil, err
+		// the opaque layouts: each object's size is its own (builtins.c:551-552)
+		switch {
+		case x == core.ModuleType, x == core.SimpleVectorType, x == core.StringType, x == core.SymbolType,
+			x.Name == typeNameOf(core.GenericMemoryType) && x.IsConcrete:
+			return nil, vm.errorf("Type %s does not have a definite size.", x.Name.Name)
 		}
-		return int64(size), nil
+		return layoutSize(x)
 	}
 	if args[0] == any(core.Bottom) {
 		return nil, vm.errorf("The empty type does not have a definite size since it does not have instances.")
@@ -477,12 +487,16 @@ func biSizeof(vm *VM, args []any) (any, error) {
 	if _, w, ok := primBits(args[0]); ok {
 		return int64(w / 8), nil
 	}
-	// any other value's size is its type's (builtins.c:563-569): a
-	// function's singleton type has none
-	if t, ok := vm.typeOf(args[0]).(*core.DataType); ok {
-		if size, _, err := dataLayout(t); err == nil {
-			return int64(size), nil
-		}
+	// any other value's size is its type's, a concrete DataType
+	// (builtins.c:563-569): a function's singleton type has none
+	return layoutSize(vm.typeOf(args[0]).(*core.DataType))
+}
+
+// layoutSize is the size of t's layout.
+func layoutSize(t *core.DataType) (any, error) {
+	size, _, err := dataLayout(t)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("%w: sizeof of a %s", ErrUnsupported, showValue(vm.typeOf(args[0])))
+	return int64(size), nil
 }

@@ -67,9 +67,11 @@ type VM struct {
 	// structs), the callee's type first in each signature.
 	others *dispatch.Table
 
-	// shims are the Go functions ccalls reach (ccall.go); sessions the
-	// lowering state of each module code is evaluated in.
+	// shims are the Go functions ccalls reach (ccall.go), libShims those a
+	// library-qualified ccall reaches, by library; sessions the lowering
+	// state of each module code is evaluated in.
 	shims    map[expr.Symbol]shim
+	libShims map[string]map[expr.Symbol]shim
 	sessions map[*Module]*Session
 
 	// Sources holds the files include reads (load.go): julia's own sources

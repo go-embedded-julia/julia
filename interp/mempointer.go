@@ -248,6 +248,16 @@ func biPointerset(vm *VM, a []any) (any, error) {
 // as the intrinsic fname: x as element i (1-based) of the memory p points
 // into, of p's element type.
 func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
+	if st, ok := p.Target.(*Struct); ok {
+		if !vm.firstFieldAt(p, st, i) {
+			return vm.errorf("%s: invalid pointer", fname)
+		}
+		if vm.typeOf(x) != p.Type.Parameters[0] {
+			return vm.typeError(expr.Symbol(fname), "", p.Type.Parameters[0], x)
+		}
+		st.Fields[0] = x
+		return nil
+	}
 	m, ok := p.Target.(*Memory)
 	if !ok {
 		return vm.errorf("%s: invalid pointer", fname)
@@ -272,6 +282,19 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 	}
 	m.Elems[k] = x
 	return nil
+}
+
+// firstFieldAt is whether p, element i, addresses the first field of the
+// mutable struct st, pointer_from_objref(st) (pointer.jl:299-303): the
+// field a C function writes through a Ref (unsafe_convert of a RefValue,
+// refvalue.jl:38-54), of the pointer's element type, at offset 0. Other
+// bytes of a struct have no address here.
+func (vm *VM) firstFieldAt(p *Pointer, st *Struct, i int64) bool {
+	if i != 1 || p.Off != 0 || !st.Type.Name.Mutable || len(st.Fields) == 0 {
+		return false
+	}
+	ft, _ := st.Type.FieldTypes()
+	return ft[0] == p.Type.Parameters[0]
 }
 
 // reinterpreted is the access type of a pointer that reads a Memory of
