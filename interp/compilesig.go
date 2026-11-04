@@ -459,11 +459,7 @@ func (vm *VM) normalizeToCompilableSig(a []any) (any, error) {
 	compileable := ti.IsDispatchTuple
 	tt := ti
 	if newparams != nil {
-		t, err := core.Apply(core.AnyTupleType, newparams...)
-		if err != nil {
-			return nil, err
-		}
-		tt = t.(*core.DataType)
+		tt = core.TupleType(newparams...)
 		if !compileable {
 			_, e, _, err := core.TypeIntersectionEnv(tt, m.Fields[methodSig])
 			if err != nil {

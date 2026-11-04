@@ -1090,6 +1090,15 @@ func Apply(tc any, params ...any) (t any, err error) {
 	return applyType(tc, params), nil
 }
 
+// TupleType is jl_apply_tuple_type_v (jltypes.c:2467-2470, over
+// jl_apply_tuple_type_v_, 2457-2460): Tuple{params...}, for the parameters of
+// types that exist (a call's, widened). julia reports no error from it, and
+// this does not return one; a parameter that is no type is a bug of the
+// caller, and panics.
+func TupleType(params ...any) *DataType {
+	return instDatatypeInner(AnyTupleType, append([]any(nil), params...), nil, nil, true, 0).(*DataType)
+}
+
 func applyType(tc any, params []any) any {
 	if tc == any(AnyTupleType) {
 		return instDatatypeInner(AnyTupleType, append([]any(nil), params...), nil, nil, true, 0)
