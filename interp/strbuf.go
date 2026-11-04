@@ -24,11 +24,15 @@ import (
 // allocString is jl_alloc_string(n): a fresh, writable String of n zero
 // bytes, refused past VM.MaxMemoryElems bytes (julia's OutOfMemoryError).
 func (vm *VM) allocString(a []any) (any, error) {
+	// C's size_t, which Base passes as an Int or a Csize_t: a negative Int
+	// is a size_t past any memory
 	n, ok := a[0].(int64)
-	if !ok {
-		return nil, vm.typeError("ccall", "", core.Int64Type, a[0])
+	if u, isU := a[0].(uint64); isU {
+		n, ok = int64(u), true
 	}
-	// a negative Int is a size_t past any memory
+	if !ok {
+		return nil, vm.typeError("ccall", "", core.UInt64Type, a[0])
+	}
 	if n < 0 || n > int64(vm.MaxMemoryElems) {
 		return nil, fmt.Errorf("%w: String of %d bytes (VM.MaxMemoryElems is %d)", ErrMemoryLimit, uint64(n), vm.MaxMemoryElems)
 	}
@@ -103,6 +107,56 @@ func (vm *VM) memmove(a []any) (any, error) {
 		}
 	}
 	return nil, fmt.Errorf("%w: memmove of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+}
+
+// memset is memset(p, val, n) (cmem.jl:40-43): n bytes of val's low byte
+// from p, into a memory of primitive elements (whole elements at once
+// where the range covers them) or a String allocString made; the rest is
+// refused.
+func (vm *VM) memset(a []any) (any, error) {
+	p, ok1 := a[0].(*Pointer)
+	v, ok2 := a[1].(int32)
+	n, ok3 := a[2].(uint64)
+	if ok1 && ok2 && ok3 && n <= uint64(math.MaxInt32) {
+		c := byte(v)
+		switch t := p.Target.(type) {
+		case *Memory:
+			if et, ok := t.Type.Parameters[1].(*core.DataType); ok && et.Name.Bits > 0 && et.Name.Bits%8 == 0 {
+				es := int64(et.Name.Bits / 8)
+				if _, err := vm.memByteRange("memset", t, p.Off, int(n)); err != nil {
+					return nil, err
+				}
+				whole, _ := bytesValue(et, bytesOf(c, int(es)))
+				for off := p.Off; off < p.Off+int64(n); {
+					if off%es == 0 && off+es <= p.Off+int64(n) && whole != nil {
+						t.Elems[off/es] = whole
+						off += es
+						continue
+					}
+					if err := vm.memStoreBytes("memset", t, off, c); err != nil {
+						return nil, err
+					}
+					off++
+				}
+				return p, nil
+			}
+		case string:
+			b, ok := vm.writableBytes(t)
+			if ok && p.Off >= 0 && p.Off <= int64(len(b)) && n <= uint64(int64(len(b))-p.Off) {
+				copy(b[p.Off:], bytesOf(c, int(n)))
+				return p, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("%w: memset of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+}
+
+func bytesOf(c byte, n int) []byte {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = c
+	}
+	return b
 }
 
 // memmoveElems moves n bytes between memories of one inline element type

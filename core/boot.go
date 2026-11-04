@@ -62,6 +62,9 @@ func define(s spec) any {
 	}
 	if s.fields != nil {
 		tn.Fields = s.fields(params)
+	} else if s.singleton {
+		// a singleton has no fields (Nothing.types === svec())
+		tn.Fields = []any{}
 	}
 	dt := &DataType{Name: tn, Parameters: params, HasConcreteSubtype: true}
 	tn.Primary = dt

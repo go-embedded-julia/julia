@@ -236,6 +236,24 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 			b := newm.declare(std.Name, 0)
 			b.Value, b.Const = std, true
 		}
+		// its own include and eval, Base.IncludeInto and Core.EvalInto of
+		// it, once they exist (toplevel.c:163-172)
+		for _, d := range []struct {
+			name expr.Symbol
+			from *Module
+			typ  expr.Symbol
+		}{{"include", base, "IncludeInto"}, {"eval", vm.Core, "EvalInto"}} {
+			tb := d.from.lookup(d.typ, vm.taskWorld)
+			if tb == nil || tb.Value == undef {
+				continue
+			}
+			form, err := vm.newStruct(tb.Value, []any{newm})
+			if err != nil {
+				return nil, err
+			}
+			b := newm.declare(d.name, 0)
+			b.Value, b.Const = form, true
+		}
 	}
 	// the Base of the bootstrap (toplevel.c:177-180)
 	if parent == vm.Main && name == "Base" && vm.baseModule == nil {

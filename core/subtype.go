@@ -1390,7 +1390,9 @@ func (e *stenv) subtype(x, y any, param int) bool {
 			if !isTypeVar(tp0) || !IsKind(x) {
 				return false
 			}
-			return e.subtype(typeTypePrimary, y, param)
+			// jl_type_type, the UnionAll: true iff y's T has full bounds
+			// (subtype.c:1532-1537)
+			return e.subtype(TypeType, y, param)
 		}
 		for xd != AnyType && xd.Name != yd.Name {
 			if xd.Super == nil {

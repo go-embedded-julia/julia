@@ -169,8 +169,10 @@ func (vm *VM) bootShims() {
 		"jl_symbol_n": func(vm *VM, a []any) (any, error) { return vm.symbolN(a) },
 		// jl_alloc_string (array.c:290-305) and the memmove that fills it
 		// (strbuf.go)
-		"jl_alloc_string": func(vm *VM, a []any) (any, error) { return vm.allocString(a) },
-		"memmove":         func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
+		"jl_alloc_string":   func(vm *VM, a []any) (any, error) { return vm.allocString(a) },
+		"jl_cstr_to_string": func(vm *VM, a []any) (any, error) { return vm.cstrToString(a) },
+		"memmove":           func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
+		"memset":            func(vm *VM, a []any) (any, error) { return vm.memset(a) },
 		// jl_stored_inline (datatype.c:430-434), array.jl's allocatedinline
 		"jl_stored_inline": func(vm *VM, a []any) (any, error) {
 			n, err := storedInline(a[0])
@@ -396,6 +398,9 @@ func (vm *VM) bootShims() {
 		"jl_engine_fulfill":        func(vm *VM, a []any) (any, error) { return vm.engineFulfill(a) },
 		"jl_promote_ci_to_current": func(vm *VM, a []any) (any, error) { return vm.promoteCIToCurrent(a) },
 		"jl_invoke_api":            func(vm *VM, a []any) (any, error) { return vm.invokeAPI(a) },
+		"jl_maybe_add_binding_backedge": func(vm *VM, a []any) (any, error) {
+			return vm.maybeAddBindingBackedge(a)
+		},
 		"jl_method_instance_add_backedge": func(vm *VM, a []any) (any, error) {
 			return vm.methodInstanceAddBackedge(a)
 		},
@@ -472,7 +477,7 @@ func (c *code) prepForeign(x *expr.Expr) op {
 	q, ok := x.Args[0].(expr.QuoteNode)
 	name, ok2 := q.Value.(expr.Symbol)
 	if !ok || !ok2 {
-		return oUnsupported{"a ccall to a computed or library-qualified function"}
+		return oUnsupported{"a ccall to a computed or library-qualified function: " + showValue(x.Args[0])}
 	}
 	return oForeign{name: name, ret: c.prepValue(x.Args[1]), atypes: c.prepValue(x.Args[2]), args: c.prepArgs(x.Args[5:])}
 }

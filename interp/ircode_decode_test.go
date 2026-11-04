@@ -3,6 +3,7 @@ package interp
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -107,12 +108,10 @@ func FuzzUncompressIR(fz *testing.F) {
 	})
 }
 
-// decodeNoPanic is jl_uncompress_ir of data, a panic reported as such. The
-// one panic known (knownDecodePanic) is not: it is a defect of the decoder,
-// documented by TestUncompressIRKnownPanic, and tests of everything else go on.
+// decodeNoPanic is jl_uncompress_ir of data, a panic reported as such.
 func (f *irFixture) decodeNoPanic(data string) (err error, panicked any) {
 	defer func() {
-		if p := recover(); p != nil && !knownDecodePanic(p) {
+		if p := recover(); p != nil {
 			panicked = p
 		}
 	}()
@@ -120,29 +119,16 @@ func (f *irFixture) decodeNoPanic(data string) (err error, panicked any) {
 	return err, nil
 }
 
-// knownDecodePanic is the panic of an SVec given as the element type of a
-// vector or pointer type (jl_decode_value's TAG_VECTORTY and TAG_PTRTY): the
-// svec reaches core.Apply, which compares it.
-func knownDecodePanic(p any) bool {
-	return strings.Contains(fmt.Sprint(p), "comparing uncomparable type interp.SVec")
-}
-
-// The decoder panics on `TAG_VECTORTY`, `TAG_PTRTY` followed by an svec:
-// compressed IR julia would refuse (an error) and this decoder crashes on.
-// The test records it and passes; it is left to whoever fixes the decoder.
-func TestUncompressIRKnownPanic(t *testing.T) {
+// `TAG_VECTORTY`, `TAG_PTRTY` followed by an svec, which is no type
+// parameter, is refused: it used to reach core.Apply and panic there.
+func TestUncompressIRVectorTyOfSvec(t *testing.T) {
 	f := newIRFixture(t)
 	for _, tag := range []byte{irVectorTy, irPtrTy} {
 		data := f.crafted([]byte{tag, irSvec, 0}, f.enc(int64(1)))
-		func() {
-			defer func() {
-				if p := recover(); p != nil {
-					t.Logf("DEFECT: tag %d then an empty svec panics: %v (compressed IR %x)", tag, p, data)
-				}
-			}()
-			_, err := f.vm.shims["jl_uncompress_ir"](f.vm, []any{f.m, nil, data})
-			_ = err
-		}()
+		err, p := f.decodeNoPanic(data)
+		if p != nil || !errors.Is(err, errMalformedIR) {
+			t.Errorf("tag %d then an empty svec: err %v, panic %v; want the malformed-IR refusal", tag, err, p)
+		}
 	}
 }
 

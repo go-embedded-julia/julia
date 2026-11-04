@@ -212,7 +212,10 @@ func (vm *VM) idsetArgs(fn string, k, i any) (*Memory, *Memory, error) {
 	if !ok1 || keys.Type != memAnyType {
 		return nil, nil, fmt.Errorf("%w: %s of %s", ErrUnsupported, fn, showValue(k))
 	}
-	if _, ok := intWidth(idxs); !ok2 || !ok {
+	if !ok2 {
+		return nil, nil, fmt.Errorf("%w: %s of %s", ErrUnsupported, fn, showValue(i))
+	}
+	if _, ok := intWidth(idxs); !ok {
 		return nil, nil, fmt.Errorf("%w: %s of %s", ErrUnsupported, fn, showValue(i))
 	}
 	return keys, idxs, nil

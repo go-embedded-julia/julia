@@ -3,6 +3,7 @@ package interp
 import (
 	"errors"
 	"fmt"
+	"weak"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/core/dispatch"
@@ -794,6 +795,17 @@ func (vm *VM) astNode(t *core.DataType, f []any) (any, bool) {
 		return expr.EnterNode{Catch: idx(0)}, true
 	case t == vm.tEnterNode && n == 2:
 		return expr.EnterNode{Catch: idx(0), Scope: f[1], HasScope: true}, true
+	case t == vm.tExpr && n == 2:
+		// Base's exprarray (expr.jl:76): the Expr's arguments are the vector
+		// given, which stays its args (e.args === arg)
+		head, ok1 := f[0].(expr.Symbol)
+		vec, ok2 := f[1].(*Struct)
+		if _, _, elems, ok3 := arrayOf(vec); ok1 && ok2 && ok3 && vec.Type == vecAnyType {
+			ex := &expr.Expr{Head: head, Args: elems}
+			vec.exprOwner = weak.Make(ex)
+			vm.cacheArgs(ex, vec)
+			return ex, true
+		}
 	}
 	return nil, false
 }

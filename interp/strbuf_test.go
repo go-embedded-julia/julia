@@ -44,7 +44,8 @@ func TestAllocString(t *testing.T) {
 		{"three", int64(3), `"\0\0\0"`},
 		{"past the limit", int64(17), "!memory limit exceeded: String of 17 bytes"},
 		{"a negative size", int64(-1), "!memory limit exceeded: String of 18446744073709551615 bytes"},
-		{"a size not an Int", int32(1), "!TypeError(:ccall, \"\", Int64, 1)"},
+		{"a Csize_t size", uint64(2), `"\0\0"`},
+		{"a size not an Int", int32(1), "!TypeError(:ccall, \"\", UInt64, 1)"},
 	} {
 		v, err := alloc(c.n)
 		check(t, c.name, v, err, c.want)

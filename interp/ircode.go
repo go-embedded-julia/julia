@@ -1164,6 +1164,11 @@ func (d *irDecoder) decode() (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		// julia applies the type unchecked (ircode.c); malformed IR is
+		// refused here rather than reaching apply_type
+		if !core.ValidTypeParam(v) {
+			return nil, errMalformedIR
+		}
 		if tag == irVectorTy {
 			return core.Apply(core.ArrayType, v, int64(1))
 		}

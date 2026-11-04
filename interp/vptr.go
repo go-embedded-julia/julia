@@ -115,6 +115,9 @@ func biPointerref(vm *VM, a []any) (any, error) {
 func (vm *VM) ptrLoad(fname string, p *Pointer, i int64) (any, error) {
 	switch t := p.Target.(type) {
 	case *Memory:
+		if at, ok := reinterpreted(p, t); ok {
+			return vm.memLoadBytes(fname, t, p.Off+(i-1)*int64(at.Name.Bits/8), at)
+		}
 		k, err := vm.memIndex(fname, p, t, p.Type.Parameters[0], i)
 		if err != nil {
 			return nil, err
@@ -183,6 +186,40 @@ func (vm *VM) uvPuts(a []any) (any, error) {
 	}
 	_, err = io.WriteString(s.w(), str)
 	return nil, err
+}
+
+// cstrToString is jl_cstr_to_string (array.c): a String of the bytes from p
+// to the first NUL. A String's bytes end with an implied NUL (julia's
+// strings and symbol names are NUL-terminated); a Memory{UInt8} must hold
+// one, as C would read past it.
+func (vm *VM) cstrToString(a []any) (any, error) {
+	p, ok := a[0].(*Pointer)
+	if !ok {
+		return nil, vm.typeError("ccall", "", vm.ptrType(core.UInt8Type), a[0])
+	}
+	switch t := p.Target.(type) {
+	case string:
+		if p.Off < 0 || p.Off > int64(len(t)) {
+			return nil, vm.errorf("jl_cstr_to_string: invalid pointer")
+		}
+		s := t[p.Off:]
+		if i := strings.IndexByte(s, 0); i >= 0 {
+			s = s[:i]
+		}
+		return s, nil
+	case *Memory:
+		if t.Type.Parameters[1] == any(core.UInt8Type) && p.Off >= 0 {
+			var b []byte
+			for i := p.Off; i < int64(len(t.Elems)); i++ {
+				c, _ := t.Elems[i].(uint8)
+				if c == 0 {
+					return string(b), nil
+				}
+				b = append(b, c)
+			}
+		}
+	}
+	return nil, fmt.Errorf("%w: jl_cstr_to_string of %s", ErrUnsupported, showValue(a[0]))
 }
 
 // stringBytes is the n bytes a pointer into a String points at, false for
@@ -311,12 +348,16 @@ func biSizeof(vm *VM, args []any) (any, error) {
 	case SVec:
 		return int64(1+len(x)) * 8, nil
 	case *Memory:
-		if bits := x.Type.Parameters[1]; bits != nil {
-			if d, ok := bits.(*core.DataType); ok && d.Name.Bits > 0 {
-				return int64(d.Name.Bits/8) * int64(len(x.Elems)), nil
-			}
+		// the element's size, a pointer's when boxed, plus a selector byte
+		// for an isbits union, times the length (builtins.c:566-568)
+		size, _, boxed, union := memElem(x.Type.Parameters[1])
+		if boxed {
+			size = 8
 		}
-		return nil, fmt.Errorf("%w: sizeof of a %s", ErrUnsupported, showValue(x.Type))
+		if union {
+			size++
+		}
+		return int64(size) * int64(len(x.Elems)), nil
 	case *Struct, *Tuple:
 		// any other value's size is its type's layout size (builtins.c:563-569)
 		return biSizeof(vm, []any{vm.typeOf(x)})
@@ -335,6 +376,13 @@ func biSizeof(vm *VM, args []any) (any, error) {
 	}
 	if _, w, ok := primBits(args[0]); ok {
 		return int64(w / 8), nil
+	}
+	// any other value's size is its type's (builtins.c:563-569): a
+	// function's singleton type has none
+	if t, ok := vm.typeOf(args[0]).(*core.DataType); ok {
+		if size, _, err := dataLayout(t); err == nil {
+			return int64(size), nil
+		}
 	}
 	return nil, fmt.Errorf("%w: sizeof of a %s", ErrUnsupported, showValue(vm.typeOf(args[0])))
 }

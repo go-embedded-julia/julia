@@ -97,6 +97,11 @@ type Binding struct {
 	// implicit kind, which a read resolves through the module's usings
 	// until the name is assigned or declared.
 	implicit bool
+	// backedges are the code that reads it from another module (a
+	// Vector{Any}, nil until the first), flags julia's BINDING_FLAG_* bits
+	// (jl_binding_t): kept, not yet used to invalidate
+	backedges *Struct
+	flags     uint8
 }
 
 // resolve follows an import to the binding it names.
@@ -121,16 +126,38 @@ func (m *Module) own(name expr.Symbol) *Binding {
 // lookup returns the binding a global read of name in m finds in world w:
 // m's own, else an exported one of a module m uses.
 func (m *Module) lookup(name expr.Symbol, w uint64) *Binding {
+	return m.lookupFrom(name, w, nil)
+}
+
+// lookupFrom is lookup, with seen the modules whose implicit binding of name
+// is being resolved already. An exported binding a used module gets itself
+// through its own usings (Base's MIME, from `using .Multimedia`) resolves
+// through them in turn, and a cycle resolves to nothing
+// (jl_resolve_implicit_import, module.c:205-296).
+func (m *Module) lookupFrom(name expr.Symbol, w uint64, seen []*Module) *Binding {
 	if b := m.own(name); b != nil && b.World <= w && !(b.implicit && b.Value == undef) {
 		return b.resolve()
+	}
+	for _, s := range seen {
+		if s == m {
+			return nil
+		}
 	}
 	m.mu.RLock()
 	usings := m.usings
 	m.mu.RUnlock()
 	for _, u := range usings {
-		if b := u.own(name); b != nil && b.Exports && b.World <= w {
-			return b.resolve()
+		b := u.own(name)
+		if b == nil || !b.Exports || b.World > w {
+			continue
 		}
+		if b.implicit && b.Value == undef {
+			if r := u.lookupFrom(name, w, append(seen, m)); r != nil {
+				return r
+			}
+			continue
+		}
+		return b.resolve()
 	}
 	return nil
 }

@@ -869,6 +869,13 @@ ms(Tuple{Tuple{Vararg{T,2}},T} where T, Tuple{Tuple{Int,Int},Any})	0
 ms(Union{Tuple{Tuple{T,Vararg{T}}} where T, Nothing}, Tuple{Tuple{Any,Any}})	1
 ms(Union{Tuple{Vector{T},Pair{T,S}} where {T,S}, Nothing}, Tuple{Vector{R},Pair{R,R}} where R)	0
 ms(Union{Tuple{Ref{T},Ref{S}} where {T,S<:T}, Nothing}, Tuple{Ref{R},Ref{R}} where R)	0
+DataType <: (Type{T} where T<:Type)	0
+DataType <: (Type{T} where T<:DataType)	0
+DataType <: (Type{T} where T<:Real)	0
+DataType <: (Type{T} where T)	1
+UnionAll <: (Type{T} where T<:Type)	0
+Type{Int} <: (Type{T} where T<:Type)	0
+Type{DataType} <: (Type{T} where T<:Type)	1
 Ref{Tuple{Int}} <: (Ref{Tuple{T}} where T<:Int)	1
 Ref{Tuple{Int}} <: (Ref{Tuple{T}} where T>:Int)	1
 Pair{Tuple{Int},Int} <: (Pair{Tuple{T},T} where T)	1

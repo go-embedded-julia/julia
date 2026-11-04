@@ -42,13 +42,6 @@ func (vm *VM) lookupMatch(t *testing.T, tt any) *Struct {
 	return match.(*Struct)
 }
 
-// compilesigDisagreements are the cases where this VM answers otherwise
-// than julia 1.12.6, all through one cause: core's Subtype says
-// `DataType <: (Type{T} where T<:Type)`, which julia says is false. The
-// method a17(x::Type{T}) where {T<:Type} then reads a Type{Type{...}}
-// argument as one that matched a kind. They are logged, not failed.
-var compilesigDisagreements = []string{"typeof(a17)"}
-
 // jl_normalize_to_compilable_sig and jl_isa_compileable_sig against julia
 // 1.12.6's (testdata/compilesig.jl, over compilesig_cases.txt).
 func TestCompilationSigAgainstJulia(t *testing.T) {
@@ -112,11 +105,6 @@ func TestCompilationSigAgainstJulia(t *testing.T) {
 			t.Fatalf("golden line %d is %s, not %s", next, want[0], rest)
 		}
 		errorf := t.Errorf
-		for _, k := range compilesigDisagreements {
-			if strings.Contains(rest, k) {
-				errorf = t.Logf
-			}
-		}
 		same := func(label string, got any, want string) {
 			t.Helper()
 			if want == "nothing" {

@@ -263,6 +263,9 @@ func TestIdSetShims(t *testing.T) {
 	_, err = vm.shims["jl_idset_put_idx"](vm, []any{s.list, &Memory{Type: memUInt8Type}, int64(-3)})
 	check(t, "put_idx past the limit", nil, err, "!MaxMemoryElems")
 	vm.MaxMemoryElems = old
+	// an index that is no Memory is refused, not dereferenced
+	_, err = vm.shims["jl_idset_peek_bp"](vm, []any{s.list, int64(1), int64(5)})
+	check(t, "peek_bp of a non-Memory index", nil, err, "!not ported")
 	if h := vm.idsetHash(&Memory{Type: memAnyType, Elems: []any{undef}})(0); h != 0 {
 		t.Errorf("the hash of a removed key: %d", h)
 	}

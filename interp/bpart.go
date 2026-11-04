@@ -63,9 +63,53 @@ func (vm *VM) bindingField(b *Binding, arg any) (any, error) {
 	case 2:
 		return vm.bindingPartition(b, ^uint64(0)), nil
 	case 3:
-		return nil, vm.exception(vm.tUndefRef)
+		if b.backedges == nil {
+			return nil, vm.exception(vm.tUndefRef)
+		}
+		return b.backedges, nil
 	}
-	return uint8(0), nil
+	return b.flags, nil
+}
+
+// bindingFlagAnyImplicitEdges is BINDING_FLAG_ANY_IMPLICIT_EDGES
+// (julia.h:789).
+const bindingFlagAnyImplicitEdges = 0x8
+
+// addBindingBackedge is jl_add_binding_backedge (module.c:1648-1663): edge
+// appended to b's backedges, unless it is already the last.
+func (vm *VM) addBindingBackedge(b *Binding, edge any) {
+	if b.backedges == nil {
+		b.backedges = vm.newVector(core.AnyType, nil)
+	} else if _, _, es, _ := arrayOf(b.backedges); len(es) > 0 && sameObject(es[len(es)-1], edge) {
+		return
+	}
+	vm.vectorPush(b.backedges, edge)
+}
+
+// maybeAddBindingBackedge is jl_maybe_add_binding_backedge(b, edge,
+// for_method) (module.c:1665-1683): a backedge for a GlobalRef into
+// another module than the method's; one into its own marks the binding
+// and the method (did_scan_source 0x2) for invalidation's forward scan.
+func (vm *VM) maybeAddBindingBackedge(a []any) (any, error) {
+	b, ok := a[0].(*Binding)
+	if !ok {
+		return nil, vm.typeError("ccall", "", vm.tBinding, a[0])
+	}
+	m, ok := a[2].(*Struct)
+	if !ok || m.Type != vm.tMethod {
+		return nil, vm.typeError("ccall", "", vm.tMethod, a[2])
+	}
+	if a[1] == nil || a[1] == undef {
+		return int32(0), nil
+	}
+	if mod, _ := m.Fields[methodModule].(*Module); b.Mod == mod {
+		b.flags |= bindingFlagAnyImplicitEdges
+		f, _ := m.Fields[methodDidScanSource].(uint8)
+		m.Fields[methodDidScanSource] = f | 0x2
+		return int32(1), nil
+	}
+	vm.addBindingBackedge(b, a[1])
+	return int32(0), nil
 }
 
 // moduleBinding is jl_get_module_binding(m, var, alloc) (module.c:1524):

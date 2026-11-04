@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"encoding/binary"
 	"fmt"
 	"slices"
 
@@ -252,6 +253,12 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 		return vm.errorf("%s: invalid pointer", fname)
 	}
 	ety := p.Type.Parameters[0]
+	if at, ok := reinterpreted(p, m); ok {
+		if vm.typeOf(x) != any(at) {
+			return vm.typeError(expr.Symbol(fname), "", at, x)
+		}
+		return vm.memStoreBytes(fname, m, p.Off+(i-1)*int64(at.Name.Bits/8), x)
+	}
 	if k, ok := vm.unsetThrough(p, m, x, i); ok {
 		m.Elems[k] = undef
 		return nil
@@ -264,6 +271,105 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 		return err
 	}
 	m.Elems[k] = x
+	return nil
+}
+
+// reinterpreted is the access type of a pointer that reads a Memory of
+// primitive values as another primitive type (a UInt8 view of UInt32s, as
+// io.jl's byte-order test makes): both primitive, of different types.
+func reinterpreted(p *Pointer, m *Memory) (*core.DataType, bool) {
+	at, ok1 := p.Type.Parameters[0].(*core.DataType)
+	et, ok2 := m.Type.Parameters[1].(*core.DataType)
+	if !ok1 || !ok2 || at == et || at.Name.Bits == 0 || et.Name.Bits == 0 || at.Name.Bits%8 != 0 || et.Name.Bits%8 != 0 {
+		return nil, false
+	}
+	return at, true
+}
+
+// memByteRange checks n bytes at byte offset off of a primitive memory and
+// returns its element size.
+func (vm *VM) memByteRange(fname string, m *Memory, off int64, n int) (int, error) {
+	es := m.Type.Parameters[1].(*core.DataType).Name.Bits / 8
+	if off < 0 || off+int64(n) > int64(es)*int64(len(m.Elems)) {
+		return 0, vm.errorf("%s: invalid pointer", fname)
+	}
+	return es, nil
+}
+
+// elemBytes and setElemBytes are element k's little-endian bytes, as
+// julia's memory holds them.
+func (vm *VM) elemBytes(m *Memory, k, es int) ([]byte, error) {
+	if m.Elems[k] == undef {
+		return make([]byte, es), nil // uninitialized bits
+	}
+	bits, _, ok := primBits(m.Elems[k])
+	if !ok {
+		return nil, fmt.Errorf("%w: the bits of a %s", ErrUnsupported, showValue(vm.typeOf(m.Elems[k])))
+	}
+	b := binary.LittleEndian.AppendUint64(nil, bits.lo)
+	return binary.LittleEndian.AppendUint64(b, bits.hi)[:es], nil
+}
+
+func bytesValue(t *core.DataType, b []byte) (any, bool) {
+	var buf [16]byte
+	copy(buf[:], b)
+	return bitsValue(t, u128{binary.LittleEndian.Uint64(buf[8:]), binary.LittleEndian.Uint64(buf[:8])})
+}
+
+// memLoadBytes is a load of type at from byte offset off of a primitive
+// memory.
+func (vm *VM) memLoadBytes(fname string, m *Memory, off int64, at *core.DataType) (any, error) {
+	n := at.Name.Bits / 8
+	es, err := vm.memByteRange(fname, m, off, n)
+	if err != nil {
+		return nil, err
+	}
+	var b []byte
+	for k := int(off) / es; len(b) < int(off)%es+n; k++ {
+		eb, err := vm.elemBytes(m, k, es)
+		if err != nil {
+			return nil, err
+		}
+		b = append(b, eb...)
+	}
+	v, ok := bytesValue(at, b[int(off)%es:int(off)%es+n])
+	if !ok {
+		return nil, fmt.Errorf("%w: %s as %s", ErrUnsupported, fname, showValue(at))
+	}
+	return v, nil
+}
+
+// memStoreBytes is a store of x at byte offset off of a primitive memory,
+// the elements it overlaps rewritten.
+func (vm *VM) memStoreBytes(fname string, m *Memory, off int64, x any) error {
+	bits, w, ok := primBits(x)
+	if !ok {
+		return fmt.Errorf("%w: %s of a %s", ErrUnsupported, fname, showValue(vm.typeOf(x)))
+	}
+	n := int(w / 8)
+	es, err := vm.memByteRange(fname, m, off, n)
+	if err != nil {
+		return err
+	}
+	src := binary.LittleEndian.AppendUint64(nil, bits.lo)
+	src = binary.LittleEndian.AppendUint64(src, bits.hi)[:n]
+	et := m.Type.Parameters[1].(*core.DataType)
+	for k := int(off) / es; k*es < int(off)+n; k++ {
+		eb, err := vm.elemBytes(m, k, es)
+		if err != nil {
+			return err
+		}
+		for j := range eb {
+			if at := k*es + j; at >= int(off) && at < int(off)+n {
+				eb[j] = src[at-int(off)]
+			}
+		}
+		v, ok := bytesValue(et, eb)
+		if !ok {
+			return fmt.Errorf("%w: %s into a Memory{%s}", ErrUnsupported, fname, showValue(et))
+		}
+		m.Elems[k] = v
+	}
 	return nil
 }
 

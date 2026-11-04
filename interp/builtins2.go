@@ -126,6 +126,9 @@ func biIsdefined(vm *VM, args []any) (any, error) {
 		_, fields, _ = irNodeFields(x)
 		if b, ok := x.(*Binding); ok {
 			fields = []any{nil, b.Value, nil, undef, nil} // bindingField's
+			if b.backedges != nil {
+				fields[3] = b.backedges
+			}
 		}
 	}
 	idx := -1

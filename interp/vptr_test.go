@@ -42,9 +42,11 @@ func TestPointersAndOutput(t *testing.T) {
 		{"sizeof(Memory{Int16}(undef, 3))", "6"},
 		{"try sizeof(Integer) catch e; e end", `ErrorException("Abstract type Integer does not have a definite size.")`},
 		{"try sizeof(Union{}) catch e; e end", `ErrorException("The empty type does not have a definite size since it does not have instances.")`},
-		{"sizeof(Memory{Any}(undef, 1))", "!not ported yet: sizeof of a Memory{Any}"},
+		// julia 1.12.6's answers
+		{"sizeof(Memory{Any}(undef, 1))", "8"},
 		{"sizeof(Tuple{Int64})", "8"},
-		{"sizeof(QuoteNode(1))", "!not ported yet: sizeof of a QuoteNode"},
+		{"sizeof(QuoteNode(1))", "8"},
+		{"g() = 1; sizeof(g)", "0"},
 	} {
 		v, err := s.Eval(c.src)
 		check(t, c.src, v, err, c.want)
