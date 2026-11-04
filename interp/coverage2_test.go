@@ -126,6 +126,9 @@ func TestSizeofCorners(t *testing.T) {
 	check(t, "sizeof a function", v, err, "0")
 	v, err = biSizeof(vm, []any{vm.Core})
 	check(t, "sizeof a module", v, err, "0") // julia 1.12.6: Core.sizeof(Main) == 0
+	// julia 1.12.6: sizeof(Vararg{Int}) is 16; the VM refuses it
+	_, err = biSizeof(vm, []any{&core.Vararg{T: core.Int64Type}})
+	check(t, "sizeof a Vararg", nil, err, "!sizeof of a Core.TypeofVararg")
 }
 
 // jl_cstr_to_string of a String and of a memory of bytes.
