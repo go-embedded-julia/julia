@@ -1,0 +1,53 @@
+compile open false 114 1
+compile class false 108 3
+compile quant false 109 2
+compile badopt false 117 0
+compile ok true 100 0
+compile empty true 100 0
+compile utf false -23 0
+message 101 (19, "\\ at end of pattern")
+message 102 (20, "\\c at end of pattern")
+message 115 (36, "reference to non-existent subpattern")
+message 0 (-29, "")
+message -1 (8, "no match")
+message -48 (14, "no more memory")
+message -49 (17, "unknown substring")
+message 9999 (-29, "")
+message -9999 (-29, "")
+message small (-48, "92,32,97,116,0")
+message one (-48, "0")
+message zero (-48, "")
+info 4 (0, 0x00000003)
+info 17 (0, 0x00000002)
+info 18 (0, 0x00000005)
+info 1 (0, 0x00000000)
+info 65535 (-34, nothing)
+nametable 0 0,1,97,0,0,0,3,122,122,0
+number_from_name Int32[1, 3, -49, -49, -49]
+jit 0
+jit badopt -45
+match xbc 3 (0x00000004, "1,3,1,2,2,3,18446744073709551615,18446744073709551615")
+match xb 2 (0x00000004, "1,2,1,2,18446744073709551615,18446744073709551615,18446744073709551615,18446744073709551615")
+match xyz -1 4
+match past -33 4
+match notempty -1 4
+match again 3 (0x00000004, "2,4,2,3,3,4,18446744073709551615,18446744073709551615")
+match bad opts -34 4
+length 0 0 2
+length 1 0 1
+length 2 0 1
+length 3 -55 nothing
+length 4 -49 nothing
+length 100 -49 nothing
+copy 0 16 0 2 98,99,0,170,170,170,170,170,170,170,170,170,170,170,170,170
+copy 1 16 0 1 98,0,170,170,170,170,170,170,170,170,170,170,170,170,170,170
+copy 2 16 0 1 99,0,170,170,170,170,170,170,170,170,170,170,170,170,170,170
+copy 1 1 -48 1 170,170,170,170,170,170,170,170,170,170,170,170,170,170,170,170
+copy 1 2 0 1 98,0,170,170,170,170,170,170,170,170,170,170,170,170,170,170
+copy 1 0 -48 0 170,170,170,170,170,170,170,170,170,170,170,170,170,170,170,170
+copy 3 16 -55 16 170,170,170,170,170,170,170,170,170,170,170,170,170,170,170,170
+copy 100 16 -49 16 170,170,170,170,170,170,170,170,170,170,170,170,170,170,170,170
+unset length 2 -55
+unset copy 2 -55 4 170,170,170,170
+unset length 3 -55
+unset copy 3 -55 4 170,170,170,170
