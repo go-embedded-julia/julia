@@ -84,8 +84,13 @@ abstract type A1 end`); err != nil {
 	check(t, "jl_options as a non-type", nil, err, "!TypeError(:cglobal")
 	_, err = biCglobal(New(), []any{expr.Symbol("jl_options"), free(t)})
 	check(t, "jl_options as a free type", nil, err, "!cglobal: type argument not concrete")
-	_, err = biCglobal(New(), []any{expr.Symbol("jl_options"), coreValue(t, vm, "O2")})
-	check(t, "jl_options as a struct with a user primitive type", nil, err, "!not ported yet: the jl_options field b")
+	opt, err := biCglobal(New(), []any{expr.Symbol("jl_options"), coreValue(t, vm, "O2")})
+	check(t, "jl_options as a struct with a user primitive type", nil, err, "")
+	if o := opt.(*Pointer).Target.(*ptrSlot).val.(*Struct); o.Fields[1] != any(PrimValue{coreValue(t, vm, "P24").(*core.DataType), u128{}}) {
+		t.Errorf("jl_options' user primitive field: %v", o.Fields[1])
+	}
+	_, err = biCglobal(New(), []any{expr.Symbol("jl_options"), coreValue(t, vm, "S3")})
+	check(t, "jl_options as a struct with an Any field", nil, err, "!not ported yet: the jl_options field b")
 	_, err = vm.shims["jl_sizeof_jl_options"](vm, nil)
 	check(t, "jl_sizeof_jl_options without Base.JLOptions", nil, err, "!Base.JLOptions is not defined")
 	b := vm.Base.declare("JLOptions", 0)

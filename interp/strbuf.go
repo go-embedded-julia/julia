@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"runtime"
@@ -56,6 +57,69 @@ func (vm *VM) allocString(a []any) (any, error) {
 	return unsafe.String(&b[0], n), nil
 }
 
+// stringToMemory is jl_string_to_genericmemory (genericmemory.c:104-115):
+// a Memory{UInt8} of str's bytes. julia's shares them, the String owning
+// the data; this one holds a copy. Base writes such a memory (StringMemory,
+// an IOBuffer's) and turns it back into a String with
+// jl_genericmemory_to_string, which reads the memory: the copy is what is
+// written and read.
+func (vm *VM) stringToMemory(a []any) (any, error) {
+	s, ok := a[0].(string)
+	if !ok {
+		return nil, vm.typeError("ccall", "", core.StringType, a[0])
+	}
+	elems := make([]any, len(s))
+	for i := 0; i < len(s); i++ {
+		elems[i] = s[i]
+	}
+	return &Memory{Type: memUInt8Type, Elems: elems}, nil
+}
+
+// memoryToString is jl_genericmemory_to_string(m, len)
+// (genericmemory.c:189-217): a String of m's first len bytes, m's length
+// set to 0 as julia does.
+func (vm *VM) memoryToString(a []any) (any, error) {
+	m, ok := a[0].(*Memory)
+	n, ok2 := a[1].(int64)
+	if !ok || m.Type != memUInt8Type || !ok2 || n < 0 || n > int64(len(m.Elems)) {
+		return nil, fmt.Errorf("%w: jl_genericmemory_to_string of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+	}
+	if n == 0 {
+		return "", nil // jl_an_empty_string
+	}
+	b := make([]byte, n)
+	for i := range b {
+		c, ok := m.Elems[i].(uint8)
+		if !ok {
+			return nil, vm.exception(vm.tUndefRef)
+		}
+		b[i] = c
+	}
+	m.Elems = m.Elems[:0]
+	return string(b), nil
+}
+
+// pcharToString is jl_pchar_to_string(p, len) (array.c): a String of the
+// len bytes from p, in a String or a memory of bytes.
+func (vm *VM) pcharToString(a []any) (any, error) {
+	if s, ok := stringBytes(a[0], a[1]); ok {
+		return s, nil
+	}
+	p, ok := a[0].(*Pointer)
+	n, ok2 := a[1].(int64)
+	if ok && ok2 && n >= 0 {
+		if m, isMem := p.Target.(*Memory); isMem && m.Type == memUInt8Type && p.Off >= 0 && p.Off+n <= int64(len(m.Elems)) {
+			b := make([]byte, n)
+			for i := range b {
+				c, _ := m.Elems[p.Off+int64(i)].(uint8)
+				b[i] = c
+			}
+			return string(b), nil
+		}
+	}
+	return nil, fmt.Errorf("%w: jl_pchar_to_string of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+}
+
 // strBuf is a string allocString made: its bytes, held weakly so that the
 // table does not keep them alive, and its length.
 type strBuf struct {
@@ -105,8 +169,57 @@ func (vm *VM) memmove(a []any) (any, error) {
 				return dp, nil
 			}
 		}
+		// bytes between a String and a memory of bytes, either way
+		_, srcStr := sp.Target.(string)
+		_, srcMem := sp.Target.(*Memory)
+		_, dstMem := dp.Target.(*Memory)
+		if srcStr && dstMem || srcMem && ok1 {
+			if b, ok := vm.bytesAt(sp, n); ok {
+				if err := vm.writeBytes(dp, b); err != nil {
+					return nil, err
+				}
+				return dp, nil
+			}
+		}
 	}
 	return nil, fmt.Errorf("%w: memmove of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+}
+
+// memcmp is memcmp(p, q, n) (cmem.jl:54-57): the sign of the first
+// difference of n bytes, which is all Base reads of it.
+func (vm *VM) memcmp(a []any) (any, error) {
+	p, ok1 := a[0].(*Pointer)
+	q, ok2 := a[1].(*Pointer)
+	n, ok3 := a[2].(uint64)
+	if ok1 && ok2 && ok3 {
+		x, okx := vm.bytesAt(p, n)
+		y, oky := vm.bytesAt(q, n)
+		if okx && oky {
+			return int32(bytes.Compare(x, y)), nil
+		}
+	}
+	return nil, fmt.Errorf("%w: memcmp of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+}
+
+// bytesAt is the n bytes from p, in a String or a memory of bytes, false
+// when they are not all there.
+func (vm *VM) bytesAt(p *Pointer, n uint64) ([]byte, bool) {
+	if s, ok := stringBytes(p, n); ok {
+		return []byte(s), true
+	}
+	m, ok := p.Target.(*Memory)
+	if !ok || m.Type != memUInt8Type || p.Off < 0 || p.Off > int64(len(m.Elems)) || n > uint64(int64(len(m.Elems))-p.Off) {
+		return nil, false
+	}
+	b := make([]byte, n)
+	for i := range b {
+		c, ok := m.Elems[p.Off+int64(i)].(uint8)
+		if !ok {
+			return nil, false
+		}
+		b[i] = c
+	}
+	return b, true
 }
 
 // memset is memset(p, val, n) (cmem.jl:40-43): n bytes of val's low byte

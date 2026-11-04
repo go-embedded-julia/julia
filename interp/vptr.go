@@ -51,6 +51,9 @@ func (vm *VM) bootPointers() {
 		name := expr.Symbol("jl_uv_" + s.name)
 		vm.cglobals[name] = &ptrSlot{name: name, val: &Pointer{Type: voidPtr, Target: s}}
 	}
+	// the Julia function the runtime's dlopen calls, which libdl.jl stores
+	// (libdl.jl:408): NULL until then
+	vm.cglobals["jl_libdl_dlopen_func"] = &ptrSlot{name: "jl_libdl_dlopen_func", val: nil}
 }
 
 // biCglobal is jl_cglobal (runtime_intrinsics.c:634-679) for the C globals
@@ -137,6 +140,14 @@ func (vm *VM) ptrLoad(fname string, p *Pointer, i int64) (any, error) {
 			return nil, vm.errorf("%s: invalid pointer", fname)
 		}
 		return t.val, nil
+	case ovecView:
+		// PCRE2's ovector, as Csize_t words (pcre.go)
+		ov := t.md.Ovector()
+		k := p.Off/8 + i - 1
+		if p.Type.Parameters[0] != any(core.UInt64Type) || p.Off%8 != 0 || k < 0 || k >= int64(len(ov)) {
+			return nil, vm.errorf("%s: invalid pointer", fname)
+		}
+		return ov[k], nil
 	case *Struct:
 		if !vm.firstFieldAt(p, t, i) {
 			return nil, vm.errorf("%s: invalid pointer", fname)

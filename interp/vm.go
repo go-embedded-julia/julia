@@ -78,6 +78,11 @@ type VM struct {
 	// by default, rooted as julia's base/ is.
 	Sources fs.FS
 
+	// BinDir is what Base takes for julia's bin directory (Sys.BINDIR,
+	// jl_get_julia_bindir), a name only: nothing here reads the host's
+	// filesystem through it.
+	BinDir string
+
 	// Args is the command line after julia's options, the program file
 	// first, which Boot makes Core.ARGS (jl_set_ARGS, jlapi.c:53-74).
 	Args []string
@@ -165,7 +170,7 @@ const DefaultMaxDepth = 4000
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
-		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources,
+		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources, BinDir: "/julia/bin",
 		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{}, singletons: map[*core.DataType]any{},
 		reflected: map[*dispatch.Method]*reflected{}, reflectedOf: map[*Struct]*reflected{},
 		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard,
@@ -418,6 +423,8 @@ func (vm *VM) typeOf(v any) any {
 	case *MemoryRef:
 		return x.Type
 	case *Pointer:
+		return x.Type
+	case PrimValue:
 		return x.Type
 	case *Intrinsic:
 		return vm.intrinsicType

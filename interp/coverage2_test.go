@@ -294,10 +294,12 @@ func TestMemoryBytes(t *testing.T) {
 	check(t, "an element that is not bits", nil, err, "!the bits of a")
 	_, err = biPointerset(vm, []any{&Pointer{Type: u8p, Target: m, Off: 4}, uint8(1), int64(1), int64(1)})
 	check(t, "a store over an element that is not bits", nil, err, "!the bits of a")
-	// a load of a primitive type the VM cannot make from bytes
+	// a load of a program's own primitive type: its bits, little-endian
 	pm := &Memory{Type: memType(core.UInt8Type), Elems: []any{uint8(1), uint8(2)}}
-	_, err = vm.memLoadBytes("pointerref", pm, 0, p16)
-	check(t, "a load of a custom primitive", nil, err, "!as ")
+	v, err = vm.memLoadBytes("pointerref", pm, 0, p16)
+	if err != nil || v != any(PrimValue{p16, from64(0x0201)}) {
+		t.Errorf("a load of a custom primitive: %v, %v", v, err)
+	}
 	_, err = vm.memLoadBytes("pointerref", pm, 1, p16)
 	check(t, "a load past the end", nil, err, "!invalid pointer")
 	// the stores' refusals
@@ -306,8 +308,10 @@ func TestMemoryBytes(t *testing.T) {
 	err = vm.memStoreBytes("pointerset", newMem(uint32(0)), 2, uint32(1))
 	check(t, "a store past the end", nil, err, "!invalid pointer")
 	pe := &Memory{Type: memType(p16), Elems: []any{undef, undef}}
-	err = vm.memStoreBytes("pointerset", pe, 0, uint16(1))
-	check(t, "a store into a custom primitive", nil, err, "!into a Memory")
+	err = vm.memStoreBytes("pointerset", pe, 0, uint16(0x0102))
+	if err != nil || pe.Elems[0] != any(PrimValue{p16, from64(0x0102)}) {
+		t.Errorf("a store into a custom primitive: %v, %v", pe.Elems[0], err)
+	}
 	// memIndex of a pointer whose type is not the memory's
 	_, err = vm.memIndex("pointerref", &Pointer{Type: u8p, Target: m}, m, core.Int64Type, 1)
 	check(t, "memIndex of another type", nil, err, "!pointer into a Memory")
@@ -331,7 +335,9 @@ func TestMemoryBytes(t *testing.T) {
 	_, err = vm.memset([]any{p, int32(1), uint64(13)})
 	check(t, "memset past the end", nil, err, "!invalid pointer")
 	_, err = vm.memset([]any{&Pointer{Type: u8p, Target: pe}, int32(1), uint64(2)})
-	check(t, "memset of a custom primitive", nil, err, "!into a Memory")
+	if err != nil || pe.Elems[0] != any(PrimValue{p16, from64(0x0101)}) {
+		t.Errorf("memset of a custom primitive: %v, %v", pe.Elems[0], err)
+	}
 	str, err := vm.allocString([]any{int64(4)})
 	if err != nil {
 		t.Fatal(err)

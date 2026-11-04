@@ -188,7 +188,7 @@ func TestFloatIntrinsics(t *testing.T) {
 		v, err := vm.apply(intrinsic(t, vm, c.f), c.args)
 		check(t, string(c.f), v, err, c.want)
 	}
-	// a user's primitive type has no Go value yet (julia: P64(0x0000000000000001))
+	// a user's primitive type: its bits (julia: P64(0x0000000000000001))
 	uvm := New()
 	if err := uvm.Boot(); err != nil {
 		t.Fatal(err)
@@ -204,7 +204,9 @@ func TestFloatIntrinsics(t *testing.T) {
 		{"fptosi", []any{p64, 1.0}}, {"trunc_int", []any{p8, int64(1)}}, {"bitcast", []any{p64, int64(1)}},
 	} {
 		v, err := uvm.apply(intrinsic(t, uvm, c.f), c.args)
-		check(t, string(c.f), v, err, "!not ported yet")
+		if want := (PrimValue{c.args[0].(*core.DataType), from64(1)}); err != nil || v != any(want) {
+			t.Errorf("%s: %v, %v; want %v", c.f, v, err, want)
+		}
 	}
 	// the digit search is bounded whatever it is asked
 	if d, _ := shortestHalf(0x7e00); d == "" {

@@ -107,11 +107,11 @@ func (vm *VM) egal(a, b any) bool {
 		// bits: the same target at the same offset
 		y, ok := b.(*Pointer)
 		return ok && x.Type == y.Type && x.Target == y.Target && x.Off == y.Off
-	case *Function, *Builtin, *Intrinsic, *Module, *Memory:
+	case *Function, *Builtin, *Intrinsic, *Module, *Memory, PrimValue:
 		return a == b
 	}
 	switch b.(type) {
-	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, *Pointer:
+	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, *Pointer, PrimValue:
 		return false
 	}
 	return core.Egal(a, b)
@@ -139,7 +139,7 @@ func (vm *VM) isa(v, t any) bool {
 		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char, Int128, UInt128,
 		Float16, BFloat16, *expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef,
 		expr.SSAValue, expr.SlotNumber, expr.Argument, expr.GotoNode, expr.GotoIfNot, expr.ReturnNode,
-		expr.Unreachable, expr.NewvarNode, expr.EnterNode, *expr.CodeInfo, *Binding:
+		expr.Unreachable, expr.NewvarNode, expr.EnterNode, *expr.CodeInfo, *Binding, PrimValue:
 		return core.Subtype(vm.typeOf(v), t)
 	}
 	return core.Isa(v, t)

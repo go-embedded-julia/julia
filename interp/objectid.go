@@ -48,6 +48,8 @@ func (vm *VM) objectID(v any) uint64 {
 	case *Pointer:
 		// egal pointers have one type and one offset
 		return bitmix(addrHash(unsafe.Pointer(x.Type)), uint64(x.Off))
+	case PrimValue:
+		return bitmix(bitmix(addrHash(unsafe.Pointer(x.Type)), x.Bits.lo), x.Bits.hi)
 	case *Function:
 		return addrHash(unsafe.Pointer(x))
 	case *Builtin:

@@ -293,6 +293,8 @@ func primBits(v any) (u128, uint, bool) {
 		return from64(uint64(x)), 16, true
 	case *Intrinsic:
 		return from64(uint64(uint32(x.ID))), 32, true
+	case PrimValue:
+		return x.Bits, uint(x.Type.Name.Bits), true
 	}
 	return u128{}, 0, false
 }
@@ -335,7 +337,20 @@ func bitsValue(t *core.DataType, bits u128) (any, bool) {
 	case core.BFloat16Type:
 		return BFloat16(bits.lo), true
 	}
+	// a primitive type a program declares (primitive type Cstring 64 end,
+	// refpointer.jl:87): its bits, to its width; pointers and intrinsics
+	// have values of their own
+	if t.Name.Bits > 0 && t.IsConcrete && t.Name != typeNameOf(core.PtrType) && t.Name.Name != "IntrinsicFunction" {
+		return PrimValue{t, bits.mask(uint(t.Name.Bits))}, true
+	}
 	return nil, false
+}
+
+// PrimValue is a value of a primitive type without a Go representation of
+// its own: the type and the bits.
+type PrimValue struct {
+	Type *core.DataType
+	Bits u128
 }
 
 // cvtTarget is the target check of jl_intrinsic_cvt and jl_bitcast

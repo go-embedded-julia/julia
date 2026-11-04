@@ -248,6 +248,17 @@ func biPointerset(vm *VM, a []any) (any, error) {
 // as the intrinsic fname: x as element i (1-based) of the memory p points
 // into, of p's element type.
 func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
+	if slot, ok := p.Target.(*ptrSlot); ok {
+		// a C global variable cglobal names, of the pointer's element type
+		if i != 1 || p.Off != 0 {
+			return vm.errorf("%s: invalid pointer", fname)
+		}
+		if et := p.Type.Parameters[0]; et != any(core.AnyType) && vm.typeOf(x) != et {
+			return vm.typeError(expr.Symbol(fname), "", et, x)
+		}
+		slot.val = x
+		return nil
+	}
 	if st, ok := p.Target.(*Struct); ok {
 		if !vm.firstFieldAt(p, st, i) {
 			return vm.errorf("%s: invalid pointer", fname)

@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	github.com/go-regexp/pcre2 v0.0.0-20261104144335-ca1a476c840e // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 )

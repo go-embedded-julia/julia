@@ -7,7 +7,9 @@ import (
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
+	"github.com/go-embedded-julia/julia/internal/unitab"
 	"github.com/go-embedded-julia/julia/lower"
+	"github.com/go-embedded-julia/julia/syntax"
 )
 
 // hrtimeOrigin is jl_hrtime's origin.
@@ -169,10 +171,18 @@ func (vm *VM) bootShims() {
 		"jl_symbol_n": func(vm *VM, a []any) (any, error) { return vm.symbolN(a) },
 		// jl_alloc_string (array.c:290-305) and the memmove that fills it
 		// (strbuf.go)
-		"jl_alloc_string":   func(vm *VM, a []any) (any, error) { return vm.allocString(a) },
-		"jl_cstr_to_string": func(vm *VM, a []any) (any, error) { return vm.cstrToString(a) },
-		"memmove":           func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
-		"memset":            func(vm *VM, a []any) (any, error) { return vm.memset(a) },
+		"jl_alloc_string":            func(vm *VM, a []any) (any, error) { return vm.allocString(a) },
+		"jl_cstr_to_string":          func(vm *VM, a []any) (any, error) { return vm.cstrToString(a) },
+		"jl_pchar_to_string":         func(vm *VM, a []any) (any, error) { return vm.pcharToString(a) },
+		"jl_string_to_genericmemory": func(vm *VM, a []any) (any, error) { return vm.stringToMemory(a) },
+		"jl_genericmemory_to_string": func(vm *VM, a []any) (any, error) { return vm.memoryToString(a) },
+		// julia 1.12's jl_genericmemory_owner is the memory itself (julia.h:1361-1364)
+		"jl_genericmemory_owner": func(vm *VM, a []any) (any, error) { return a[0], nil },
+		// jl_object_id (builtins.c), objectid: the identity hash egal shares
+		"jl_object_id": func(vm *VM, a []any) (any, error) { return vm.objectID(a[0]), nil },
+		"memmove":      func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
+		"memset":       func(vm *VM, a []any) (any, error) { return vm.memset(a) },
+		"memcmp":       func(vm *VM, a []any) (any, error) { return vm.memcmp(a) },
 		// jl_stored_inline (datatype.c:430-434), array.jl's allocatedinline
 		"jl_stored_inline": func(vm *VM, a []any) (any, error) {
 			n, err := storedInline(a[0])
@@ -417,6 +427,61 @@ func (vm *VM) bootShims() {
 	}
 	vm.bootEqtableShims()
 	vm.bootModuleOptShims()
+	vm.bootPCRE()
+	// the parser's character classes (flisp/julia_extensions.c:127-170),
+	// unitab's tables being Base.is_id_start_char's and is_id_char's
+	for name, q := range map[expr.Symbol]func(uint32) bool{
+		"jl_id_start_char":  unitab.IsIDStart,
+		"jl_id_char":        unitab.IsIDChar,
+		"jl_op_suffix_char": func(c uint32) bool { return syntax.IsOpSuffixChar(rune(c)) },
+	} {
+		vm.shims[name] = func(vm *VM, a []any) (any, error) {
+			c, ok := a[0].(uint32)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.UInt32Type, a[0])
+			}
+			return cbool(q(c)), nil
+		}
+	}
+	vm.shims["jl_get_julia_bindir"] = func(vm *VM, a []any) (any, error) { return vm.BinDir, nil }
+	// jl_alignment (threading.c:1063-1066), jl_gc_alignment on a 64-bit
+	// platform (julia_internal.h:487-494)
+	vm.shims["jl_alignment"] = func(vm *VM, a []any) (any, error) {
+		if a[0] == any(uint64(0)) {
+			return int32(8), nil
+		}
+		return int32(16), nil
+	}
+	// julia's stock build's answer (gc-stock.c:4091-4093), so that Base
+	// takes the branches it takes in julia (Base.USING_STOCK_GC)
+	vm.shims["jl_gc_active_impl"] = func(vm *VM, a []any) (any, error) { return vm.stringPtrOf("Built with stock GC"), nil }
+	// jl_threadid (threading.c): the current thread's 0-based id, an Int16;
+	// julia code runs on one thread here
+	vm.shims["jl_threadid"] = func(vm *VM, a []any) (any, error) { return int16(0), nil }
+	// strlen(s): the bytes before the NUL a Cstring ends with
+	vm.shims["strlen"] = func(vm *VM, a []any) (any, error) {
+		s, ok := vm.cstringArg(a[0])
+		if !ok {
+			return nil, fmt.Errorf("%w: strlen of %s", ErrUnsupported, showValue(a[0]))
+		}
+		return uint64(len(s)), nil
+	}
+	// the parser's operator tables (ast.c:992-1035), which show consults
+	for name, q := range map[expr.Symbol]func(string) int32{
+		"jl_is_operator":                  func(s string) int32 { return cbool(lower.IsOperator(expr.Symbol(s))) },
+		"jl_is_unary_operator":            func(s string) int32 { return cbool(lower.IsUnaryOperator(s)) },
+		"jl_is_unary_and_binary_operator": func(s string) int32 { return cbool(lower.IsUnaryAndBinaryOperator(s)) },
+		"jl_is_syntactic_operator":        func(s string) int32 { return cbool(lower.IsSyntacticOperator(s)) },
+		"jl_operator_precedence":          func(s string) int32 { return int32(lower.OperatorPrecedence(s)) },
+	} {
+		vm.shims[name] = func(vm *VM, a []any) (any, error) {
+			s, ok := vm.cstringArg(a[0])
+			if !ok {
+				return nil, fmt.Errorf("%w: ccall(:%s) of %s", ErrUnsupported, name, showValue(a[0]))
+			}
+			return q(s), nil
+		}
+	}
 	vm.bootBindingShims()
 }
 
@@ -490,6 +555,14 @@ func (c *code) prepForeign(x *expr.Expr) op {
 	}
 	f.name = name
 	return f
+}
+
+// cbool is a C int truth value.
+func cbool(b bool) int32 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // refArg is whether v is a Ptr{T} passed for a Ref{T} argument.

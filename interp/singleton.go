@@ -46,6 +46,9 @@ func (vm *VM) typeInstance(d *core.DataType) any {
 	} else if b, ok := vm.singletons[d]; ok {
 		v = b // a builtin's
 	} else {
+		// none while it is being made: a type holding itself, through its
+		// fields or theirs, holds a pointer, and is no singleton
+		d.SetCachedInstance(undef)
 		v = vm.makeSingleton(d)
 	}
 	d.SetCachedInstance(v)
