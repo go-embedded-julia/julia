@@ -126,9 +126,64 @@ func TestSizeofCorners(t *testing.T) {
 	check(t, "sizeof a function", v, err, "0")
 	v, err = biSizeof(vm, []any{vm.Core})
 	check(t, "sizeof a module", v, err, "0") // julia 1.12.6: Core.sizeof(Main) == 0
-	// julia 1.12.6: sizeof(Vararg{Int}) is 16; the VM refuses it
-	_, err = biSizeof(vm, []any{&core.Vararg{T: core.Int64Type}})
-	check(t, "sizeof a Vararg", nil, err, "!sizeof of a Core.TypeofVararg")
+	// julia 1.12.6's Core.sizeof of type-system values, and of struct types
+	// whose layout does or does not depend on their parameters
+	if _, err := s.Eval(`struct P{A,B}; first::A; second::B; end
+struct V{x}; end
+struct S1{T}; value::T; end
+mutable struct R1{T}; x::T; end
+struct F1{T}; v::Array{T,1}; end
+struct F2{T}; x::Union{T,Nothing}; end
+struct F3{T}; t::NTuple{2,T}; end
+struct F4{T}; r::Ref{T}; end
+struct F5{T}; p::P{Int,T}; end
+struct F6{T}; n::NamedTuple{(:a,),Tuple{T}}; end
+struct F8{T}; u::Union{Array{T,1},Nothing}; end
+struct F9{S}; f::(P{T,S} where T); end
+struct F10{S}; f::(P{T,T} where T); end
+struct F11{T}; x::Union{S1{T},P{T,T}}; end`); err != nil {
+		t.Fatal(err)
+	}
+	incomplete := func(n string) string {
+		return "!Argument is an incomplete " + n + " type and does not have a definite size."
+	}
+	for _, c := range []struct{ src, want string }{
+		{"F1", "8"},
+		{"F2", incomplete("F2")},
+		{"F3", incomplete("F3")},
+		{"F4", "8"},
+		{"F5", incomplete("F5")},
+		{"F6", incomplete("F6")},
+		{"F8", "8"},
+		{"F9", incomplete("F9")},
+		{"F10", "8"},
+		{"F11", incomplete("F11")},
+		{"NamedTuple{(:a,),Tuple{T}} where T", incomplete("NamedTuple")},
+		{"NamedTuple{(:a,),Tuple{Array{T,1}}} where T", incomplete("NamedTuple")},
+		{"V", "0"},
+		{"Union{Int,Array}", "!Argument is an abstract type and does not have a definite size."},
+		{"P", incomplete("P")},
+		{"R1", incomplete("R1")},
+		{"S1", incomplete("S1")},
+		{"Tuple{T} where T", incomplete("Tuple")},
+		{"Vararg{Int}", "16"},
+		{"Vararg", "16"},
+		{"Vararg{Int,2}", "16"},
+		{"TypeVar(:T)", "24"},
+		{"Tuple{Int}", "8"},
+		{"Union{Int,Float64}", "8"},
+		{"Union{Int8,Nothing}", "1"},
+		{"Array", "!Argument is an incomplete Array type and does not have a definite size."},
+		{"Core.svec(1)", "16"},
+		{"nothing", "0"},
+	} {
+		x, err := s.Eval(c.src)
+		if err != nil {
+			t.Fatalf("%s: %v", c.src, err)
+		}
+		v, err = biSizeof(vm, []any{x})
+		check(t, "sizeof "+c.src, v, err, c.want)
+	}
 }
 
 // jl_cstr_to_string of a String and of a memory of bytes.
