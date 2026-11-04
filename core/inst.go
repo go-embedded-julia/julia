@@ -42,6 +42,11 @@ func catchError(err *error) {
 	}
 }
 
+// CatchError is catchError for the packages above core: deferred directly
+// (defer core.CatchError(&err)), it turns a panic of core's own errors raised
+// by a query past its work bound into the returned error.
+var CatchError = catchError
+
 // try runs f and returns the *Error it raised, if any.
 func try(f func()) (err error) {
 	defer catchError(&err)

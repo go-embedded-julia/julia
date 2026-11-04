@@ -259,17 +259,16 @@ type match struct {
 
 // matchingMethods is jl_matching_methods(types, mt, lim, include_ambiguous,
 // world, min_valid, max_valid, ambig): the intersection of the query with
-// each signature (ml_matches_visitor, gf.c:4406-4442). In order, most
-// specific first, a match the fully-covering most specific one dominates
-// left out (the minmax rule, gf.c:4745-4838; check_interferences_covers,
-// gf.c:2662-2692, leaves out nothing more here). Two matches neither more
-// specific than the other are ordered by julia's typemap, which is not
-// ported: they are refused.
+// each signature, ordered and filtered as ml_matches does (gf.c:4602-4927:
+// the typemap's visit order, the interference sets, minmax and
+// sort_mlmatches), all of it in dispatch.Table.MlMatches. The caller's world
+// range is taken as the whole one.
 func (vm *VM) matchingMethods(a []any) (any, error) {
 	tt, lim, world := a[0], a[2], a[4]
 	n, ok1 := lim.(int32)
+	inclAmbig, ok3 := a[3].(int32)
 	w, ok2 := world.(uint64)
-	if !ok1 || !ok2 {
+	if !ok1 || !ok2 || !ok3 {
 		return nil, fmt.Errorf("%w: jl_matching_methods of %s", ErrUnsupported, showValue(vm.newTuple(a)))
 	}
 	if err := vm.storeThrough("jl_matching_methods", a[7], core.Int32Type, int32(0)); err != nil {
@@ -290,43 +289,30 @@ func (vm *VM) matchingMethods(a []any) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: jl_matching_methods of the methods of %s", ErrUnsupported, showValue(unw.Parameters[0]))
 	}
-	minValid, maxValid := uint64(0), ^uint64(0)
-	var ms []match
-	for _, m := range tab.Methods(w) {
-		sig := fullSig(m.Sig, ft)
-		// jl_typemap_intersection_node_visitor (typemap.c:538-552); past
-		// the work bound, an error, never a panic
-		ti, env, issubty, err := core.TypeIntersectionEnv(tt, sig)
-		if err != nil {
-			return nil, err
-		}
-		// intersection is conservative in corner cases: a dispatch tuple
-		// that is not a subtype matches nothing (issue #30394)
-		if d, ok := tt.(*core.DataType); ti == any(core.Bottom) || (!issubty && ok && d.IsDispatchTuple) {
-			continue
-		}
-		mt := match{m: m, sig: sig, ti: ti, env: SVec(env), fullyCovers: issubty}
-		minValid = max(minValid, m.PrimaryWorld)
-		maxValid = min(maxValid, m.MaxWorld)
-		ms = append(ms, mt)
-	}
-	ms, err := orderMatches(ms)
+	// ml_matches: the typemap's visit order and the interference sets
+	// (core/dispatch). The caller's world range is taken as the whole one.
+	res, err := tab.MlMatches(tt, int(n), inclAmbig != 0, w, 0, ^uint64(0))
 	if err != nil {
 		return nil, err
 	}
-
-	if n >= 0 && len(ms) > int(n) {
+	if err := vm.storeThrough("jl_matching_methods", a[5], core.UInt64Type, res.MinValid); err != nil {
+		return nil, err
+	}
+	if err := vm.storeThrough("jl_matching_methods", a[6], core.UInt64Type, res.MaxValid); err != nil {
+		return nil, err
+	}
+	if res.Nothing {
 		return nil, nil
 	}
-	if err := vm.storeThrough("jl_matching_methods", a[5], core.UInt64Type, minValid); err != nil {
-		return nil, err
+	var amb int32
+	if res.Ambig {
+		amb = 1
 	}
-	if err := vm.storeThrough("jl_matching_methods", a[6], core.UInt64Type, maxValid); err != nil {
-		return nil, err
-	}
-	out := make([]any, len(ms))
-	for i, mt := range ms {
-		out[i] = &Struct{Type: vm.tMethodMatch, Fields: []any{mt.ti, mt.env, vm.methodObject(tab, mt.m, ft, name), mt.fullyCovers}}
+	// the pointer took the 0 stored above, so it takes this
+	must(0, vm.storeThrough("jl_matching_methods", a[7], core.Int32Type, amb))
+	out := make([]any, len(res.List))
+	for i, mt := range res.List {
+		out[i] = &Struct{Type: vm.tMethodMatch, Fields: []any{mt.Types, SVec(mt.Env), vm.methodObject(tab, mt.Method, ft, name), mt.FullyCovers}}
 	}
 	return vm.newVector(core.AnyType, out), nil
 }
@@ -425,40 +411,6 @@ func mostSpecific(ms []match) (int, error) {
 		}
 	}
 	return -1, nil
-}
-
-// orderMatches sorts the matches most specific first and leaves out the
-// dominated ones; matches neither more specific than the other are refused.
-func orderMatches(ms []match) ([]match, error) {
-	for i := 1; i < len(ms); i++ {
-		for j := i; j > 0; j-- {
-			before, err := core.MoreSpecific(ms[j].sig, ms[j-1].sig)
-			after := false
-			if err == nil {
-				after, err = core.MoreSpecific(ms[j-1].sig, ms[j].sig)
-			}
-			if err != nil {
-				return nil, err
-			}
-			if before == after {
-				return nil, fmt.Errorf("%w: jl_matching_methods: the order of %s and %s, neither more specific (julia's typemap order)", ErrUnsupported, core.Show(ms[j-1].sig), core.Show(ms[j].sig))
-			}
-			if !before {
-				break
-			}
-			ms[j], ms[j-1] = ms[j-1], ms[j]
-		}
-	}
-	// the first fully-covering match dominates the rest: a later match
-	// another covers would have the query inside both, so that other
-	// fully covers too (the minmax rule; check_interferences_covers adds
-	// nothing where subtyping decided the intersections)
-	for i, mt := range ms {
-		if mt.fullyCovers {
-			return ms[:i+1], nil
-		}
-	}
-	return ms, nil
 }
 
 // typeVarsOf is the variables of a signature's UnionAlls, outermost first.

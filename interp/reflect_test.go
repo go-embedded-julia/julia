@@ -123,7 +123,7 @@ func TestMatchingMethods(t *testing.T) {
 		pmn, _ := vm.valuePtr([]any{mn})
 		pmx, _ := vm.valuePtr([]any{mx})
 		w := vm.World()
-		v, err := shim(vm, []any{ty(c.tt), nil, c.lim, false, w, pmn, pmx, null})
+		v, err := shim(vm, []any{ty(c.tt), nil, c.lim, int32(0), w, pmn, pmx, null})
 		if err != nil {
 			t.Errorf("%s: %v", c.name, err)
 			continue
@@ -136,13 +136,13 @@ func TestMatchingMethods(t *testing.T) {
 		}
 	}
 	// Core.methodtable is the table of every function, as nothing is
-	if v, err := shim(vm, []any{ty("Tuple{typeof(g), Int}"), ty("Core.methodtable"), int32(-1), false, vm.World(), null, null, null}); err != nil ||
+	if v, err := shim(vm, []any{ty("Tuple{typeof(g), Int}"), ty("Core.methodtable"), int32(-1), int32(0), vm.World(), null, null, null}); err != nil ||
 		show(v) != fmt.Sprintf("[(Tuple{%[1]s, Int64}, svec(), Tuple{%[1]s, Int64}, true)]", g) {
 		t.Errorf("in Core.methodtable: %s %v", show(v), err)
 	}
 	// the same Method object every time, and its fields
-	v1, _ := shim(vm, []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), false, vm.World(), null, null, null})
-	v2, _ := shim(vm, []any{ty("Tuple{typeof(g), Vararg{Any}}"), nil, int32(-1), false, vm.World(), null, null, null})
+	v1, _ := shim(vm, []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), int32(0), vm.World(), null, null, null})
+	v2, _ := shim(vm, []any{ty("Tuple{typeof(g), Vararg{Any}}"), nil, int32(-1), int32(0), vm.World(), null, null, null})
 	_, _, e1, _ := arrayOf(v1)
 	_, _, e2, _ := arrayOf(v2)
 	meth := e1[0].(*Struct).Fields[2].(*Struct)
@@ -163,27 +163,31 @@ func TestMatchingMethods(t *testing.T) {
 		args []any
 		want string
 	}{
-		{"an ambiguity", []any{ty("Tuple{typeof(amb), Vararg{Any}}"), nil, int32(-1), false, vm.World(), null, null, null}, "neither more specific"},
-		{"a callee of no table", []any{ty("Tuple{Any, Vararg{Any}}"), nil, int32(-1), false, vm.World(), null, null, null}, "the methods of Any"},
-		{"a table of its own", []any{ty("Tuple{typeof(g)}"), int64(1), int32(-1), false, vm.World(), null, null, null}, "a method table of its own"},
+		{"a callee of no table", []any{ty("Tuple{Any, Vararg{Any}}"), nil, int32(-1), int32(0), vm.World(), null, null, null}, "the methods of Any"},
+		{"a table of its own", []any{ty("Tuple{typeof(g)}"), int64(1), int32(-1), int32(0), vm.World(), null, null, null}, "a method table of its own"},
 		{"a lim not a Cint", []any{ty("Tuple{typeof(g)}"), nil, int64(-1), false, vm.World(), null, null, null}, "jl_matching_methods of"},
-		{"a result through no pointer", []any{ty("Tuple{typeof(g)}"), nil, int32(-1), false, vm.World(), null, null, int64(1)}, "result through"},
-		{"a min through no pointer", []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), false, vm.World(), int64(1), null, null}, "result through"},
-		{"a max through no pointer", []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), false, vm.World(), null, int64(1), null}, "result through"},
+		{"a result through no pointer", []any{ty("Tuple{typeof(g)}"), nil, int32(-1), int32(0), vm.World(), null, null, int64(1)}, "result through"},
+		{"a min through no pointer", []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), int32(0), vm.World(), int64(1), null, null}, "result through"},
+		{"a max through no pointer", []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), int32(0), vm.World(), null, int64(1), null}, "result through"},
 	} {
 		_, err := shim(vm, c.args)
 		if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}
-	if v, err := shim(vm, []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), false, vm.World() + 1, null, null, null}); v != nil || err != nil {
+	if v, err := shim(vm, []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), int32(0), vm.World() + 1, null, null, null}); v != nil || err != nil {
 		t.Errorf("a future world: %v %v", v, err)
 	}
-	// has_ambig is written 0
+	// has_ambig is written 0, and 1 for methods neither of which is more
+	// specific, which come out in the typemap's order
 	amb := ref(refI, int32(7))
 	pa, _ := vm.valuePtr([]any{amb})
-	if _, err := shim(vm, []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), false, vm.World(), null, null, pa}); err != nil || amb.Fields[0] != int32(0) {
+	if _, err := shim(vm, []any{ty("Tuple{typeof(g), Int}"), nil, int32(-1), int32(0), vm.World(), null, null, pa}); err != nil || amb.Fields[0] != int32(0) {
 		t.Errorf("has_ambig: %v %v", amb.Fields[0], err)
+	}
+	va, err := shim(vm, []any{ty("Tuple{typeof(amb), Vararg{Any}}"), nil, int32(-1), int32(0), vm.World(), null, null, pa})
+	if got := show(va); err != nil || amb.Fields[0] != int32(1) || strings.Count(got, "), true)") != 0 || strings.Count(got, "(Tuple{") != 2 {
+		t.Errorf("an ambiguity: %s %v ambig %v", got, err, amb.Fields[0])
 	}
 
 	// jl_specializations_get_linfo: one MethodInstance per argument types
@@ -218,23 +222,21 @@ func TestMatchingMethods(t *testing.T) {
 	if _, err := s.Eval("q(x) = 1; q(x::Integer) = 2; q(x::Int) = 3"); err != nil {
 		t.Fatal(err)
 	}
-	vq, err := shim(vm, []any{ty("Tuple{typeof(q), Vararg{Any}}"), nil, int32(-1), false, vm.World(), null, null, null})
+	vq, err := shim(vm, []any{ty("Tuple{typeof(q), Vararg{Any}}"), nil, int32(-1), int32(0), vm.World(), null, null, null})
 	if got := show(vq); err != nil || !strings.HasPrefix(got, "[(Tuple{Main.L.#q, Int64}") || !strings.Contains(got, "Integer}, false), (Tuple{Main.L.#q, Any}") {
 		t.Errorf("q all: %s %v", got, err)
 	}
 	// subtyping past its work bound is an error, not an answer
-	hAll, hII, hTT := ty("Tuple{typeof(h), Vararg{Any}}"), ty("Tuple{typeof(h), Int, Int}"), ty("Tuple{typeof(h), T, T} where T")
+	hAll := ty("Tuple{typeof(h), Vararg{Any}}")
 	old := core.SetMaxSubtypeSteps(1)
-	_, errMatch := shim(vm, []any{hAll, nil, int32(-1), false, vm.World(), null, null, null})
-	_, errOrder := orderMatches([]match{{sig: hII}, {sig: hTT}})
-	_, errOrder2 := orderMatches([]match{{sig: hTT}, {sig: hII}})
+	_, errMatch := shim(vm, []any{hAll, nil, int32(-1), int32(0), vm.World(), null, null, null})
 	core.SetMaxSubtypeSteps(old)
-	if errMatch == nil || errOrder == nil || errOrder2 == nil {
-		t.Errorf("past the work bound: %v %v %v", errMatch, errOrder, errOrder2)
+	if errMatch == nil {
+		t.Errorf("past the work bound: %v", errMatch)
 	}
 
 	// a method of a type's constructor table, and of a Go-built body
-	v3, err := shim(vm, []any{ty("Tuple{Type{TypeVar}, Vararg{Any}}"), nil, int32(-1), false, vm.World(), null, null, null})
+	v3, err := shim(vm, []any{ty("Tuple{Type{TypeVar}, Vararg{Any}}"), nil, int32(-1), int32(0), vm.World(), null, null, null})
 	if err != nil {
 		t.Fatal(err)
 	}

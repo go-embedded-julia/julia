@@ -6,10 +6,11 @@
 // whose signature the argument tuple is a subtype of (gf.c ml_matches with
 // a dispatch tuple), and the call runs the one that is more specific than
 // every other (jl_method_morespecific, subtype.c:5536-5552); when none is,
-// the call is ambiguous. julia 1.12 orders the matches through the
-// interference sets it computes when a method is inserted (gf.c:4487-4589),
-// which need type intersection; they are not ported yet, and the
-// differential test against julia's `which` measures what that changes.
+// the call is ambiguous. julia 1.12 orders the matches of a query through
+// the interference sets it computes when a method is inserted and the
+// typemap's visit order (gf.c ml_matches, typemap.c); mlmatches.go and
+// typemap.go port them for MlMatches, which the differential test
+// against julia's Base._methods_by_ftype measures. Lookup does not use them.
 package dispatch
 
 import (
@@ -35,15 +36,39 @@ type Method struct {
 	// Def is what the caller defined the method with (the interpreter's
 	// prepared body); the table only carries it.
 	Def any
+
+	// what ml_matches keeps of a method (gf.c, jl_method_t): its full
+	// signature, the methods that are not less specific than it (its
+	// interference set, in the order they were added), and dispatch_status's
+	// METHOD_SIG_LATEST_ONLY bit
+	full         any
+	interference []*Method
+	latestOnly   bool
 }
 
 // Table is a generic function's method table (jl_methtable_t).
 type Table struct {
 	Name string
+	// Head is typeof(f) when the signatures leave it out, nil when they keep
+	// the callee's type first.
+	Head any
 
 	mu      sync.RWMutex
 	world   uint64
 	methods []*Method
+
+	// the typemap, built by replaying the insertions and disables in order
+	// when a query first needs it
+	events   []tmEvent
+	replayed int
+	tm       typemap
+	failed   error
+}
+
+// tmEvent is a change of the table the typemap has yet to follow.
+type tmEvent struct {
+	m       *Method
+	disable bool
 }
 
 // ErrNoMethod and ErrAmbiguous are wrapped by the errors Lookup returns,
@@ -92,6 +117,7 @@ func (t *Table) Define(sig any, w uint64, def any) (*Method, error) {
 	}
 	m := &Method{Sig: sig, PrimaryWorld: w, MaxWorld: ^uint64(0), Index: len(t.methods), Def: def}
 	t.methods = append(t.methods, m)
+	t.events = append(t.events, tmEvent{m: m})
 	return m, nil
 }
 
@@ -105,6 +131,7 @@ func (t *Table) Disable(m *Method, w uint64) bool {
 		return false
 	}
 	m.MaxWorld = w
+	t.events = append(t.events, tmEvent{m: m, disable: true})
 	return true
 }
 
