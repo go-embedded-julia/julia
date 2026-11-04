@@ -368,7 +368,7 @@ func mustType(module, name string, super *core.DataType, abstract bool, fields [
 // named #f under Function (jl_declare_const_gf, jl_new_generic_function).
 func (vm *VM) newFunction(m *Module, name expr.Symbol) *Function {
 	t := mustType(string(m.Name), "#"+string(name), core.FunctionType, false, nil, nil)
-	fn := &Function{Name: name, Type: t, Table: &dispatch.Table{Name: string(name)}}
+	fn := &Function{Name: name, Type: t, Table: &dispatch.Table{Name: string(name), Head: t}}
 	vm.funcs[t] = fn
 	return fn
 }
