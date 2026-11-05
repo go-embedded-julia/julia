@@ -1367,6 +1367,10 @@ func (d *irDecoder) fromImage(t *core.DataType) (any, error) {
 		if t.Name == typeNameOf(core.PtrType) {
 			return biBitcast(vm, []any{t, binary.LittleEndian.Uint64(buf[:8])})
 		}
+		// an intrinsic's bits are its id
+		if t == vm.intrinsicType {
+			return vm.intrinsicOf(int32(binary.LittleEndian.Uint32(buf[:4]))), nil
+		}
 		v, ok := bitsValue(t, u128{binary.LittleEndian.Uint64(buf[8:]), binary.LittleEndian.Uint64(buf[:8])})
 		if !ok {
 			return nil, fmt.Errorf("%w: jl_uncompress_ir of a %s", ErrUnsupported, showValue(t))

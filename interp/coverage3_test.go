@@ -179,7 +179,11 @@ func TestStringMemoryBytes(t *testing.T) {
 		{"greater", f.str("b"), mp(src, 0), 1, "1"},
 		{"a memory against itself", mp(src, 1), mp(src, 1), 1, "0"},
 		{"past the memory", mp(src, 0), f.str("abc"), 3, "!memcmp of"},
-		{"a memory of another type", &Pointer{Type: f.u8p, Target: &Memory{Type: memUInt16Type}}, f.str("a"), 0, "!memcmp of"},
+		// a memory of another primitive type is read as its bytes: UInt16[0x6261]
+		// is "ab", little-endian
+		{"a memory of UInt16", &Pointer{Type: f.u8p, Target: &Memory{Type: memUInt16Type, Elems: []any{uint16(0x6261)}}}, f.str("ab"), 2, "0"},
+		{"past a memory of UInt16", &Pointer{Type: f.u8p, Target: &Memory{Type: memUInt16Type, Elems: []any{uint16(0x6261)}}}, f.str("abc"), 3, "!memcmp of"},
+		{"a memory of Any", &Pointer{Type: f.u8p, Target: &Memory{Type: memAnyType, Elems: []any{int64(1)}}}, f.str("a"), 1, "!memcmp of"},
 		{"a negative offset", mp(src, -1), f.str("a"), 1, "!memcmp of"},
 		{"an undefined byte", mp(u8mem(undef), 0), f.str("a"), 1, "!memcmp of"},
 		{"no pointer", int64(1), f.str("a"), 1, "!memcmp of"},

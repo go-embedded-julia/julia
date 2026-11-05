@@ -230,16 +230,34 @@ func (vm *VM) bytesAt(p *Pointer, n uint64) ([]byte, bool) {
 		return []byte(s), true
 	}
 	m, ok := p.Target.(*Memory)
-	if !ok || m.Type != memUInt8Type || p.Off < 0 || p.Off > int64(len(m.Elems)) || n > uint64(int64(len(m.Elems))-p.Off) {
+	if !ok || n > uint64(vm.MaxMemoryElems) {
+		return nil, false
+	}
+	if m.Type == memUInt8Type {
+		if p.Off < 0 || p.Off > int64(len(m.Elems)) || n > uint64(int64(len(m.Elems))-p.Off) {
+			return nil, false
+		}
+		b := make([]byte, n)
+		for i := range b {
+			c, ok := m.Elems[p.Off+int64(i)].(uint8)
+			if !ok {
+				return nil, false
+			}
+			b[i] = c
+		}
+		return b, true
+	}
+	// a memory of other primitive values, read as its bytes
+	if et, ok := m.Type.Parameters[1].(*core.DataType); !ok || et.Name.Bits == 0 {
 		return nil, false
 	}
 	b := make([]byte, n)
 	for i := range b {
-		c, ok := m.Elems[p.Off+int64(i)].(uint8)
-		if !ok {
+		v, err := vm.memLoadBytes("memcmp", m, p.Off+int64(i), core.UInt8Type)
+		if err != nil {
 			return nil, false
 		}
-		b[i] = c
+		b[i] = v.(uint8)
 	}
 	return b, true
 }
