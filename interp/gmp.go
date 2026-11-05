@@ -813,6 +813,10 @@ func (vm *VM) gmpFunctions() map[string]gmpFn {
 	fns["__gmpz_init"] = gmpFn{"z", func(vm *VM, a []any) (any, error) {
 		return nil, vm.putMpzAlloc(a[0].(*Struct).Fields[:3], new(big.Int), 1, false)
 	}}
+	// mpz_clear frees the limbs, which the Go collector frees with the
+	// Memory holding them; Base only takes its address, as BigInt's
+	// finalizer (gmp.jl:71)
+	fns["__gmpz_clear"] = gmpFn{"z", func(vm *VM, a []any) (any, error) { return nil, nil }}
 	fns["__gmpz_init2"] = gmpFn{"zu", func(vm *VM, a []any) (any, error) {
 		limbs := cld64(a[1].(uint64), 64)
 		if err := vm.gmpGuard("mpz_init2", satMul(limbs, 64)); err != nil {

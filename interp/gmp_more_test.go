@@ -147,6 +147,24 @@ func TestGMPCglobal(t *testing.T) {
 	}
 	v, err = vm.shims["jl_gc_add_ptr_finalizer"](vm, nil)
 	check(t, "finalizer", v, err, "")
+	// cglobal of one argument, a C function's address (gmp.jl:71): a
+	// Ptr{Cvoid} code passes on and cannot load through
+	cg := vm.intrinsics[intrinsicIDs["cglobal"]]
+	v, err = cg.Fn(vm, []any{tup(expr.Symbol("__gmpz_clear"), gmpLib)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp := v.(*Pointer)
+	if fp.Type != vm.ptrType(core.NothingType) || fp.Target != (cFunc{gmpLib, "__gmpz_clear"}) {
+		t.Fatalf("cglobal of __gmpz_clear: %s", showValue(fp))
+	}
+	_, err = vm.ptrLoad("pointerref", &Pointer{Type: vm.ptrType(core.Int8Type), Target: fp.Target}, 1)
+	check(t, "a load through a function's address", nil, err, "!")
+	_, err = cg.Fn(vm, nil)
+	check(t, "cglobal of nothing", nil, err, "!intrinsic_call: too few arguments")
+	z, _ := f.big("5")
+	v, err = f.call("__gmpz_clear", z)
+	check(t, "mpz_clear", v, err, "")
 }
 
 // The allocator calls and values the shims leave: gmp.jl's __init__.

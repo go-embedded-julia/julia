@@ -3,6 +3,7 @@ package interp
 import (
 	"fmt"
 
+	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
 
@@ -51,6 +52,11 @@ func (vm *VM) newIntrinsic(name expr.Symbol, n int, fn func(vm *VM, a []any) (an
 		panic("interp: " + string(name) + " is not one of julia's intrinsics")
 	}
 	x := &Intrinsic{Name: name, ID: id, Fn: func(vm *VM, args []any) (any, error) {
+		// jl_f_intrinsic_call (builtins.c:2369): cglobal of one argument is
+		// cglobal_auto, jl_cglobal(v, Nothing) (runtime_intrinsics.c:681)
+		if name == "cglobal" && len(args) == 1 {
+			args = []any{args[0], core.NothingType}
+		}
 		// jl_f_intrinsic_call: JL_NARGS(intrinsic_call, n, n)
 		if err := vm.nargs("intrinsic_call", args, n, n); err != nil {
 			return nil, err

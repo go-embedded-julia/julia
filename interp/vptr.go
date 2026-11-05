@@ -60,6 +60,12 @@ func (vm *VM) bootPointers() {
 	vm.bootGMPGlobals()
 }
 
+// cFunc is the address of a C function of a library the VM serves.
+type cFunc struct {
+	lib  string
+	name expr.Symbol
+}
+
 // biCglobal is jl_cglobal (runtime_intrinsics.c:634-679) for the C globals
 // the VM has: a pointer to the slot, as a Ptr{ty}.
 func biCglobal(vm *VM, a []any) (any, error) {
@@ -89,10 +95,15 @@ func biCglobal(vm *VM, a []any) (any, error) {
 	}
 	if lib != "" {
 		slot := vm.libCglobals[lib][name]
-		if slot == nil {
-			return nil, fmt.Errorf("%w: cglobal((:%s, %q))", ErrUnsupported, name, lib)
+		if slot != nil {
+			return &Pointer{Type: rt, Target: slot}, nil
 		}
-		return &Pointer{Type: rt, Target: slot}, nil
+		// a C function the VM has: its address, which code passes on (a
+		// finalizer, gcutils.jl:90) and never loads through
+		if vm.libShims[lib][name] != nil {
+			return &Pointer{Type: rt, Target: cFunc{lib, name}}, nil
+		}
+		return nil, fmt.Errorf("%w: cglobal((:%s, %q))", ErrUnsupported, name, lib)
 	}
 	slot := vm.cglobals[name]
 	if slot == nil && name == "jl_options" {
