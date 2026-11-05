@@ -16,6 +16,7 @@ package dispatch
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -59,13 +60,11 @@ type Table struct {
 	world   uint64
 	methods []*Method
 
-	// the leaf cache of Lookup (julia's call cache and mt->leafcache,
-	// gf.c: jl_lookup_generic_): a concrete argument tuple type's method and
-	// static parameters in a world. Every world from settled on, the first
-	// after the table's last change, answers alike and is keyed as settled;
-	// an older world's answer never changes, and is kept.
-	settled uint64
-	leaf    map[leafKey]leafEntry
+	// the leaf cache of Lookup (mt->leafcache, gf.c: lookup_leafcache and
+	// cache_method): for a concrete argument tuple type, its answers, each
+	// with the world range ml_matches found it valid in
+	leaf    map[*core.DataType][]leafEntry
+	changes uint64 // counts the calls of changed
 
 	// the typemap, built by replaying the insertions and disables in order
 	// when a query first needs it
@@ -75,30 +74,38 @@ type Table struct {
 	failed   error
 }
 
-// leafKey and leafEntry are a cached Lookup: the argument tuple type and
-// world, the method and static parameters.
-type leafKey struct {
-	tt *core.DataType
-	w  uint64
-}
+// raceHook runs between a cache miss's lookup and its caching; tests make
+// the table change there.
+var raceHook = func() {}
 
+// leafEntry is a cached Lookup: the method and static parameters, and the
+// worlds minWorld to maxWorld it is the answer in.
 type leafEntry struct {
-	m   *Method
-	env []any
+	minWorld, maxWorld uint64
+	m                  *Method
+	env                []any
 }
 
-// changed records a change of the visible methods from world w on: the
-// answers of world w and later go, those keyed as the settled worlds with
-// them; those of older worlds stay.
+// changed records a change of the visible methods from world w on: no
+// cached answer holds from w on any more (julia's invalidation of the
+// method cache ends the entries' worlds the same way); an entry that only
+// held from w on goes.
 func (t *Table) changed(w uint64) {
-	from := min(w, t.settled)
-	for k := range t.leaf {
-		if k.w >= from {
-			delete(t.leaf, k)
+	t.changes++
+	for tt, es := range t.leaf {
+		kept := es[:0]
+		for _, e := range es {
+			if e.minWorld >= w {
+				continue
+			}
+			e.maxWorld = min(e.maxWorld, w-1)
+			kept = append(kept, e)
 		}
-	}
-	if w > t.settled {
-		t.settled = w
+		if len(kept) == 0 {
+			delete(t.leaf, tt)
+		} else {
+			t.leaf[tt] = kept
+		}
 	}
 }
 
@@ -136,8 +143,9 @@ func (t *Table) Add(sig any) (*Method, error) {
 // a VM takes from its one world counter (jl_world_counter): julia's worlds
 // are global, shared by every table and binding. w must be newer than every
 // world the table has seen. A method whose signature is type-equal to sig is
-// replaced, as in Add.
-func (t *Table) Define(sig any, w uint64, def any) (*Method, error) {
+// replaced, as in Add. A failure of the type algebra (its work bound) is an
+// error and leaves the table as it was.
+func (t *Table) Define(sig any, w uint64, def any) (_ *Method, err error) {
 	if !core.IsTupleType(core.UnwrapUnionAll(sig)) {
 		return nil, fmt.Errorf("method signature %s is not a Tuple type", core.Show(sig))
 	}
@@ -146,17 +154,30 @@ func (t *Table) Define(sig any, w uint64, def any) (*Method, error) {
 	if w <= t.world {
 		return nil, fmt.Errorf("method of %s defined in world %d, not newer than world %d", t.Name, w, t.world)
 	}
+	replaced, err := t.replacedBy(sig)
+	if err != nil {
+		return nil, err
+	}
 	t.world = w
-	for _, m := range t.methods {
-		if m.MaxWorld == ^uint64(0) && core.TypesEqual(m.Sig, sig) {
-			m.MaxWorld = w - 1
-		}
+	for _, m := range replaced {
+		m.MaxWorld = w - 1
 	}
 	m := &Method{Sig: sig, PrimaryWorld: w, MaxWorld: ^uint64(0), Index: len(t.methods), Def: def, nenv: envSize(sig)}
 	t.methods = append(t.methods, m)
 	t.events = append(t.events, tmEvent{m: m})
 	t.changed(w)
 	return m, nil
+}
+
+// replacedBy is the current methods whose signature is type-equal to sig.
+func (t *Table) replacedBy(sig any) (ms []*Method, err error) {
+	defer core.CatchError(&err)
+	for _, m := range t.methods {
+		if m.MaxWorld == ^uint64(0) && core.TypesEqual(m.Sig, sig) {
+			ms = append(ms, m)
+		}
+	}
+	return ms, nil
 }
 
 // Disable makes m, a current method of the table, invisible after world w
@@ -215,25 +236,59 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 		return t.lookup(tt, w)
 	}
 	t.mu.RLock()
-	key := leafKey{leaf, min(w, t.settled)}
-	e, ok := t.leaf[key]
-	t.mu.RUnlock()
-	if ok {
-		return e.m, append([]any(nil), e.env...), nil
+	gen := t.changes
+	for _, e := range t.leaf[leaf] {
+		if e.minWorld <= w && w <= e.maxWorld {
+			t.mu.RUnlock()
+			return e.m, append([]any(nil), e.env...), nil
+		}
 	}
-	m, env, err := t.lookup(tt, w)
+	t.mu.RUnlock()
+	m, env, minW, maxW, err := t.lookupML(leaf, w)
+	raceHook()
+	if checkML {
+		// TEMPORARY differential check of the typemap path against the scan
+		sm, senv, serr := t.lookup(tt, w)
+		if (err == nil) != (serr == nil) || sm != m || fmt.Sprint(env) != fmt.Sprint(senv) {
+			return nil, nil, fmt.Errorf("dispatch check: %s%s in world %d: scan %v %v %v, ml_matches %v %v %v",
+				t.Name, core.Show(tt), w, sm, senv, serr, m, env, err)
+		}
+	}
 	if err == nil {
 		t.mu.Lock()
-		// unless the table changed meanwhile
-		if key.w == min(w, t.settled) {
-			if t.leaf == nil {
-				t.leaf = map[leafKey]leafEntry{}
-			}
-			t.leaf[key] = leafEntry{m, append([]any(nil), env...)}
+		if t.leaf == nil {
+			t.leaf = map[*core.DataType][]leafEntry{}
+		}
+		// unless the table changed while ml_matches ran: its range may
+		// reach past that change
+		if t.changes == gen {
+			t.leaf[leaf] = append(t.leaf[leaf], leafEntry{minW, maxW, m, append([]any(nil), env...)})
 		}
 		t.mu.Unlock()
 	}
 	return m, env, err
+}
+
+var checkML = os.Getenv("JLGO_DISPATCH_CHECK") != "" // TEMPORARY
+
+// lookupML is jl_mt_assoc_by_type's miss path (gf.c:1848-1877,
+// _gf_invoke_lookup gf.c:4217-4230): ml_matches of the argument tuple, one
+// match at most; the method when exactly one is found.
+func (t *Table) lookupML(tt *core.DataType, w uint64) (*Method, []any, uint64, uint64, error) {
+	res, err := t.MlMatches(t.fullSig(tt), 1, false, w, 0, ^uint64(0))
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+	if res.Nothing || len(res.List) != 1 {
+		// none, or more than one with none the most specific: the scan
+		// tells a missing method from an ambiguity
+		m, _, err := t.lookup(tt, w)
+		if err == nil {
+			err = fmt.Errorf("dispatch: %s%s in world %d: the scan chose %v where ml_matches found %d methods", t.Name, core.Show(tt), w, m, len(res.List))
+		}
+		return nil, nil, 0, 0, err
+	}
+	return res.List[0].Method, res.List[0].Env, res.MinValid, res.MaxValid, nil
 }
 
 // lookup is Lookup without its cache.

@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -53,9 +54,90 @@ func TestLeafCacheKeepsWorlds(t *testing.T) {
 	if m, _, err := tab.Lookup(anyT, w3+1); err != nil || m != m1 {
 		t.Fatalf("an abstract tuple: %v, %v", m, err)
 	}
-	for k := range tab.leaf {
-		if k.tt != call {
-			t.Errorf("cached %s", core.Show(k.tt))
+	for tt := range tab.leaf {
+		if tt != call {
+			t.Errorf("cached %s", core.Show(tt))
 		}
+	}
+}
+
+// A change at the first world of a cached answer drops it: no world of its
+// range is left.
+func TestLeafCacheDropsAnAnswerFromTheChangedWorld(t *testing.T) {
+	tab := &Table{Name: "f"}
+	anyT := mustApply(t, core.AnyTupleType, core.AnyType)
+	intT := mustApply(t, core.AnyTupleType, core.Int64Type)
+	call := intT.(*core.DataType)
+	m0, _ := tab.Add(anyT)
+	m1, _ := tab.Add(intT)
+	if !tab.Disable(m1, 5) {
+		t.Fatal("disable")
+	}
+	// m0 from world 6 on
+	if m, _, err := tab.Lookup(call, 10); err != nil || m != m0 {
+		t.Fatalf("%v, %v", m, err)
+	}
+	if es := tab.leaf[call]; len(es) != 1 || es[0].minWorld != 6 {
+		t.Fatalf("cached %+v", es)
+	}
+	m2, err := tab.Define(intT, 6, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := tab.leaf[call]; ok {
+		t.Fatal("the answer of worlds 6 on stayed")
+	}
+	if m, _, err := tab.Lookup(call, 10); err != nil || m != m2 {
+		t.Fatalf("%v, %v", m, err)
+	}
+}
+
+// A typemap that misses a method the scan sees is an error, never a guess.
+func TestLookupReportsATypemapDisagreement(t *testing.T) {
+	tab := &Table{Name: "f"}
+	anyT := mustApply(t, core.AnyTupleType, core.AnyType)
+	call := mustApply(t, core.AnyTupleType, core.Int64Type).(*core.DataType)
+	// a method the typemap never hears of
+	tab.methods = append(tab.methods, &Method{Sig: anyT, PrimaryWorld: 1, MaxWorld: ^uint64(0)})
+	tab.world = 1
+	if _, _, err := tab.Lookup(call, 1); err == nil || !strings.Contains(err.Error(), "the scan chose") {
+		t.Fatalf("%v; want the disagreement", err)
+	}
+}
+
+// The differential check agrees on an ordinary table and reports a
+// typemap that misses a method.
+func TestDispatchCheck(t *testing.T) {
+	checkML = true
+	defer func() { checkML = false }()
+	anyT := mustApply(t, core.AnyTupleType, core.AnyType)
+	call := mustApply(t, core.AnyTupleType, core.Int64Type).(*core.DataType)
+	tab := &Table{Name: "f"}
+	m, _ := tab.Add(anyT)
+	if got, _, err := tab.Lookup(call, tab.World()); err != nil || got != m {
+		t.Fatalf("%v, %v", got, err)
+	}
+	stale := &Table{Name: "f", world: 1}
+	stale.methods = append(stale.methods, &Method{Sig: anyT, PrimaryWorld: 1, MaxWorld: ^uint64(0)})
+	if _, _, err := stale.Lookup(call, 1); err == nil || !strings.Contains(err.Error(), "dispatch check") {
+		t.Fatalf("%v; want the check's report", err)
+	}
+}
+
+// An answer found while the table changed is not cached: its world range
+// may reach past the change.
+func TestLeafCacheSkipsARacedAnswer(t *testing.T) {
+	tab := &Table{Name: "f"}
+	anyT := mustApply(t, core.AnyTupleType, core.AnyType)
+	call := mustApply(t, core.AnyTupleType, core.Int64Type).(*core.DataType)
+	m1, _ := tab.Add(anyT)
+	next := tab.World() + 1
+	raceHook = func() { tab.mu.Lock(); tab.changed(next); tab.mu.Unlock() }
+	defer func() { raceHook = func() {} }()
+	if m, _, err := tab.Lookup(call, tab.World()); err != nil || m != m1 {
+		t.Fatalf("%v, %v", m, err)
+	}
+	if len(tab.leaf) != 0 {
+		t.Fatalf("cached %d answers", len(tab.leaf))
 	}
 }
