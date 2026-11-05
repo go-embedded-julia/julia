@@ -57,6 +57,7 @@ func (vm *VM) bootPointers() {
 	// the int the GC sets when finalizers are due (gc-common.c); this VM
 	// runs no Julia finalizers, so none is ever pending
 	vm.cglobals["jl_gc_have_pending_finalizers"] = &ptrSlot{name: "jl_gc_have_pending_finalizers", val: int32(0)}
+	vm.bootGMPGlobals()
 }
 
 // biCglobal is jl_cglobal (runtime_intrinsics.c:634-679) for the C globals
@@ -74,9 +75,24 @@ func biCglobal(vm *VM, a []any) (any, error) {
 	if !rt.IsConcrete {
 		return nil, vm.errorf("cglobal: type argument not concrete")
 	}
+	// a Symbol, or (Symbol, library): a variable the library defines
 	name, ok := a[0].(expr.Symbol)
+	lib := ""
+	if t, isTuple := a[0].(*Tuple); isTuple && len(t.Elems) == 2 {
+		var ok2 bool
+		name, ok = t.Elems[0].(expr.Symbol)
+		lib, ok2 = t.Elems[1].(string)
+		ok = ok && ok2
+	}
 	if !ok {
 		return nil, vm.typeError("cglobal", "", core.SymbolType, a[0])
+	}
+	if lib != "" {
+		slot := vm.libCglobals[lib][name]
+		if slot == nil {
+			return nil, fmt.Errorf("%w: cglobal((:%s, %q))", ErrUnsupported, name, lib)
+		}
+		return &Pointer{Type: rt, Target: slot}, nil
 	}
 	slot := vm.cglobals[name]
 	if slot == nil && name == "jl_options" {
