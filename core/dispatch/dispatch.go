@@ -16,7 +16,6 @@ package dispatch
 import (
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -246,14 +245,6 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 	t.mu.RUnlock()
 	m, env, minW, maxW, err := t.lookupML(leaf, w)
 	raceHook()
-	if checkML {
-		// TEMPORARY differential check of the typemap path against the scan
-		sm, senv, serr := t.lookup(tt, w)
-		if (err == nil) != (serr == nil) || sm != m || fmt.Sprint(env) != fmt.Sprint(senv) {
-			return nil, nil, fmt.Errorf("dispatch check: %s%s in world %d: scan %v %v %v, ml_matches %v %v %v",
-				t.Name, core.Show(tt), w, sm, senv, serr, m, env, err)
-		}
-	}
 	if err == nil {
 		t.mu.Lock()
 		if t.leaf == nil {
@@ -268,8 +259,6 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 	}
 	return m, env, err
 }
-
-var checkML = os.Getenv("JLGO_DISPATCH_CHECK") != "" // TEMPORARY
 
 // lookupML is jl_mt_assoc_by_type's miss path (gf.c:1848-1877,
 // _gf_invoke_lookup gf.c:4217-4230): ml_matches of the argument tuple, one

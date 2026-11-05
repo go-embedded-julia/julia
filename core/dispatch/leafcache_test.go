@@ -105,25 +105,6 @@ func TestLookupReportsATypemapDisagreement(t *testing.T) {
 	}
 }
 
-// The differential check agrees on an ordinary table and reports a
-// typemap that misses a method.
-func TestDispatchCheck(t *testing.T) {
-	checkML = true
-	defer func() { checkML = false }()
-	anyT := mustApply(t, core.AnyTupleType, core.AnyType)
-	call := mustApply(t, core.AnyTupleType, core.Int64Type).(*core.DataType)
-	tab := &Table{Name: "f"}
-	m, _ := tab.Add(anyT)
-	if got, _, err := tab.Lookup(call, tab.World()); err != nil || got != m {
-		t.Fatalf("%v, %v", got, err)
-	}
-	stale := &Table{Name: "f", world: 1}
-	stale.methods = append(stale.methods, &Method{Sig: anyT, PrimaryWorld: 1, MaxWorld: ^uint64(0)})
-	if _, _, err := stale.Lookup(call, 1); err == nil || !strings.Contains(err.Error(), "dispatch check") {
-		t.Fatalf("%v; want the check's report", err)
-	}
-}
-
 // An answer found while the table changed is not cached: its world range
 // may reach past the change.
 func TestLeafCacheSkipsARacedAnswer(t *testing.T) {
