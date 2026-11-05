@@ -140,6 +140,20 @@ func TestGMPCglobal(t *testing.T) {
 		_, err := biCglobal(vm, []any{c.a, core.NothingType})
 		check(t, c.name, nil, err, c.want)
 	}
+	// the intrinsic takes one argument or two
+	cg := vm.intrinsics[intrinsicIDs["cglobal"]]
+	v1, err := cg.Fn(vm, []any{tup(expr.Symbol("__gmpz_clear"), gmpLib)})
+	if err != nil || v1.(*Pointer).Type != vm.ptrType(core.NothingType) {
+		t.Errorf("a function's address: %v %v", v1, err)
+	}
+	v1, err = cg.Fn(vm, []any{expr.Symbol("jl_gc_counted_malloc")})
+	if err != nil || v1.(*Pointer).Type != vm.ptrType(core.NothingType) {
+		t.Errorf("one argument: %v %v", v1, err)
+	}
+	_, err = cg.Fn(vm, nil)
+	check(t, "no argument", nil, err, "!too few arguments")
+	_, err = cg.Fn(vm, []any{nil, nil, nil})
+	check(t, "three arguments", nil, err, "!too many arguments")
 	// Core.getptls and the pointer finalizer
 	v, err = vm.shims["jl_get_ptls_states"](vm, nil)
 	if err != nil || v.(*Pointer).Target == nil {

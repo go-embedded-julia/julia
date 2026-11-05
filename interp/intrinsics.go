@@ -205,6 +205,17 @@ func (vm *VM) bootIntrinsics() {
 	}))
 	add("bitcast", 2, biBitcast)
 	add("cglobal", 2, biCglobal)
+	// cglobal(name) is cglobal(name, Cvoid): JL_NARGS(cglobal, 1, 2)
+	// (runtime_intrinsics.c:634)
+	vm.intrinsics[intrinsicIDs["cglobal"]].Fn = func(vm *VM, args []any) (any, error) {
+		if err := vm.nargs("intrinsic_call", args, 1, 2); err != nil {
+			return nil, err
+		}
+		if len(args) == 1 {
+			args = []any{args[0], core.NothingType}
+		}
+		return biCglobal(vm, args)
+	}
 	vm.bootAtomics(add)
 	// no runtime function: jl_f_intrinsic_call refuses it (builtins.c:
 	// 2371-2373), before counting the arguments

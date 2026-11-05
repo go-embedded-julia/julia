@@ -78,6 +78,8 @@ func (vm *VM) bootGMPGlobals() {
 	vm.libCglobals = map[string]map[expr.Symbol]*ptrSlot{gmpLib: {
 		"__gmp_version":       {name: "__gmp_version", val: vm.stringPtrOf(gmpVersion)},
 		"__gmp_bits_per_limb": {name: "__gmp_bits_per_limb", val: int32(64)},
+		// BigInt's finalizer, which this VM never runs
+		"__gmpz_clear": {name: "__gmpz_clear"},
 	}}
 	for _, n := range []expr.Symbol{"jl_gc_counted_malloc", "jl_gc_counted_realloc_with_old_size",
 		"jl_gc_counted_free_with_size", "jl_throw_out_of_memory_error"} {
