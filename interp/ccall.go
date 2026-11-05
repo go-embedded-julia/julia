@@ -500,6 +500,7 @@ func (vm *VM) bootShims() {
 	vm.bootEqtableShims()
 	vm.bootModuleOptShims()
 	vm.bootPCRE()
+	vm.bootGMP()
 	vm.bootUtf8proc()
 	vm.bootEnvShims()
 	// the parser's character classes (flisp/julia_extensions.c:127-170),

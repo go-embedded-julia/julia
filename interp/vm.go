@@ -72,7 +72,10 @@ type VM struct {
 	// state of each module code is evaluated in.
 	shims    map[expr.Symbol]shim
 	libShims map[string]map[expr.Symbol]shim
-	sessions map[*Module]*Session
+	// libCglobals are the C variables a library defines, by library
+	// (cglobal((:name, lib), T))
+	libCglobals map[string]map[expr.Symbol]*ptrSlot
+	sessions    map[*Module]*Session
 
 	// Sources holds the files include reads (load.go): julia's own sources
 	// by default, rooted as julia's base/ is.
