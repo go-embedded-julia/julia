@@ -9,6 +9,26 @@ import (
 	"github.com/go-embedded-julia/julia/expr"
 )
 
+// A TypeName's singletonname, julia 1.12.6's for the same names (of
+// Core._structtype(Main, Symbol(s), svec(), svec(), svec(), false, 0)).
+func TestSingletonname(t *testing.T) {
+	for name, want := range map[string]string{
+		"f": "f", "#f": "f", "#f#3": "f", "#f##1#2": "#f##1", "#f##0": "#f##0",
+		"#3": "#3", "#3#4": "#3", "##": "#", "#": "", "#f#": "f", "#f##": "f##",
+		"#f##x#2": "f##x", "#f##1": "#f##1", "##f#2": "#f#2", "#f#a#b": "f",
+		"#promote_typejoin_union": "promote_typejoin_union", "#ab##12": "#ab##12", "": "",
+	} {
+		if got := demangleTypename(name); got != want {
+			t.Errorf("%q: %q, want %q", name, got, want)
+		}
+	}
+	vm := New()
+	tn := core.NewIncompleteType("L", "#g#1", nil, false, false, nil).Name
+	if v, err := biGetfield(vm, []any{tn, expr.Symbol("singletonname")}); err != nil || v != expr.Symbol("g") {
+		t.Errorf("getfield singletonname: %v %v", v, err)
+	}
+}
+
 // The builtins Base's first files call, each want julia 1.12.6's answer to
 // the same call.
 func TestBuiltins2(t *testing.T) {

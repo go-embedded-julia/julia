@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -267,6 +268,60 @@ func (vm *VM) argTupleType(args []any) *core.DataType {
 	return t.(*core.DataType)
 }
 
+// demangleTypename is jl_demangle_typename (datatype.c:23-40), a type
+// name's singletonname: f of #f or #f#3; a closure's name, #3 or #f##1,
+// kept with its # and cut before the # that follows (#f##1#2 is #f##1).
+func demangleTypename(n string) string {
+	if n == "" || n[0] != '#' {
+		return n
+	}
+	// C reads NUL past the end
+	at := func(i int) byte {
+		if i < len(n) {
+			return n[i]
+		}
+		return 0
+	}
+	// strchr from i, -1 for NULL
+	hashFrom := func(i int) int {
+		if i >= len(n) {
+			return -1
+		}
+		if j := strings.IndexByte(n[i:], '#'); j >= 0 {
+			return i + j
+		}
+		return -1
+	}
+	end := hashFrom(1)
+	// #f...##...#...
+	if end >= 0 && at(end+1) == '#' {
+		end = hashFrom(end + 2)
+	}
+	var size int
+	if end < 0 || end == 1 {
+		size = len(n) - 1
+	} else {
+		size = end - 1
+	}
+	if isDigit(at(1)) || isCanonicalizedAnonfn(n) {
+		return n[:size+1]
+	}
+	return n[1 : 1+size]
+}
+
+func isDigit(c byte) bool { return '0' <= c && c <= '9' }
+
+// isCanonicalizedAnonfn is is_canonicalized_anonfn_typename
+// (julia_internal.h:1114-1124): #f##1..., a closure's canonical name.
+func isCanonicalizedAnonfn(n string) bool {
+	i := strings.IndexByte(n[1:], '#')
+	if i < 0 {
+		return false
+	}
+	d := n[1+i:]
+	return len(d) > 2 && d[1] == '#' && isDigit(d[2])
+}
+
 // noFieldError is jl_field_index with err=1 (datatype.c:1781):
 // jl_has_no_field_error (rtutils.c:169-172) once post_boot_hooks has found
 // FieldError, its message before.
@@ -415,6 +470,8 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 			switch i {
 			case 0:
 				return expr.Symbol(x.Name), true
+			case 2:
+				return expr.Symbol(demangleTypename(string(x.Name))), true
 			case 3:
 				fs := make(SVec, len(x.FieldNames))
 				for j, n := range x.FieldNames {
