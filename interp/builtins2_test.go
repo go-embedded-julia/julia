@@ -29,6 +29,39 @@ func TestSingletonname(t *testing.T) {
 	}
 }
 
+// A TypeName's module is the module that defined the type: a struct, an
+// abstract or primitive type, a function's type; Core for core's types.
+func TestTypeNameModule(t *testing.T) {
+	vm := New()
+	s := vm.NewSession()
+	mod := func(src string) any {
+		t.Helper()
+		v, err := s.Eval(src)
+		if err != nil {
+			t.Fatalf("%s: %v", src, err)
+		}
+		return v
+	}
+	for _, src := range []string{
+		"struct TnS end\ngetfield(getfield(TnS, :name), :module)",
+		"abstract type TnA end\ngetfield(getfield(TnA, :name), :module)",
+		"primitive type TnP 8 end\ngetfield(getfield(TnP, :name), :module)",
+		"tnf() = 1\ngetfield(getfield(typeof(tnf), :name), :module)",
+	} {
+		if got := mod(src); got != any(s.Mod) {
+			t.Errorf("%s: %v, want the session's module", src, got)
+		}
+	}
+	if got := mod("getfield(getfield(Int64, :name), :module)"); got != any(vm.Core) {
+		t.Errorf("Int64's module: %v", got)
+	}
+	// a type whose module is neither recorded nor known by name
+	tn := core.NewIncompleteType("Nowhere", "X", nil, false, false, nil).Name
+	if _, err := biGetfield(vm, []any{tn, expr.Symbol("module")}); err == nil {
+		t.Error("the module of a type of no known module")
+	}
+}
+
 // The builtins Base's first files call, each want julia 1.12.6's answer to
 // the same call.
 func TestBuiltins2(t *testing.T) {

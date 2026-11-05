@@ -235,7 +235,9 @@ func biAbstracttype(vm *VM, args []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return core.NewIncompleteType(string(m.Name), string(name), params, true, false, nil).Name.Wrapper, nil
+	dt := core.NewIncompleteType(string(m.Name), string(name), params, true, false, nil)
+	dt.Name.ModuleRef = m
+	return dt.Name.Wrapper, nil
 }
 
 // biPrimitivetype is jl_f__primitivetype (builtins.c:2007-2024): the bit
@@ -255,7 +257,9 @@ func biPrimitivetype(vm *VM, args []any) (any, error) {
 	if nb < 1 || nb >= 1<<23 || nb&7 != 0 {
 		return nil, vm.errorf("invalid number of bits in primitive type %s", name)
 	}
-	return core.NewIncompletePrimitive(string(m.Name), string(name), params, int(nb)).Name.Wrapper, nil
+	dt := core.NewIncompletePrimitive(string(m.Name), string(name), params, int(nb))
+	dt.Name.ModuleRef = m
+	return dt.Name.Wrapper, nil
 }
 
 // biStructtype is jl_f__structtype (builtins.c:1978-1995).
@@ -296,6 +300,7 @@ func biStructtype(vm *VM, args []any) (any, error) {
 		return nil, err
 	}
 	dt := core.NewIncompleteType(string(m.Name), string(name), params, false, mutable, names)
+	dt.Name.ModuleRef = m
 	dt.Name.AtomicFields, dt.Name.ConstFields = atomic, cnst
 	// jl_new_datatype's int32 difference, unchecked (datatype.c:898)
 	dt.Name.NUninitialized = int32(len(names)) - int32(ninit)

@@ -470,6 +470,13 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 			switch i {
 			case 0:
 				return expr.Symbol(x.Name), true
+			case 1:
+				// the defining module; core's own types name Core
+				if m, ok := x.ModuleRef.(*Module); ok {
+					return m, true
+				}
+				m := vm.modules[expr.Symbol(x.Module)]
+				return m, m != nil
 			case 2:
 				return expr.Symbol(demangleTypename(string(x.Name))), true
 			case 3:
