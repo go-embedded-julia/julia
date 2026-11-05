@@ -129,9 +129,6 @@ func mpzStruct(v any, n int) (*Struct, bool) {
 		return nil, false
 	}
 	ft, _ := st.Type.FieldTypes()
-	if len(ft) != n {
-		return nil, false
-	}
 	for i := 0; i < n && i < 6; i += 3 {
 		d, isPtr := ft[i+2].(*core.DataType)
 		if ft[i] != any(core.Int32Type) || ft[i+1] != any(core.Int32Type) || !isPtr || d.Name != typeNameOf(core.PtrType) {
@@ -284,8 +281,6 @@ func cld64(a, b uint64) uint64 {
 	}
 	return q
 }
-
-func isNeg(b *big.Int) bool { return b.Sign() < 0 }
 
 var bigOne = big.NewInt(1)
 
@@ -844,9 +839,6 @@ func (vm *VM) gmpFunctions() map[string]gmpFn {
 		f, n := a[0].(*Struct).Fields[:3], a[1].(int64)
 		if n < 0 {
 			return nil, vm.errorf("mpz_limbs_write: %d limbs", n)
-		}
-		if err := vm.gmpGuard("mpz_limbs_write", satMul(uint64(n), 64)); err != nil {
-			return nil, err
 		}
 		// the old value is discarded; the space is kept when it is enough
 		if alloc, ok := f[0].(int32); !ok || int64(alloc) < n {
