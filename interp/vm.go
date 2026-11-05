@@ -81,8 +81,9 @@ type VM struct {
 	// Env is the environment julia code sees (Base's ENV): empty unless the
 	// embedder fills it; the host's is never read.
 	Env map[string]string
-	// HomeDir is the home directory when Env holds no HOME, a name only
-	HomeDir string
+	// HomeDir is the home directory when Env holds no HOME, WorkDir the
+	// current directory (pwd()): names only
+	HomeDir, WorkDir string
 
 	// BinDir is what Base takes for julia's bin directory (Sys.BINDIR,
 	// jl_get_julia_bindir), a name only: nothing here reads the host's
@@ -115,6 +116,8 @@ type VM struct {
 	task  *Struct
 	// finalizersInhibited is ptls->finalizers_inhibited
 	finalizersInhibited int
+	// mtBackedges is jl_method_table->backedges (mtbackedge.go)
+	mtBackedges map[*core.TypeName][]any
 
 	// MaxMemoryElems bounds the elements of one memorynew; past it the
 	// allocation stops with ErrMemoryLimit instead of exhausting the host.
@@ -182,7 +185,7 @@ const DefaultMaxDepth = 4000
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
-		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources, BinDir: "/julia/bin", HomeDir: "/julia/home",
+		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources, BinDir: "/julia/bin", HomeDir: "/julia/home", WorkDir: "/julia/home",
 		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{}, singletons: map[*core.DataType]any{},
 		reflected: map[*dispatch.Method]*reflected{}, reflectedOf: map[*Struct]*reflected{},
 		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard,

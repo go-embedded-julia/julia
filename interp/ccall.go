@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -179,12 +180,49 @@ func (vm *VM) bootShims() {
 		// julia 1.12's jl_genericmemory_owner is the memory itself (julia.h:1361-1364)
 		"jl_genericmemory_owner": func(vm *VM, a []any) (any, error) { return a[0], nil },
 		// jl_object_id (builtins.c), objectid: the identity hash egal shares
-		"jl_object_id": func(vm *VM, a []any) (any, error) { return vm.objectID(a[0]), nil },
-		"memmove":      func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
-		"memset":       func(vm *VM, a []any) (any, error) { return vm.memset(a) },
-		"memcmp":       func(vm *VM, a []any) (any, error) { return vm.memcmp(a) },
-		"memhash_seed": func(vm *VM, a []any) (any, error) { return vm.memhashShim(a) },
-		"jl_type_hash": func(vm *VM, a []any) (any, error) { return core.TypeHash(a[0]), nil },
+		"jl_object_id":                 func(vm *VM, a []any) (any, error) { return vm.objectID(a[0]), nil },
+		"memmove":                      func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
+		"memset":                       func(vm *VM, a []any) (any, error) { return vm.memset(a) },
+		"memcmp":                       func(vm *VM, a []any) (any, error) { return vm.memcmp(a) },
+		"memhash_seed":                 func(vm *VM, a []any) (any, error) { return vm.memhashShim(a) },
+		"jl_type_hash":                 func(vm *VM, a []any) (any, error) { return core.TypeHash(a[0]), nil },
+		"jl_method_table_add_backedge": func(vm *VM, a []any) (any, error) { return vm.methodTableAddBackedge(a) },
+		// _dyld_image_count (macOS, Libdl.dllist): no host library is
+		// loaded into julia code here
+		"_dyld_image_count": func(vm *VM, a []any) (any, error) { return uint32(0), nil },
+		"jl_widen_diagonal": func(vm *VM, a []any) (any, error) {
+			ua, ok := a[1].(*core.UnionAll)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.UnionAllType, a[1])
+			}
+			return core.WidenDiagonal(a[0], ua), nil
+		},
+		// jl_new_structv(type, args, na) (datatype.c:1627-1663): new(type,
+		// args...) of na values a Ptr{Any} points at
+		"jl_new_structv": func(vm *VM, a []any) (any, error) {
+			n, ok := a[2].(uint32)
+			if !ok || n > math.MaxInt32 {
+				return nil, vm.typeError("ccall", "", core.UInt32Type, a[2])
+			}
+			var args []any
+			if n > 0 {
+				var err error
+				if args, err = vm.ptrArgs("jl_new_structv", a[1], int32(n)); err != nil {
+					return nil, err
+				}
+			}
+			return vm.newStruct(a[0], args)
+		},
+		// jl_set_fenv_rounding / jl_get_fenv_rounding (jl_uv.c): the float
+		// intrinsics here round to nearest only, JL_FE_TONEAREST (0 on
+		// arm64, jl_get_fenv_consts); another mode is refused
+		"jl_set_fenv_rounding": func(vm *VM, a []any) (any, error) {
+			if a[0] != any(int32(0)) {
+				return nil, fmt.Errorf("%w: the rounding mode %s", ErrUnsupported, showValue(a[0]))
+			}
+			return int32(0), nil
+		},
+		"jl_get_fenv_rounding": func(vm *VM, a []any) (any, error) { return int32(0), nil },
 		// the thread's finalizers_inhibited count (gc-common.c:340-354), as
 		// release builds keep it; this VM runs no Julia finalizers
 		"jl_gc_disable_finalizers_internal": func(vm *VM, a []any) (any, error) { vm.finalizersInhibited++; return nil, nil },
@@ -355,7 +393,9 @@ func (vm *VM) bootShims() {
 			if ft, ok := d.FieldTypes(); ok {
 				return SVec(ft), nil
 			}
-			if d.Name.Abstract || d.Name.Bits > 0 {
+			// a NamedTuple whose names or types are not known yet has none
+			// (julia 1.12.6: jl_get_fieldtypes(NamedTuple{N,T}) === svec())
+			if d.Name.Abstract || d.Name.Bits > 0 || d.Name == core.NamedTupleTypeName {
 				return SVec{}, nil
 			}
 			return nil, vm.errorf("cannot determine field types of incomplete type %s", d.Name.Name)

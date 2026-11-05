@@ -54,6 +54,9 @@ func (vm *VM) bootPointers() {
 	// the Julia function the runtime's dlopen calls, which libdl.jl stores
 	// (libdl.jl:408): NULL until then
 	vm.cglobals["jl_libdl_dlopen_func"] = &ptrSlot{name: "jl_libdl_dlopen_func", val: nil}
+	// the int the GC sets when finalizers are due (gc-common.c); this VM
+	// runs no Julia finalizers, so none is ever pending
+	vm.cglobals["jl_gc_have_pending_finalizers"] = &ptrSlot{name: "jl_gc_have_pending_finalizers", val: int32(0)}
 }
 
 // biCglobal is jl_cglobal (runtime_intrinsics.c:634-679) for the C globals
@@ -150,6 +153,10 @@ func (vm *VM) ptrLoad(fname string, p *Pointer, i int64) (any, error) {
 		return t.Elems[k], nil
 	case layoutOf:
 		st, ok := p.Type.Parameters[0].(*core.DataType)
+		// the field descriptors follow the 20-byte jl_datatype_layout_t
+		if ok && p.Off == 20 && st.Name.Name == "FieldDescStorage" && t.t.Name != memoryName(core.GenericMemoryType) {
+			return vm.fieldDesc(t.t, st, i)
+		}
 		if !ok || i != 1 || p.Off != 0 || len(st.Name.FieldNames) != 6 {
 			return nil, fmt.Errorf("%w: %s of a layout as %s", ErrUnsupported, fname, showValue(p.Type))
 		}

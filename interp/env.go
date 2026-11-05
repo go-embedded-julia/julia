@@ -10,6 +10,28 @@ import (
 // host's. getenv, setenv and unsetenv act on it; jl_environ enumerates it,
 // in sorted order, as "name=value".
 
+// uvPathOut is libuv's way of returning a path through (buf, &size): the
+// path and its NUL when *size holds them, *size then its length, and 0;
+// else UV_ENOBUFS (-55 on darwin, uv_constants.jl) with the size needed.
+func (vm *VM) uvPathOut(fname, path string, a []any) (any, error) {
+	sp, ok := a[1].(*Pointer)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s of %s", ErrUnsupported, fname, showValue(vm.newTuple(a)))
+	}
+	sv, err := vm.ptrLoad(fname, sp, 1)
+	if err != nil {
+		return nil, err
+	}
+	size, _ := sv.(uint64)
+	if uint64(len(path))+1 > size {
+		return int32(-55), vm.storeAs(fname, sp, uint64(len(path)+1))
+	}
+	if err := vm.writeBytes(a[0], append([]byte(path), 0)); err != nil {
+		return nil, err
+	}
+	return int32(0), vm.storeAs(fname, sp, uint64(len(path)))
+}
+
 func (vm *VM) bootEnvShims() {
 	vm.shims["getenv"] = func(vm *VM, a []any) (any, error) {
 		name, ok := vm.cstringArg(a[0])
@@ -57,27 +79,14 @@ func (vm *VM) bootEnvShims() {
 	// it, else UV_ENOBUFS (-55 on darwin, uv_constants.jl) and the size
 	// needed (path.jl:83-97)
 	vm.shims["uv_os_homedir"] = func(vm *VM, a []any) (any, error) {
-		sp, ok := a[1].(*Pointer)
-		if !ok {
-			return nil, fmt.Errorf("%w: uv_os_homedir of %s", ErrUnsupported, showValue(vm.newTuple(a)))
-		}
 		home := vm.Env["HOME"]
 		if home == "" {
 			home = vm.HomeDir
 		}
-		sv, err := vm.ptrLoad("uv_os_homedir", sp, 1)
-		if err != nil {
-			return nil, err
-		}
-		size, _ := sv.(uint64)
-		if uint64(len(home))+1 > size {
-			return int32(-55), vm.storeAs("uv_os_homedir", sp, uint64(len(home)+1))
-		}
-		if err := vm.writeBytes(a[0], append([]byte(home), 0)); err != nil {
-			return nil, err
-		}
-		return int32(0), vm.storeAs("uv_os_homedir", sp, uint64(len(home)))
+		return vm.uvPathOut("uv_os_homedir", home, a)
 	}
+	// uv_cwd(buf, &size) (libuv): VM.WorkDir, the same way (path.jl's pwd)
+	vm.shims["uv_cwd"] = func(vm *VM, a []any) (any, error) { return vm.uvPathOut("uv_cwd", vm.WorkDir, a) }
 	// the host's filesystem is out of reach: every path is absent, UV_ENOENT
 	// (-2), which stat.jl's checkstat accepts (stat.jl:186-204); the stat
 	// buffer is the official darwin/arm64 build's size

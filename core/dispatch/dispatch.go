@@ -57,12 +57,47 @@ type Table struct {
 	world   uint64
 	methods []*Method
 
+	// the leaf cache of Lookup (julia's call cache and mt->leafcache,
+	// gf.c: jl_lookup_generic_): a concrete argument tuple type's method and
+	// static parameters in a world. Every world from settled on, the first
+	// after the table's last change, answers alike and is keyed as settled;
+	// an older world's answer never changes, and is kept.
+	settled uint64
+	leaf    map[leafKey]leafEntry
+
 	// the typemap, built by replaying the insertions and disables in order
 	// when a query first needs it
 	events   []tmEvent
 	replayed int
 	tm       typemap
 	failed   error
+}
+
+// leafKey and leafEntry are a cached Lookup: the argument tuple type and
+// world, the method and static parameters.
+type leafKey struct {
+	tt *core.DataType
+	w  uint64
+}
+
+type leafEntry struct {
+	m   *Method
+	env []any
+}
+
+// changed records a change of the visible methods from world w on: the
+// answers of world w and later go, those keyed as the settled worlds with
+// them; those of older worlds stay.
+func (t *Table) changed(w uint64) {
+	from := min(w, t.settled)
+	for k := range t.leaf {
+		if k.w >= from {
+			delete(t.leaf, k)
+		}
+	}
+	if w > t.settled {
+		t.settled = w
+	}
 }
 
 // tmEvent is a change of the table the typemap has yet to follow.
@@ -118,6 +153,7 @@ func (t *Table) Define(sig any, w uint64, def any) (*Method, error) {
 	m := &Method{Sig: sig, PrimaryWorld: w, MaxWorld: ^uint64(0), Index: len(t.methods), Def: def}
 	t.methods = append(t.methods, m)
 	t.events = append(t.events, tmEvent{m: m})
+	t.changed(w)
 	return m, nil
 }
 
@@ -132,6 +168,7 @@ func (t *Table) Disable(m *Method, w uint64) bool {
 	}
 	m.MaxWorld = w
 	t.events = append(t.events, tmEvent{m: m, disable: true})
+	t.changed(w + 1)
 	return true
 }
 
@@ -170,6 +207,35 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 	if !core.IsTupleType(tt) {
 		return nil, nil, fmt.Errorf("dispatch on %s: the argument tuple is not a Tuple type", core.Show(tt))
 	}
+	// a concrete argument tuple: the cached answer for its world
+	leaf, _ := tt.(*core.DataType)
+	if leaf == nil || !leaf.IsDispatchTuple {
+		return t.lookup(tt, w)
+	}
+	t.mu.RLock()
+	key := leafKey{leaf, min(w, t.settled)}
+	e, ok := t.leaf[key]
+	t.mu.RUnlock()
+	if ok {
+		return e.m, append([]any(nil), e.env...), nil
+	}
+	m, env, err := t.lookup(tt, w)
+	if err == nil {
+		t.mu.Lock()
+		// unless the table changed meanwhile
+		if key.w == min(w, t.settled) {
+			if t.leaf == nil {
+				t.leaf = map[leafKey]leafEntry{}
+			}
+			t.leaf[key] = leafEntry{m, append([]any(nil), env...)}
+		}
+		t.mu.Unlock()
+	}
+	return m, env, err
+}
+
+// lookup is Lookup without its cache.
+func (t *Table) lookup(tt any, w uint64) (*Method, []any, error) {
 	// one jl_subtype_env query per method gives both the answer and the
 	// static parameters the chosen method will need
 	var cands []*Method

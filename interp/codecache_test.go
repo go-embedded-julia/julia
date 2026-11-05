@@ -516,6 +516,8 @@ func TestBindingPartitions(t *testing.T) {
 		// svec(), false, 0)
 		{[]any{core.NewIncompleteType("Main", "Inc", nil, false, false, nil)}, `!ErrorException("cannot determine field types of incomplete type Inc")`},
 		{[]any{core.SymbolType}, "svec()"},
+		// julia 1.12.6, of unwrap_unionall(NamedTuple)
+		{[]any{core.UnwrapUnionAll(core.NamedTupleType)}, "svec()"},
 	} {
 		v, err := vm.shims["jl_get_fieldtypes"](vm, c.args)
 		check(t, "jl_get_fieldtypes", v, err, c.want)

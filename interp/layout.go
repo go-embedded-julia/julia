@@ -26,6 +26,7 @@ func dataLayout(t *core.DataType) (size, align int, err error) {
 type layout struct {
 	size, align int
 	offsets     []int
+	sizes       []int
 	pointers    []bool
 	haspadding  bool
 	isbitsegal  bool
@@ -64,6 +65,7 @@ func structLayout(t *core.DataType) (layout, error) {
 			l.size = (l.size + fa - 1) / fa * fa
 		}
 		l.offsets = append(l.offsets, l.size)
+		l.sizes = append(l.sizes, fs)
 		l.pointers = append(l.pointers, isptr)
 		l.size += fs
 		used += fs

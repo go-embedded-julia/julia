@@ -237,8 +237,55 @@ func (vm *VM) layoutStruct(d, st *core.DataType) (any, error) {
 		if l.isbitsegal {
 			flags |= 1 << 7
 		}
+		flags |= uint16(fielddescType(l)) << 1
 	}
 	return vm.newStruct(st, []any{uint32(size), uint32(nfields), uint32(npointers), firstptr, uint16(align), flags})
+}
+
+// fielddescType is the smallest field descriptor that holds l's sizes and
+// offsets (datatype.c:200-223): 0 for jl_fielddesc8_t (a 7-bit size, an
+// 8-bit offset), 1 for 16 (15 and 16 bits), 2 for 32.
+func fielddescType(l layout) int {
+	maxSize, maxOffset := 0, 0
+	if n := len(l.offsets); n > 0 {
+		maxOffset = l.offsets[n-1]
+	}
+	for _, s := range l.sizes {
+		maxSize = max(maxSize, s)
+	}
+	switch {
+	case maxSize < 1<<7 && maxOffset < 1<<8:
+		return 0
+	case maxSize < 1<<15 && maxOffset < 1<<16:
+		return 1
+	}
+	return 2
+}
+
+// fieldDesc is field i's descriptor as Base reads it after the layout
+// (runtime_internals.jl:715-732): a FieldDescStorage{T}(size<<1 | isptr,
+// offset) of the descriptor's width T.
+func (vm *VM) fieldDesc(d, st *core.DataType, i int64) (any, error) {
+	l, err := structLayout(d)
+	if err != nil {
+		return nil, err
+	}
+	ft, _ := st.FieldTypes()
+	if i < 1 || i > int64(len(l.offsets)) || len(ft) != 2 {
+		return nil, vm.errorf("pointerref: invalid pointer")
+	}
+	ps := uint64(l.sizes[i-1]) << 1
+	if l.pointers[i-1] {
+		ps |= 1
+	}
+	t, _ := ft[0].(*core.DataType)
+	want := [...]*core.DataType{core.UInt8Type, core.UInt16Type, core.UInt32Type}[fielddescType(l)]
+	if t != want {
+		return nil, fmt.Errorf("%w: the field descriptors of %s as %s", ErrUnsupported, showValue(d), showValue(st))
+	}
+	a, _ := bitsValue(t, from64(ps))
+	b, _ := bitsValue(t, from64(uint64(l.offsets[i-1])))
+	return vm.newStruct(st, []any{a, b})
 }
 
 // memIndex is the element a pointer into a memory addresses, for an access

@@ -393,6 +393,15 @@ func (vm *VM) intCvt(name expr.Symbol, llvm string, grow int, op func(bits u128,
 	}
 }
 
+// ptrAddress is a pointer's bits: its address in the VM's address space, or
+// its offset when it points at nothing (C_NULL, an integer made a pointer).
+func (vm *VM) ptrAddress(p *Pointer) (uint64, error) {
+	if p.Target == nil {
+		return uint64(p.Off), nil
+	}
+	return vm.addressOf(p)
+}
+
 // biBitcast is jl_bitcast (runtime_intrinsics.c:395-409).
 func biBitcast(vm *VM, a []any) (any, error) {
 	t, err := vm.cvtTarget("bitcast", a[0])
@@ -411,12 +420,9 @@ func biBitcast(vm *VM, a []any) (any, error) {
 		if t.Name.Bits != 64 {
 			return nil, vm.errorf("bitcast: argument size does not match size of target type")
 		}
-		addr := uint64(p.Off)
-		if p.Target != nil {
-			var err error
-			if addr, err = vm.addressOf(p); err != nil {
-				return nil, err
-			}
+		addr, err := vm.ptrAddress(p)
+		if err != nil {
+			return nil, err
 		}
 		v, _ := bitsValue(t, from64(addr))
 		return v, nil

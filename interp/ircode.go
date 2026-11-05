@@ -674,6 +674,15 @@ type imagePtr struct {
 func (vm *VM) image(t *core.DataType, v any) ([]byte, []imagePtr, error) {
 	if t.Name.Bits > 0 {
 		bits, w, ok := primBits(v)
+		if p, isPtr := v.(*Pointer); isPtr {
+			// a pointer's bits are its address in the VM's address space,
+			// which decoding maps back to what it points into
+			addr, err := vm.ptrAddress(p)
+			if err != nil {
+				return nil, nil, err
+			}
+			bits, w, ok = from64(addr), 64, true
+		}
 		if !ok || int(w) != t.Name.Bits {
 			return nil, nil, fmt.Errorf("%w: the bits of a %s", ErrUnsupported, showValue(t))
 		}
@@ -1355,6 +1364,9 @@ func (d *irDecoder) fromImage(t *core.DataType) (any, error) {
 		}
 		var buf [16]byte
 		copy(buf[:], raw)
+		if t.Name == typeNameOf(core.PtrType) {
+			return biBitcast(vm, []any{t, binary.LittleEndian.Uint64(buf[:8])})
+		}
 		v, ok := bitsValue(t, u128{binary.LittleEndian.Uint64(buf[8:]), binary.LittleEndian.Uint64(buf[:8])})
 		if !ok {
 			return nil, fmt.Errorf("%w: jl_uncompress_ir of a %s", ErrUnsupported, showValue(t))
