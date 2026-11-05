@@ -590,10 +590,9 @@ func (vm *VM) couldNotEvaluate(err error, what string) error {
 // (interpreter.c): the value of one expression in m, with sparams as the
 // static parameters.
 func (vm *VM) evalExprIn(m *Module, ex any, sparams []any) (any, error) {
-	c, err := prepare(&expr.CodeInfo{Code: []any{expr.ReturnNode{Val: ex}}, SSAValueTypes: int64(1)}, false)
-	if err != nil {
-		return nil, err
-	}
+	// the CodeInfo is built here, well formed (one statement, one SSA value,
+	// no slots): prepare cannot refuse it
+	c := must(prepare(&expr.CodeInfo{Code: []any{expr.ReturnNode{Val: ex}}, SSAValueTypes: int64(1)}, false))
 	f := vm.newFrame(c, m)
 	f.sparams, f.preevaluation = sparams, sparams != nil // interpreter.c:915
 	return f.evalBody(0)
