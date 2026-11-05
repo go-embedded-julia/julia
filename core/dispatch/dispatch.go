@@ -36,6 +36,8 @@ type Method struct {
 	// Def is what the caller defined the method with (the interpreter's
 	// prepared body); the table only carries it.
 	Def any
+	// nenv is envSize(Sig), the number of its static parameters
+	nenv int
 
 	// what ml_matches keeps of a method (gf.c, jl_method_t): its full
 	// signature, the methods that are not less specific than it (its
@@ -150,7 +152,7 @@ func (t *Table) Define(sig any, w uint64, def any) (*Method, error) {
 			m.MaxWorld = w - 1
 		}
 	}
-	m := &Method{Sig: sig, PrimaryWorld: w, MaxWorld: ^uint64(0), Index: len(t.methods), Def: def}
+	m := &Method{Sig: sig, PrimaryWorld: w, MaxWorld: ^uint64(0), Index: len(t.methods), Def: def, nenv: envSize(sig)}
 	t.methods = append(t.methods, m)
 	t.events = append(t.events, tmEvent{m: m})
 	t.changed(w)
@@ -237,18 +239,29 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 // lookup is Lookup without its cache.
 func (t *Table) lookup(tt any, w uint64) (*Method, []any, error) {
 	// one jl_subtype_env query per method gives both the answer and the
-	// static parameters the chosen method will need
+	// static parameters the chosen method will need; the methods are read
+	// in place and one scratch env serves the ones that do not match
 	var cands []*Method
 	var envs [][]any
-	for _, m := range t.Methods(w) {
-		env := make([]any, envSize(m.Sig))
+	var scratch []any
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	for _, m := range t.methods {
+		if !m.visible(w) {
+			continue
+		}
+		if cap(scratch) < m.nenv {
+			scratch = make([]any, m.nenv)
+		}
+		env := scratch[:m.nenv]
+		clear(env)
 		sub, err := core.SubtypeEnv(tt, m.Sig, env)
 		if err != nil {
 			return nil, nil, err
 		}
 		if sub {
 			cands = append(cands, m)
-			envs = append(envs, env)
+			envs = append(envs, append([]any(nil), env...))
 		}
 	}
 	if len(cands) == 0 {
