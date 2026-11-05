@@ -151,7 +151,9 @@ func init() {
 	TypeNameType = define(spec{module: "Core", name: "TypeName", mutable: true}).(*DataType)
 	// Symbol and String have no fields (Symbol.types === svec())
 	SymbolType = define(spec{module: "Core", name: "Symbol", mutable: true, fields: noFields}).(*DataType)
-	SimpleVectorType = define(spec{module: "Core", name: "SimpleVector", mutable: true}).(*DataType)
+	// no fields (jltypes.c:3071)
+	SimpleVectorType = define(spec{module: "Core", name: "SimpleVector", mutable: true,
+		fields: func([]any) []any { return []any{} }}).(*DataType)
 	NothingType = define(spec{module: "Core", name: "Nothing", singleton: true, isbits: true}).(*DataType)
 	TypeVarType = define(spec{module: "Core", name: "TypeVar", mutable: true}).(*DataType)
 	TypeofBottomType = define(spec{module: "Core", name: "TypeofBottom", singleton: true, super: func([]any) any { return typeTypePrimary }}).(*DataType)
@@ -200,7 +202,9 @@ func init() {
 	AbstractStringType = core0("AbstractString", AnyType, true)
 	StringType = define(spec{module: "Core", name: "String", mutable: true, fields: noFields, super: func([]any) any { return AbstractStringType }}).(*DataType)
 	FunctionType = core0("Function", AnyType, true)
-	ModuleType = define(spec{module: "Core", name: "Module", mutable: true}).(*DataType)
+	// no fields, its layout opaque (jltypes.c:3255-3257)
+	ModuleType = define(spec{module: "Core", name: "Module", mutable: true,
+		fields: func([]any) []any { return []any{} }}).(*DataType)
 	ExceptionType = core0("Exception", AnyType, true)
 
 	AbstractArrayType = define(spec{module: "Core", name: "AbstractArray", abstract: true,

@@ -30,7 +30,7 @@ func TestForeignCall(t *testing.T) {
 		{"a return type error", fc("nope", gr("Nope", "x"), at()), "!not ported"},
 		{"an argtypes error", fc("nope", anyT, gr("Nope", "x")), "!not ported"},
 		{"an argument error", fc("nope", anyT, at(core.AnyType), gr("Nope", "x")), "!not ported"},
-		{"a computed callee", []any{expr.New("foreigncall", int64(1), anyT, at(), int64(0), int64(0)), ret(nil)}, "!not ported yet: a ccall to a computed"},
+		{"a computed callee that is no Symbol", []any{expr.New("foreigncall", int64(1), anyT, at(), int64(0), int64(0)), ret(nil)}, "!not ported yet: a ccall to 1"},
 	} {
 		v, err := runIR(New().NewSession(), codeInfo(c.code), true)
 		check(t, c.name, v, err, c.want)

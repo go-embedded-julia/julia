@@ -183,6 +183,22 @@ func (vm *VM) bootShims() {
 		"memmove":      func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
 		"memset":       func(vm *VM, a []any) (any, error) { return vm.memset(a) },
 		"memcmp":       func(vm *VM, a []any) (any, error) { return vm.memcmp(a) },
+		"memhash_seed": func(vm *VM, a []any) (any, error) { return vm.memhashShim(a) },
+		"jl_type_hash": func(vm *VM, a []any) (any, error) { return core.TypeHash(a[0]), nil },
+		// the thread's finalizers_inhibited count (gc-common.c:340-354), as
+		// release builds keep it; this VM runs no Julia finalizers
+		"jl_gc_disable_finalizers_internal": func(vm *VM, a []any) (any, error) { vm.finalizersInhibited++; return nil, nil },
+		"jl_gc_enable_finalizers_internal":  func(vm *VM, a []any) (any, error) { vm.finalizersInhibited--; return nil, nil },
+		// jl_get_current_task (task.c): the root task, the only one
+		"jl_get_current_task":        func(vm *VM, a []any) (any, error) { return vm.rootTask(), nil },
+		"memchr":                     func(vm *VM, a []any) (any, error) { return vm.memchr(a, false) },
+		"memrchr":                    func(vm *VM, a []any) (any, error) { return vm.memchr(a, true) },
+		"jl_instantiate_type_in_env": func(vm *VM, a []any) (any, error) { return vm.instantiateTypeInEnv(a) },
+		"uv_handle_size":             func(vm *VM, a []any) (any, error) { return uvSize(uvHandleSizes, a), nil },
+		"uv_req_size":                func(vm *VM, a []any) (any, error) { return uvSize(uvReqSizes, a), nil },
+		// sizeof(ios_t) in the official darwin/arm64 build: the bytes of an
+		// IOStream's ios buffer (iostream.jl:5, 25)
+		"jl_sizeof_ios_t": func(vm *VM, a []any) (any, error) { return int32(184), nil },
 		// jl_stored_inline (datatype.c:430-434), array.jl's allocatedinline
 		"jl_stored_inline": func(vm *VM, a []any) (any, error) {
 			n, err := storedInline(a[0])
@@ -209,6 +225,9 @@ func (vm *VM) bootShims() {
 		// file is set in jl_options; the VM's are all NULL (defaultOptions),
 		// it writes no image
 		"jl_generating_output": func(vm *VM, a []any) (any, error) { return int32(0), nil },
+		// jl_set_precompile_field_replace (staticdata.c:2925-2928) does
+		// nothing when no output is generated
+		"jl_set_precompile_field_replace": func(vm *VM, a []any) (any, error) { return nil, nil },
 		// jl_get_fenv_consts (jl_uv.c), rounding.jl's first call
 		"jl_get_fenv_consts": func(vm *VM, a []any) (any, error) { return vm.fenvConsts(a) },
 		// jl_module_name (module.c)
@@ -428,6 +447,8 @@ func (vm *VM) bootShims() {
 	vm.bootEqtableShims()
 	vm.bootModuleOptShims()
 	vm.bootPCRE()
+	vm.bootUtf8proc()
+	vm.bootEnvShims()
 	// the parser's character classes (flisp/julia_extensions.c:127-170),
 	// unitab's tables being Base.is_id_start_char's and is_id_char's
 	for name, q := range map[expr.Symbol]func(uint32) bool{
@@ -531,6 +552,7 @@ func (vm *VM) replaceBase(m *Module) {
 type oForeign struct {
 	name   expr.Symbol
 	lib    op // nil when the callee names no library
+	callee op // the callee's value, when it is computed: a Symbol
 	ret    op
 	atypes op
 	args   []op
@@ -551,7 +573,13 @@ func (c *code) prepForeign(x *expr.Expr) op {
 	q, ok := callee.(expr.QuoteNode)
 	name, ok2 := q.Value.(expr.Symbol)
 	if !ok || !ok2 {
-		return oUnsupported{"a ccall to a computed function: " + showValue(x.Args[0])}
+		// a callee computed when the call runs, ccall(memhash, …) of a
+		// global holding a Symbol (hashing.jl:195-200)
+		if f.lib == nil {
+			f.callee = c.prepValue(callee)
+			return f
+		}
+		return oUnsupported{"a ccall to a computed function: " + showValue(x)}
 	}
 	f.name = name
 	return f
@@ -574,7 +602,8 @@ func refArg(at, v any) bool {
 
 func (f *frame) evalForeign(x oForeign) (any, error) {
 	vm := f.vm
-	if _, err := f.evalValue(x.ret); err != nil {
+	rt, err := f.evalValue(x.ret)
+	if err != nil {
 		return nil, err
 	}
 	at, err := f.evalValue(x.atypes)
@@ -584,6 +613,19 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 	atypes, ok := at.(SVec)
 	if !ok || len(atypes) > len(x.args) {
 		return nil, vm.errorf("Invalid IR: malformed :foreigncall")
+	}
+	// types evaluated when the method was defined keep its static
+	// parameters free; this call's values set them, as codegen does
+	if f.spenv != nil {
+		copied := false
+		for i, t := range atypes {
+			if core.HasFreeTypeVars(t) {
+				if !copied {
+					atypes, copied = append(SVec(nil), atypes...), true
+				}
+				atypes[i] = core.InstantiateTypeInEnv(t, f.spenv, f.sparams)
+			}
+		}
 	}
 	args := make([]any, len(atypes))
 	for i := range args {
@@ -600,6 +642,17 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 		}
 		args[i] = v
 	}
+	if x.callee != nil {
+		v, err := f.evalValue(x.callee)
+		if err != nil {
+			return nil, err
+		}
+		name, ok := v.(expr.Symbol)
+		if !ok {
+			return nil, fmt.Errorf("%w: a ccall to %s", ErrUnsupported, showValue(v))
+		}
+		x.name = name
+	}
 	if x.lib != nil {
 		lib, err := f.evalValue(x.lib)
 		if err != nil {
@@ -607,7 +660,7 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 		}
 		name, _ := lib.(string)
 		if sh := vm.libShims[name][x.name]; sh != nil {
-			return sh(vm, args)
+			return vm.foreignResult(rt, sh, args)
 		}
 		return nil, fmt.Errorf("%w: ccall((:%s, %s))", ErrUnsupported, x.name, showValue(lib))
 	}
@@ -615,5 +668,18 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 	if sh == nil {
 		return nil, fmt.Errorf("%w: ccall(:%s)", ErrUnsupported, x.name)
 	}
-	return sh(vm, args)
+	return vm.foreignResult(rt, sh, args)
+}
+
+// foreignResult is a shim's result as the ccall's return type rt: a pointer
+// returned for a 64-bit primitive type that is no Ptr (a Cstring) is that
+// type's value of the same bits, as the C ABI passes it.
+func (vm *VM) foreignResult(rt any, sh shim, args []any) (any, error) {
+	v, err := sh(vm, args)
+	if p, ok := v.(*Pointer); ok && err == nil {
+		if d, ok := rt.(*core.DataType); ok && d.Name.Bits == 64 && d.Name != typeNameOf(core.PtrType) {
+			return biBitcast(vm, []any{d, p})
+		}
+	}
+	return v, err
 }

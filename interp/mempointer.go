@@ -155,6 +155,34 @@ func (vm *VM) ptrArgs(fname string, p, count any) ([]any, error) {
 	return nil, fmt.Errorf("%w: %s of %s", ErrUnsupported, fname, showValue(vm.newTuple([]any{p, count})))
 }
 
+// instantiateTypeInEnv is jl_instantiate_type_in_env(t, env, vals)
+// (jltypes.c:2772-2784), as the Compiler calls it (abstractinterpretation.jl:
+// 2927): vals a Ptr{Any} to the data of an svec (unsafe_convert(Ptr{Any},
+// sv), essentials.jl:960) or of a Memory{Any}, one value per UnionAll of
+// env.
+func (vm *VM) instantiateTypeInEnv(a []any) (any, error) {
+	n := 0
+	for u, ok := a[1].(*core.UnionAll); ok; u, ok = u.Body.(*core.UnionAll) {
+		n++
+	}
+	p, ok := a[2].(*Pointer)
+	if ok {
+		switch t := p.Target.(type) {
+		case SVec:
+			// the svec's length word first, then its elements
+			if i := (p.Off - 8) / 8; p.Off >= 8 && p.Off%8 == 0 && i+int64(n) <= int64(len(t)) {
+				return core.InstantiateTypeInEnv(a[0], a[1], t[i:i+int64(n)]), nil
+			}
+		case *Memory:
+			vals, err := vm.ptrArgs("jl_instantiate_type_in_env", p, int32(n))
+			if err == nil || n == 0 {
+				return core.InstantiateTypeInEnv(a[0], a[1], vals), nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("%w: jl_instantiate_type_in_env of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+}
+
 // typeLayoutPtr is getfield(d, :layout): C_NULL for a type without a
 // layout (abstract, or with free parameters), else a pointer to it.
 func (vm *VM) typeLayoutPtr(d *core.DataType) *Pointer {
@@ -257,6 +285,21 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 			return vm.typeError(expr.Symbol(fname), "", et, x)
 		}
 		slot.val = x
+		return nil
+	}
+	if s, ok := p.Target.(string); ok {
+		// a byte of a String allocString made (strbuf.go), as _string_n's
+		// callers fill it (substring.jl:199)
+		b, writable := vm.writableBytes(s)
+		at := p.Off + i - 1
+		if !writable || p.Type.Parameters[0] != any(core.UInt8Type) || at < 0 || at >= int64(len(b)) {
+			return vm.errorf("%s: invalid pointer", fname)
+		}
+		c, isByte := x.(uint8)
+		if !isByte {
+			return vm.typeError(expr.Symbol(fname), "", core.UInt8Type, x)
+		}
+		b[at] = c
 		return nil
 	}
 	if st, ok := p.Target.(*Struct); ok {

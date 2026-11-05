@@ -201,6 +201,28 @@ func (vm *VM) memcmp(a []any) (any, error) {
 	return nil, fmt.Errorf("%w: memcmp of %s", ErrUnsupported, showValue(vm.newTuple(a)))
 }
 
+// memchr is memchr(p, c, n), and memrchr when last (search.jl:93, 146;
+// cstring.jl:79): a pointer to the first (last) of the n bytes from p that
+// is c's low byte, C_NULL when none is.
+func (vm *VM) memchr(a []any, last bool) (any, error) {
+	p, ok1 := a[0].(*Pointer)
+	c, ok2 := a[1].(int32)
+	n, ok3 := a[2].(uint64)
+	if ok1 && ok2 && ok3 {
+		if b, ok := vm.bytesAt(p, n); ok {
+			i := bytes.IndexByte(b, byte(c))
+			if last {
+				i = bytes.LastIndexByte(b, byte(c))
+			}
+			if i < 0 {
+				return &Pointer{Type: p.Type}, nil
+			}
+			return &Pointer{Type: p.Type, Target: p.Target, Off: p.Off + int64(i)}, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: memchr of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+}
+
 // bytesAt is the n bytes from p, in a String or a memory of bytes, false
 // when they are not all there.
 func (vm *VM) bytesAt(p *Pointer, n uint64) ([]byte, bool) {

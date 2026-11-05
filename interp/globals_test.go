@@ -45,9 +45,9 @@ func TestTypedGlobals(t *testing.T) {
 	// a method body's global is declared when the method is defined
 	v, err = s.Eval("function setw(x)\n    global w\n    w = x\nend\nsetw(3)\nw")
 	check(t, "a global in a method body", v, err, "3")
-	_, err = vm.definitionEffects(m, &expr.CodeInfo{Code: []any{expr.New("global", int64(1))}})
+	_, err = vm.definitionEffects(m, &expr.CodeInfo{Code: []any{expr.New("global", int64(1))}}, nil, true)
 	check(t, "a malformed global in a body", nil, err, "!syntax: malformed")
-	_, err = vm.definitionEffects(m, &expr.CodeInfo{Code: []any{expr.New("globaldecl", gr("Nope", "x"))}})
+	_, err = vm.definitionEffects(m, &expr.CodeInfo{Code: []any{expr.New("globaldecl", gr("Nope", "x"))}}, nil, true)
 	check(t, "a global of an unknown module in a body", nil, err, "!not ported")
 	// and a method whose body has one is not defined
 	svec := func(a ...any) *expr.Expr { return call(append([]any{gr("Core", "svec")}, a...)...) }

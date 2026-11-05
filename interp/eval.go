@@ -13,13 +13,17 @@ import (
 // frame is interpreter_state (interpreter.c:17-27): one locals array, the
 // slots then the SSA values, the static parameters and continue_at.
 type frame struct {
-	vm         *VM
-	c          *code
-	mod        *Module
-	locals     []any
-	sparams    []any
-	continueAt int
-	ip         int // the statement running, for Thrown.Trace
+	vm      *VM
+	c       *code
+	mod     *Module
+	locals  []any
+	sparams []any
+	spenv   any // the UnionAlls sparams are the values of, nil for none
+	// preevaluation is interpreter_state's (interpreter.c:25): sparams may
+	// be type variables, the static parameters of a method being defined
+	preevaluation bool
+	continueAt    int
+	ip            int // the statement running, for Thrown.Trace
 }
 
 // leaveSignal carries a :leave up through the evalBody calls of the try
@@ -254,7 +258,9 @@ func (f *frame) evalValue(o op) (any, error) {
 			return nil, vm.errorf("could not determine static parameter value")
 		}
 		sp := f.sparams[x.n-1]
-		if tv, ok := sp.(*core.TypeVar); ok {
+		// a pre-evaluated ccall type keeps a type variable as it is
+		// (interpreter.c:327)
+		if tv, ok := sp.(*core.TypeVar); ok && !f.preevaluation {
 			return nil, vm.undefVar(expr.Symbol(tv.Name), vm.taskWorld, expr.Symbol("static_parameter"))
 		}
 		return sp, nil
@@ -448,20 +454,51 @@ type lambda struct {
 	// method.c:1229-1233), Method.file and .line
 	file expr.Symbol
 	line int32
+	// sig is the method's signature, the UnionAlls of its static parameters
+	sig any
 }
 
-// definitionEffects is resolve_definition_effects with binding effects
-// (method.c:81-104), as jl_method_set_source runs it: a body's `global x`
-// and `(globaldecl x)` declare their globals when the method is defined and
-// become `nothing`, so that the interpreter never meets them. The body is
-// copied when it changes.
-func (vm *VM) definitionEffects(m *Module, src *expr.CodeInfo) (*expr.CodeInfo, error) {
+// definitionEffects is jl_resolve_definition_effects_in_ir
+// (method.c:81-256), as jl_method_set_source runs it with binding effects
+// and the method's type variables (method.c:955) and a toplevel thunk with
+// a ccall without them (toplevel.c:1017): a body's `global x` and
+// `(globaldecl x)` declare their globals and become `nothing`; a ccall's
+// return and argument types are evaluated; a Core.tuple of quoted values
+// becomes the tuple. The body is copied when it changes.
+func (vm *VM) definitionEffects(m *Module, src *expr.CodeInfo, sparams []any, bindingEffects bool) (*expr.CodeInfo, error) {
 	var code []any
-	for i, st := range src.Code {
-		e, ok := st.(*expr.Expr)
-		if !ok || (e.Head != "global" && !(e.Head == "globaldecl" && len(e.Args) == 1)) {
-			continue
+	set := func(i int, v any) {
+		if code == nil {
+			code = append([]any(nil), src.Code...)
 		}
+		code[i] = v
+	}
+	for i, st := range src.Code {
+		v, changed, err := vm.resolveDefinitionEffects(st, m, sparams, bindingEffects)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			set(i, v)
+		}
+	}
+	if code == nil {
+		return src, nil
+	}
+	cp := *src
+	cp.Code = code
+	return &cp, nil
+}
+
+// resolveDefinitionEffects is resolve_definition_effects (method.c:81-246)
+// of one statement: its replacement, and whether it changed.
+func (vm *VM) resolveDefinitionEffects(st any, m *Module, sparams []any, bindingEffects bool) (any, bool, error) {
+	e, ok := st.(*expr.Expr)
+	if !ok {
+		return st, false, nil
+	}
+	switch {
+	case bindingEffects && (e.Head == "global" || e.Head == "globaldecl" && len(e.Args) == 1):
 		for _, a := range e.Args {
 			var ref expr.GlobalRef
 			switch x := a.(type) {
@@ -470,23 +507,96 @@ func (vm *VM) definitionEffects(m *Module, src *expr.CodeInfo) (*expr.CodeInfo, 
 			case expr.GlobalRef:
 				ref = x
 			default:
-				return nil, vm.errorf("syntax: malformed \"%s\" statement", e.Head)
+				return nil, false, vm.errorf("syntax: malformed \"%s\" statement", e.Head)
 			}
 			if err := vm.declareGlobal(ref, core.AnyType); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
-		if code == nil {
-			code = append([]any(nil), src.Code...)
+		return nil, true, nil
+	case e.Head == "=" && len(e.Args) == 2:
+		// not fully linearized: the right-hand side (method.c:106-108)
+		rhs, changed, err := vm.resolveDefinitionEffects(e.Args[1], m, sparams, bindingEffects)
+		if err != nil || !changed {
+			return st, false, err
 		}
-		code[i] = nil
+		return expr.New("=", e.Args[0], rhs), true, nil
+	case e.Head == "foreigncall" && len(e.Args) >= 5:
+		// the return and argument types, evaluated now (method.c:175-217)
+		args := append([]any(nil), e.Args...)
+		changed := false
+		if !core.IsType(args[1]) {
+			rt, err := vm.evalExprIn(m, args[1], sparams)
+			if err != nil {
+				return nil, false, vm.couldNotEvaluate(err, "ccall return type")
+			}
+			args[1], changed = rt, true
+		}
+		if _, ok := args[2].(SVec); !ok {
+			at, err := vm.evalExprIn(m, args[2], sparams)
+			if err != nil {
+				return nil, false, vm.couldNotEvaluate(err, "ccall argument type")
+			}
+			args[2], changed = at, true
+		}
+		if !changed {
+			return st, false, nil
+		}
+		return expr.New(e.Head, args...), true, nil
+	case e.Head == "call" && len(e.Args) > 0:
+		// Core.tuple of quoted values, as the ccall callee (name, lib)
+		// (method.c:218-244)
+		g, ok := e.Args[0].(expr.GlobalRef)
+		if !ok || !vm.isBuiltinTuple(g) {
+			return st, false, nil
+		}
+		for _, a := range e.Args[1:] {
+			if _, ok := a.(expr.QuoteNode); !ok {
+				return st, false, nil
+			}
+		}
+		v, err := vm.evalExprIn(m, e, sparams)
+		if err != nil {
+			return st, false, nil
+		}
+		return v, true, nil
 	}
-	if code == nil {
-		return src, nil
+	return st, false, nil
+}
+
+// isBuiltinTuple is whether g names a constant binding holding Core.tuple.
+func (vm *VM) isBuiltinTuple(g expr.GlobalRef) bool {
+	mod := vm.modules[g.Mod]
+	if mod == nil {
+		return false
 	}
-	cp := *src
-	cp.Code = code
-	return &cp, nil
+	b := mod.lookup(g.Name, vm.World())
+	return b != nil && b.Const && b.Value == vm.Core.own("tuple").Value
+}
+
+// couldNotEvaluate is resolve_definition_effects' error for a type that an
+// ErrorException kept from being evaluated (method.c:184-189); any other
+// exception is rethrown.
+func (vm *VM) couldNotEvaluate(err error, what string) error {
+	if t, ok := err.(*Thrown); ok {
+		if s, ok := t.Value.(*Struct); ok && s.Type == vm.tError {
+			return vm.errorf("could not evaluate %s (it might depend on a local variable)", what)
+		}
+	}
+	return err
+}
+
+// evalExprIn is jl_interpret_toplevel_expr_in(m, ex, NULL, sparams)
+// (interpreter.c): the value of one expression in m, with sparams as the
+// static parameters.
+func (vm *VM) evalExprIn(m *Module, ex any, sparams []any) (any, error) {
+	c, err := prepare(&expr.CodeInfo{Code: []any{expr.ReturnNode{Val: ex}}, SSAValueTypes: int64(1)}, false)
+	if err != nil {
+		return nil, err
+	}
+	f := vm.newFrame(c, m)
+	f.sparams, f.preevaluation = sparams, sparams != nil // interpreter.c:915
+	return f.evalBody(0)
 }
 
 // methodDef is eval_methoddef's three-argument form and jl_method_def
@@ -554,7 +664,7 @@ func (f *frame) methodDef(s sMethodDef) error {
 		}
 		sig = core.TypeUnionAll(tv, sig)
 	}
-	src, err = vm.definitionEffects(f.mod, src)
+	src, err = vm.definitionEffects(f.mod, src, []any(tvars), true)
 	if err != nil {
 		return err
 	}
@@ -566,7 +676,7 @@ func (f *frame) methodDef(s sMethodDef) error {
 	if last := argtypes[len(argtypes)-1]; last != nil {
 		_, isva = last.(*core.Vararg)
 	}
-	lam := &lambda{c: c, nargs: len(argtypes), isva: isva, mod: f.mod}
+	lam := &lambda{c: c, nargs: len(argtypes), isva: isva, mod: f.mod, sig: sig}
 	if len(parts) > 2 {
 		lam.file, lam.line = functionLoc(parts[2])
 	}
@@ -684,7 +794,7 @@ func (vm *VM) callMethod(m *dispatch.Method, env []any, self any, args []any) (a
 // (jl_fptr_interpret_call).
 func (vm *VM) callLambda(l *lambda, self any, args []any, sparams []any) (any, error) {
 	f := vm.newFrame(l.c, l.mod)
-	f.sparams = sparams
+	f.sparams, f.spenv = sparams, l.sig
 	all := append([]any{self}, args...)
 	n := l.nargs
 	if l.isva {

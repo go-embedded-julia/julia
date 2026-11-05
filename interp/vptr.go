@@ -96,6 +96,25 @@ func biCglobal(vm *VM, a []any) (any, error) {
 	return &Pointer{Type: rt, Target: slot}, nil
 }
 
+// uvHandleSizes and uvReqSizes are libuv's uv_handle_size and uv_req_size
+// on the platform the interpreter models, darwin/arm64, as the official
+// julia 1.12.6 build answers them, by uv_handle_type and uv_req_type
+// (uv_constants.jl); any other type is (size_t)-1, as libuv returns it.
+var (
+	uvHandleSizes = map[int32]uint64{1: 96, 2: 88, 3: 272, 4: 72, 5: 64, 6: 88, 7: 248, 8: 136, 9: 88,
+		10: 104, 11: 232, 12: 232, 13: 120, 14: 312, 15: 192, 16: 120}
+	uvReqSizes = map[int32]uint64{1: 72, 2: 104, 3: 200, 4: 88, 5: 328, 6: 448, 7: 128, 8: 160, 9: 1320, 10: 144}
+)
+
+// uvSize is a size from one of those tables.
+func uvSize(sizes map[int32]uint64, a []any) any {
+	t, _ := a[0].(int32)
+	if n, ok := sizes[t]; ok {
+		return n
+	}
+	return ^uint64(0)
+}
+
 // biPointerref is jl_pointerref (runtime_intrinsics.c:412-429) for what a
 // pointer here can address: a C global's value, a String's bytes.
 func biPointerref(vm *VM, a []any) (any, error) {

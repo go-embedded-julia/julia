@@ -31,6 +31,29 @@ func TestLibraryQualifiedCcall(t *testing.T) {
 	}
 }
 
+// A ccall whose callee is a value, a global holding a Symbol
+// (ccall(memhash, …), hashing.jl:200), calls the shim the Symbol names;
+// any other value is refused when the call runs, and so is a computed
+// name with a library.
+func TestComputedCcall(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	vm.shims["twice"] = func(vm *VM, a []any) (any, error) { return a[0].(int64) * 2, nil }
+	s := vm.NewSession()
+	for _, c := range []struct{ src, want string }{
+		{`const CALLEE = :twice; f1() = ccall(CALLEE, Int, (Int,), 21); f1()`, "42"},
+		{`const NOTSYM = 22; f2() = ccall(NOTSYM, Int, (Int,), 1); f2()`, "!not ported yet: a ccall to 22"},
+		{`const NOSUCH = :thrice; f3() = ccall(NOSUCH, Int, (Int,), 1); f3()`, "!not ported yet: ccall(:thrice)"},
+		{`f4() = ccall(Core.throw(ErrorException("no callee")), Int, (Int,), 1); f4()`, "!no callee"},
+		{`const N5 = :twice; f5() = ccall((N5, "libtest"), Int, (Int,), 1); f5()`, "!not ported yet: a ccall to a computed function"},
+	} {
+		v, err := s.Eval(c.src)
+		check(t, c.src, v, err, c.want)
+	}
+}
+
 // A Ref{T} argument is passed as the Ptr{T} lowering converted it to.
 func TestRefArg(t *testing.T) {
 	vm := New()

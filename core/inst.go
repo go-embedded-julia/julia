@@ -516,6 +516,13 @@ func strHash(s string) uint32 {
 	return h
 }
 
+// TypeHash is jl_type_hash (jltypes.c:1779-1785): type_hash with its
+// failure ignored, which Base's hash(::Type) is made of.
+func TypeHash(v any) uint64 {
+	failed := false
+	return uint64(typeHash(v, &failed))
+}
+
 // typeHash is type_hash (jltypes.c:1742-1777); failed reports a key that
 // cannot be hashed (a union, or a type whose own hash failed), which then
 // lives in the linear cache.
