@@ -21,8 +21,10 @@ const (
 	shortTuple
 )
 
-// foreachTopNthTypename is foreach_top_nth_typename (gf.c:804-863).
-func (vm *VM) foreachTopNthTypename(f func(*core.TypeName, bool), a any, n int, facts *uint) {
+// foreachTopNthTypename is foreach_top_nth_typename (gf.c:804-863), f called
+// for each name with explct true: the false calls are for all_subtypes, which
+// jl_method_table_add_backedge does not ask.
+func (vm *VM) foreachTopNthTypename(f func(*core.TypeName), a any, n int, facts *uint) {
 	switch x := a.(type) {
 	case *core.DataType:
 		if n <= 0 {
@@ -63,7 +65,7 @@ func (vm *VM) foreachTopNthTypename(f func(*core.TypeName, bool), a any, n int, 
 					}
 					dt = super
 				}
-				f(dt.Name, true)
+				f(dt.Name)
 			}
 		} else if core.IsTupleType(x) {
 			if len(x.Parameters) >= n {
@@ -84,7 +86,7 @@ func (vm *VM) foreachTopNthTypename(f func(*core.TypeName, bool), a any, n int, 
 
 // foreachTopTypenameFor is jl_foreach_top_typename_for (gf.c:875-893)
 // without all_subtypes, as jl_method_table_add_backedge calls it.
-func (vm *VM) foreachTopTypenameFor(f func(*core.TypeName, bool), argtypes any) {
+func (vm *VM) foreachTopTypenameFor(f func(*core.TypeName), argtypes any) {
 	var facts uint
 	vm.foreachTopNthTypename(f, argtypes, 1, &facts)
 	if facts&haveKwcall != 0 {
@@ -99,10 +101,7 @@ func (vm *VM) foreachTopTypenameFor(f func(*core.TypeName, bool), argtypes any) 
 // equal to one already recorded reused.
 func (vm *VM) methodTableAddBackedge(a []any) (any, error) {
 	typ, caller := a[0], a[1]
-	vm.foreachTopTypenameFor(func(tn *core.TypeName, explct bool) {
-		if !explct {
-			return
-		}
+	vm.foreachTopTypenameFor(func(tn *core.TypeName) {
 		if vm.mtBackedges == nil {
 			vm.mtBackedges = map[*core.TypeName][]any{}
 		}

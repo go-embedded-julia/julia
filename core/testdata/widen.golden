@@ -1,0 +1,77 @@
+#shadow2	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,U(V3[Bot,Any{}],Ref{v3}),v0,V4[Bot,Any{}]}))
+#shadow3	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,U(V3[Bot,Any{}],Ref{v3}),v0,V4[Bot,Any{}],V5[Bot,Any{}]}))
+#unused	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],U(V4[Bot,v1],Tuple{v4,v3,Tuple{v2,v0}}))))
+#free	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,v0,V3[Bot,v1]}))
+Tuple{T,T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,v0}))
+Tuple{T} where T	Tuple{V0[Bot,Any{}]}
+Tuple{T,T,T} where T<:Integer	U(V0[Bot,V1[Bot,Integer{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{v3,v2,v0})))
+Tuple{Vararg{T}} where T	Tuple{Va(Any{},-)}
+Tuple{T,Vector{T}} where T	Tuple{V0[Bot,Any{}],Array{v0,1}}
+Tuple{T,Ref{T}} where T	Tuple{V0[Bot,Any{}],Ref{v0}}
+Tuple{T,T} where {S,T<:S}	U(V0[Bot,V1[Bot,V2[Bot,Any{}]]],U(V3[Bot,v1],Tuple{v3,v0}))
+Tuple{S,T,T} where {S<:Integer,T<:S}	U(V0[Bot,V1[Bot,V2[Bot,Integer{}]]],U(V3[Bot,v1],Tuple{v2,v3,v0}))
+Union{Tuple{T,T},Tuple{T}} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Un(Tuple{v3},Tuple{v2,v0}))))
+Union{Tuple{T},Tuple{T,T}} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Un(Tuple{v3},Tuple{v2,v0}))))
+Tuple{Union{T,Int},Union{T,Int8}} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{Un(Int64{},v2),Un(Int8{},v0)}))
+Tuple{Union{T,Int},Union{T,Int8},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(Int64{},v3),Un(Int8{},v2),v0})))
+Tuple{Vararg{T,2}} where T	Tuple{Any{},Any{}}
+Tuple{Vararg{T,1}} where T	Tuple{Va(V0[Bot,Any{}],1)}
+Tuple{Vararg{T,0}} where T	Tuple{}
+NTuple{N,T} where {T,N}	Tuple{Va(Any{},V0[Bot,Any{}])}
+Tuple{Tuple{T,T}} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{Tuple{v2,v0}}))
+Tuple{T,T} where T>:Int	U(V0[Int64{},V1[Int64{},Any{}]],U(V2[Int64{},v1],Tuple{v2,v0}))
+Tuple{T,Vararg{T}} where T	U(V0[Bot,V1[Bot,Any{}]],Tuple{v0,Va(Any{},-)})
+Tuple{T,T,Vararg{T}} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,v0,Va(Any{},-)}))
+Tuple{T,Vararg{T,2}} where T	U(V0[Bot,V1[Bot,Any{}]],Tuple{v0,Any{},Any{}})
+Tuple{T,Vararg{T,1}} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,Va(v0,1)}))
+Tuple{Vararg{Tuple{T,T}}} where T	Tuple{Va(Tuple{Any{},Any{}},-)}
+Tuple{Ref{T},T,T} where T	Tuple{Ref{V0[Bot,Any{}]},v0,v0}
+Tuple{T,T,Ref{T}} where T	Tuple{V0[Bot,Any{}],v0,Ref{v0}}
+Tuple{T,T,Ref{Union{T,Int}}} where T	Tuple{V0[Bot,Any{}],v0,Ref{Un(Int64{},v0)}}
+Tuple{T,T,Vector{T}} where T	Tuple{V0[Bot,Any{}],v0,Array{v0,1}}
+Tuple{S,S} where S<:T where T	U(V0[Bot,V1[Bot,V2[Bot,Any{}]]],U(V3[Bot,v1],Tuple{v3,v0}))
+Tuple{T,T,Ref{S} where S<:T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{v3,v2,U(V4[Bot,v0],Ref{v4})})))
+Tuple{T,T,Ref{S} where S>:T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,v0,U(V3[v1,Any{}],Ref{v3})}))
+Tuple{T,T,Tuple{S,S} where S} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,v0,U(V3[Bot,Any{}],Tuple{v3,v3})}))
+Tuple{T,T,Ref{S} where S} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,v0,U(V3[Bot,Any{}],Ref{v3})}))
+Tuple{T,T,Union{S,Int} where S<:T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{v3,v2,Un(Int64{},v0)})))
+Tuple{T,T,Array{S,1} where S<:T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{v3,v2,U(V4[Bot,v0],Array{v4,1})})))
+Tuple{T,T,Ref{Tuple{S,S}} where S<:T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{v3,v2,U(V4[Bot,v0],Ref{Tuple{v4,v4}})})))
+Tuple{T,Union{T,Int}} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,Un(Int64{},v0)}))
+Tuple{Int,Int} where T	Tuple{Int64{},Int64{}}
+Tuple{T,T} where T<:Union{Int,String}	U(V0[Bot,V1[Bot,Un(Int64{},String{})]],U(V2[Bot,v1],Tuple{v2,v0}))
+Tuple{T,T} where T<:Tuple{S,S} where S	U(V0[Bot,V1[Bot,Tuple{V2[Bot,Any{}],v2}]],U(V3[Bot,v1],Tuple{v3,v0}))
+Tuple{T,U,T,U} where {T,U}	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,V4[Bot,Any{}]],U(V5[Bot,v4],Tuple{v2,v5,v0,v3}))))
+Tuple{T,U,T,U} where {T,U<:T}	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,V4[Bot,v1]],U(V5[Bot,v4],Tuple{v2,v5,v0,v3}))))
+Tuple{T,Vararg{U},T,U} where {T,U}	E
+Tuple{Vararg{T,N},T} where {T,N}	E
+Tuple{T,T,Vararg{T,N}} where {T,N}	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,v0,Va(Any{},V3[Bot,Any{}])}))
+Tuple{T,T} where {T,N}	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],Tuple{v2,v0}))
+Array{T,1} where T	Array{V0[Bot,Any{}],1}
+Ref{Tuple{T,T}} where T	Ref{Tuple{V0[Bot,Any{}],v0}}
+Pair{T,T} where T	Pair{V0[Bot,Any{}],v0}
+Tuple{T,Val{T}} where T	Tuple{V0[Bot,Any{}],Val{v0}}
+Tuple{Union{Ref{T},Int},T,T} where T	Tuple{Un(Int64{},Ref{V0[Bot,Any{}]}),v0,v0}
+Tuple{Union{Int,Ref{T}},T,T} where T	Tuple{Un(Int64{},Ref{V0[Bot,Any{}]}),v0,v0}
+Tuple{Union{Tuple{T,T},Int},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(Int64{},Tuple{v3,v2}),v0})))
+Tuple{Union{Int,Tuple{T,T}},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(Int64{},Tuple{v3,v2}),v0})))
+Tuple{S,S,T,Vararg{T}} where {S,T<:S}	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,V4[Bot,v1]],Tuple{v2,v0,v3,Va(Any{},-)})))
+Tuple{T,T,Tuple{S,T,T} where S} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],U(V4[Bot,v1],Tuple{v4,v3,Tuple{Any{},v2,v0}}))))
+Tuple{T,T,Tuple{S,T} where S<:T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],U(V4[Bot,v1],Tuple{v4,v3,Tuple{v2,v0}}))))
+Tuple{T,T,Tuple{S,T,Vararg{T}} where S} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{v3,v2,Tuple{Any{},v0,Va(Any{},-)}})))
+Tuple{T,T,Tuple{Ref{S},T} where S>:T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{v3,v2,U(V4[v1,Any{}],Tuple{Ref{v4},v0})})))
+Tuple{Union{Ref{T},Float64},T,T} where T	Tuple{Un(Float64{},Ref{V0[Bot,Any{}]}),v0,v0}
+Tuple{Union{Ref{T},Symbol},T,T} where T	Tuple{Un(Ref{V0[Bot,Any{}]},Symbol{}),v0,v0}
+Tuple{Union{Ref{T},Bool},T,T} where T	Tuple{Un(Bool{},Ref{V0[Bot,Any{}]}),v0,v0}
+Tuple{Union{Ref{T},Char},T,T} where T	Tuple{Un(Char{},Ref{V0[Bot,Any{}]}),v0,v0}
+Tuple{Union{Ref{T},Nothing},T,T} where T	Tuple{Un(Nothing{},Ref{V0[Bot,Any{}]}),v0,v0}
+Tuple{Union{Ref{T},String},T,T} where T	Tuple{Un(Ref{V0[Bot,Any{}]},String{}),v0,v0}
+Tuple{Union{Ref{T},Number},T,T} where T	Tuple{Un(Number{},Ref{V0[Bot,Any{}]}),v0,v0}
+Tuple{Union{Ref{T},Integer},T,T} where T	Tuple{Un(Integer{},Ref{V0[Bot,Any{}]}),v0,v0}
+Tuple{Union{Tuple{T,T},Float64},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(Float64{},Tuple{v3,v2}),v0})))
+Tuple{Union{Tuple{T,T},Symbol},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(Symbol{},Tuple{v3,v2}),v0})))
+Tuple{Union{Tuple{T,T},Char},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(Char{},Tuple{v3,v2}),v0})))
+Tuple{Union{Tuple{T,T},Nothing},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(Nothing{},Tuple{v3,v2}),v0})))
+Tuple{Union{Tuple{T,T},String},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(String{},Tuple{v3,v2}),v0})))
+Tuple{Union{Tuple{T,T},Number},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(Number{},Tuple{v3,v2}),v0})))
+Tuple{Union{Tuple{T,T},Integer},T} where T	U(V0[Bot,V1[Bot,Any{}]],U(V2[Bot,v1],U(V3[Bot,v1],Tuple{Un(Integer{},Tuple{v3,v2}),v0})))
