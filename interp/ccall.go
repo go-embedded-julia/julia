@@ -696,21 +696,31 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 		}
 		args[i] = v
 	}
+	var spliced any
 	if x.callee != nil {
 		v, err := f.evalValue(x.callee)
 		if err != nil {
 			return nil, err
 		}
 		name, ok := v.(expr.Symbol)
+		if t, isTuple := v.(*Tuple); isTuple && len(t.Elems) == 2 {
+			// a (name, library) tuple spliced in whole, as gmp.jl's
+			// ccall($(gmpz(op)), …) leaves it
+			name, ok = t.Elems[0].(expr.Symbol)
+			spliced = t.Elems[1]
+		}
 		if !ok {
 			return nil, fmt.Errorf("%w: a ccall to %s", ErrUnsupported, showValue(v))
 		}
 		x.name = name
 	}
-	if x.lib != nil {
-		lib, err := f.evalValue(x.lib)
-		if err != nil {
-			return nil, err
+	if x.lib != nil || spliced != nil {
+		lib := spliced
+		if x.lib != nil {
+			var err error
+			if lib, err = f.evalValue(x.lib); err != nil {
+				return nil, err
+			}
 		}
 		name, _ := lib.(string)
 		if sh := vm.libShims[name][x.name]; sh != nil {
