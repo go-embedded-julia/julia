@@ -274,4 +274,8 @@ func init() {
 	layout(TypeVarType, []Symbol{"name", "lb", "ub"}, SymbolType, AnyType, AnyType)
 	layout(UnionAllType, []Symbol{"var", "body"}, TypeVarType, AnyType)
 	layout(UnionType, []Symbol{"a", "b"}, AnyType, AnyType)
+	// T and N, neither of which need be set (jltypes.c:3120-3123,
+	// ninitialized 0)
+	layout(TypeofVarargType, []Symbol{"T", "N"}, AnyType, AnyType)
+	TypeofVarargType.Name.NUninitialized = 2
 }

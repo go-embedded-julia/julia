@@ -518,6 +518,8 @@ func TestBindingPartitions(t *testing.T) {
 		{[]any{core.SymbolType}, "svec()"},
 		// julia 1.12.6, of unwrap_unionall(NamedTuple)
 		{[]any{core.UnwrapUnionAll(core.NamedTupleType)}, "svec()"},
+		// julia 1.12.6: fieldtypes(Core.TypeofVararg) == (Any, Any)
+		{[]any{core.TypeofVarargType}, "svec(Any, Any)"},
 	} {
 		v, err := vm.shims["jl_get_fieldtypes"](vm, c.args)
 		check(t, "jl_get_fieldtypes", v, err, c.want)
