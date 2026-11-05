@@ -527,3 +527,19 @@ nothing
 :sym
 #---
 "a string"
+#---
+struct FtS; a::Int; b::String; end
+struct FtP{T}; x::T; y::Int; end
+ft(t, f) = try fieldtype(t, f) catch e; e end
+(ft(FtP, 1), ft(FtP, :y), ft(Union{FtS, FtP{Int}}, :a), ft(Union{FtS, FtP{Int}}, :x),
+ ft(Union{FtS, FtP{Int}}, 3))
+#---
+ft(t, f) = try fieldtype(t, f) catch e; e end
+(ft(Tuple{Int, Vararg{String}}, 5), ft(Tuple{Int, Vararg}, 5), ft(Tuple{Int, String}, 3),
+ ft(Tuple{Int}, 0), ft(1, 1), ft(Tuple{Int}, 1.5))
+#---
+ft(t, f) = try fieldtype(t, f) catch e; e end
+NT = getfield(Core, :NamedTuple)
+(ft(NT{(:a, :b), Tuple{Int, String}}, :b), ft(NT{(:a, :b), Tuple{Int, String}}, 2),
+ ft(NT{(:a, :b), Tuple{Int, String}}, 3), ft(NT{(:a,), T} where T<:Tuple, 1),
+ ft(NT{(:a,)}, 1))

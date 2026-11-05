@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -430,8 +431,7 @@ func biEquivTypedef(vm *VM, args []any) (any, error) {
 	return a.Super != nil && b.Super != nil && core.TypesEqual(a.Super, b.Super), nil
 }
 
-// biFieldtype is jl_f_fieldtype over get_fieldtype (builtins.c:1179-1265)
-// for a struct or tuple type.
+// biFieldtype is jl_f_fieldtype (builtins.c:1258-1265).
 func biFieldtype(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("fieldtype", args, 2, 3); err != nil {
 		return nil, err
@@ -442,18 +442,50 @@ func biFieldtype(vm *VM, args []any) (any, error) {
 			return nil, err
 		}
 	}
-	st, ok := args[0].(*core.DataType)
-	if !ok {
-		if core.IsType(args[0]) {
-			return nil, fmt.Errorf("%w: fieldtype of %s", ErrUnsupported, core.Show(args[0]))
+	return vm.getFieldtype(args[0], args[1], true)
+}
+
+// getFieldtype is get_fieldtype (builtins.c:1179-1256): a UnionAll's
+// field type is its body's, rewrapped; a Union's joins its members', an
+// error only when no member has the field; a NamedTuple's comes from its
+// types parameter; a tuple's past its Vararg is the Vararg's element type.
+// Without dothrow a missing field is Union{}.
+func (vm *VM) getFieldtype(t, f any, dothrow bool) (any, error) {
+	switch x := t.(type) {
+	case *core.UnionAll:
+		u, err := vm.getFieldtype(x.Body, f, dothrow)
+		if err != nil {
+			return nil, err
 		}
-		return nil, vm.typeError("fieldtype", "", core.DataTypeType, args[0])
+		return core.TypeUnionAll(x.Var, u), nil
+	case *core.Union:
+		a, err := vm.getFieldtype(x.A, f, false)
+		if err != nil {
+			return nil, err
+		}
+		b, err := vm.getFieldtype(x.B, f, false)
+		if err != nil {
+			return nil, err
+		}
+		if a == any(core.Bottom) && b == any(core.Bottom) && dothrow {
+			// the error of a member that lacks it
+			if _, err := vm.getFieldtype(x.A, f, true); err != nil {
+				return nil, err
+			}
+			if _, err := vm.getFieldtype(x.B, f, true); err != nil {
+				return nil, err
+			}
+		}
+		return core.TypeUnion(a, b), nil
 	}
-	types, _ := st.FieldTypes()
+	st, ok := t.(*core.DataType)
+	if !ok {
+		return nil, vm.typeError("fieldtype", "", core.DataTypeType, t)
+	}
 	idx := -1
-	switch f := args[1].(type) {
+	switch f := f.(type) {
 	case int64:
-		idx = int(f - 1)
+		idx = int(max(min(f-1, math.MaxInt32), -1))
 	case expr.Symbol:
 		for i, n := range st.FieldNames() {
 			if n == f {
@@ -461,13 +493,49 @@ func biFieldtype(vm *VM, args []any) (any, error) {
 			}
 		}
 		if idx < 0 {
-			return nil, vm.noFieldError(st, f)
+			if dothrow {
+				return nil, vm.noFieldError(st, f)
+			}
+			return core.Bottom, nil
 		}
 	default:
-		return nil, vm.typeError("fieldtype", "", core.SymbolType, args[1])
+		return nil, vm.typeError("fieldtype", "", core.SymbolType, f)
 	}
-	if idx < 0 || idx >= len(types) {
-		return nil, vm.exception(vm.tBounds, args[0], args[1])
+	outOfBounds := func() (any, error) {
+		if dothrow {
+			return nil, vm.exception(vm.tBounds, t, f)
+		}
+		return core.Bottom, nil
+	}
+	if st.Name == core.NamedTupleTypeName {
+		if nm, isTuple := st.Parameters[0].(*core.Tuple); isTuple && (idx < 0 || idx >= len(nm.Elems)) {
+			return outOfBounds()
+		}
+		tt := st.Parameters[1]
+		for {
+			tv, isVar := tt.(*core.TypeVar)
+			if !isVar {
+				break
+			}
+			tt = tv.UB
+		}
+		if tt == any(core.AnyType) || tt == any(core.Bottom) {
+			return tt, nil
+		}
+		return vm.getFieldtype(tt, int64(idx+1), dothrow)
+	}
+	types, _ := st.FieldTypes()
+	nf := len(types)
+	if nf > 0 && idx >= nf-1 && st.Name == core.TupleTypeName {
+		if va, isVa := types[nf-1].(*core.Vararg); isVa {
+			if va.T == nil {
+				return core.AnyType, nil
+			}
+			return va.T, nil
+		}
+	}
+	if idx < 0 || idx >= nf {
+		return outOfBounds()
 	}
 	return types[idx], nil
 }
