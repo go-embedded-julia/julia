@@ -165,6 +165,11 @@ func (vm *VM) instantiateTypeInEnv(a []any) (any, error) {
 	for u, ok := a[1].(*core.UnionAll); ok; u, ok = u.Body.(*core.UnionAll) {
 		n++
 	}
+	if n == 0 {
+		// no variable to set: the type as it is, whatever vals is (C_NULL
+		// among them), as jl_instantiate_type_in_env reads none
+		return core.InstantiateTypeInEnv(a[0], a[1], nil), nil
+	}
 	p, ok := a[2].(*Pointer)
 	if ok {
 		switch t := p.Target.(type) {
@@ -174,8 +179,7 @@ func (vm *VM) instantiateTypeInEnv(a []any) (any, error) {
 				return core.InstantiateTypeInEnv(a[0], a[1], t[i:i+int64(n)]), nil
 			}
 		case *Memory:
-			vals, err := vm.ptrArgs("jl_instantiate_type_in_env", p, int32(n))
-			if err == nil || n == 0 {
+			if vals, err := vm.ptrArgs("jl_instantiate_type_in_env", p, int32(n)); err == nil {
 				return core.InstantiateTypeInEnv(a[0], a[1], vals), nil
 			}
 		}
