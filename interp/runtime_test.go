@@ -433,7 +433,11 @@ func TestNewStruct(t *testing.T) {
 	}{
 		{"not a type", int64(1), nil, "!TypeError(:new, \"\", DataType, 1)"},
 		{"abstract", core.IntegerType, nil, "!TypeError(:new"},
-		{"tuple type", core.EmptyTupleType, nil, "!not ported"},
+		// julia 1.12.6's jl_new_structv of tuple types
+		{"tuple type", core.EmptyTupleType, nil, "()"},
+		{"Tuple{Int64}", must(core.Apply(core.AnyTupleType, core.Int64Type)), []any{int64(1)}, "(1,)"},
+		{"Tuple{Int64} of a Float64", must(core.Apply(core.AnyTupleType, core.Int64Type)), []any{1.5}, `!TypeError(:new, "", Int64, 1.5)`},
+		{"Tuple{Int64} of two", must(core.Apply(core.AnyTupleType, core.Int64Type)), []any{int64(1), int64(2)}, "!invalid struct allocation"},
 		{"primitive type", core.Int64Type, nil, "!not ported"},
 		{"too many fields", vm.tError, []any{"a", "b"}, "!invalid struct allocation"},
 		{"field of the wrong type", vm.tError, []any{int64(1)}, "!TypeError(:new, \"\", AbstractString, 1)"},

@@ -822,8 +822,21 @@ func (vm *VM) newStruct(tv any, fields []any) (any, error) {
 	if !ok || !t.IsConcrete {
 		return nil, vm.typeError("new", "", core.DataTypeType, tv)
 	}
+	// a concrete tuple type's instance is the tuple of those values, whose
+	// types are its parameters
+	if core.IsTupleType(t) {
+		if len(fields) != len(t.Parameters) {
+			return nil, vm.errorf("invalid struct allocation")
+		}
+		for i, v := range fields {
+			if !vm.isa(v, t.Parameters[i]) {
+				return nil, vm.typeError("new", "", t.Parameters[i], v)
+			}
+		}
+		return vm.newTuple(fields), nil
+	}
 	// a NamedTuple instance's names are its own (core's FieldNames)
-	if core.IsTupleType(t) || t.FieldNames() == nil && len(t.Name.Fields) == 0 && !t.Name.Singleton {
+	if t.FieldNames() == nil && len(t.Name.Fields) == 0 && !t.Name.Singleton {
 		return nil, fmt.Errorf("%w: :new of %s", ErrUnsupported, core.Show(tv))
 	}
 	n := len(t.FieldNames())

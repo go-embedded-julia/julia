@@ -143,18 +143,15 @@ mutable struct MPart; a::Int; b::Int; MPart() = new(); end`); err != nil {
 		{"Zero", null, uint32(0), "Main.L.Zero()"},
 		{"One", args, uint32(1), "Main.L.One(1)"},
 		{"Two", args, uint32(1), "!invalid struct allocation"},
-		{"Two", args, uint32(3), "!ptrArgs"}, // the count is past the memory: refused
+		{"Two", args, uint32(3), "!invalid struct allocation"},
 		{"One", args, uint32(2), "!invalid struct allocation"},
-		{"Int", args, uint32(1), "!:new of Int64"}, // julia: invalid struct allocation
+		{"Int", args, uint32(1), "!invalid struct allocation"}, // as julia 1.12.6
+		{"Integer", args, uint32(0), "!TypeError(:new"},
 		{"Two", args, int64(2), "!TypeError(:ccall"},
 		{"Two", args, uint32(1 << 31), "!TypeError(:ccall"},
 		{"Two", int64(1), uint32(2), "!jl_new_structv of"},
 	} {
 		v, err := f.sh("jl_new_structv", must(f.s.Eval(c.t)), c.args, c.n)
-		if c.want == "!ptrArgs" {
-			check(t, c.t, v, err, "!jl_new_structv of")
-			continue
-		}
 		if err == nil {
 			if got := showValue(v); got != c.want && "Main.L."+got != c.want {
 				t.Errorf("new %s: %s, julia %s", c.t, got, c.want)

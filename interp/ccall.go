@@ -197,12 +197,25 @@ func (vm *VM) bootShims() {
 			}
 			return core.WidenDiagonal(a[0], ua), nil
 		},
+		// jl_new_structt(type, tup) (datatype.c:1664-1700): new(type,
+		// tup...), with exactly the type's fields
+		"jl_new_structt": func(vm *VM, a []any) (any, error) { return vm.newStructT(a[0], a[1]) },
 		// jl_new_structv(type, args, na) (datatype.c:1627-1663): new(type,
 		// args...) of na values a Ptr{Any} points at
 		"jl_new_structv": func(vm *VM, a []any) (any, error) {
 			n, ok := a[2].(uint32)
 			if !ok || n > math.MaxInt32 {
 				return nil, vm.typeError("ccall", "", core.UInt32Type, a[2])
+			}
+			// a concrete type, and a count its fields allow (datatype.c:
+			// 1630-1635)
+			d, ok := a[0].(*core.DataType)
+			if !ok || !d.IsConcrete {
+				return nil, vm.typeError("new", "", core.DataTypeType, a[0])
+			}
+			ft, _ := d.FieldTypes()
+			if nf := uint32(len(ft)); nf-uint32(d.Name.NUninitialized) > n || n > nf {
+				return nil, vm.errorf("invalid struct allocation")
 			}
 			var args []any
 			if n > 0 {
@@ -211,7 +224,7 @@ func (vm *VM) bootShims() {
 					return nil, err
 				}
 			}
-			return vm.newStruct(a[0], args)
+			return vm.newStruct(d, args)
 		},
 		// jl_set_fenv_rounding / jl_get_fenv_rounding (jl_uv.c): the float
 		// intrinsics here round to nearest only, JL_FE_TONEAREST (0 on

@@ -54,6 +54,34 @@ func TestComputedCcall(t *testing.T) {
 	}
 }
 
+// jl_new_structt builds a struct from a tuple of exactly its fields, and
+// refuses what new would.
+func TestNewStructt(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	s := vm.NewSession()
+	two := must(s.Eval("struct TwoT; a::Int; b::Int; end; TwoT"))
+	tup := func(xs ...any) *Tuple { return vm.newTuple(xs) }
+	sh := vm.shims["jl_new_structt"]
+	for _, c := range []struct {
+		name string
+		args []any
+		want string
+	}{
+		{"two fields", []any{two, tup(int64(1), int64(2))}, "Main.L.TwoT(1, 2)"},
+		{"no tuple", []any{two, int64(1)}, "!TypeError(:new"},
+		{"an abstract type", []any{core.IntegerType, tup()}, "!TypeError(:new"},
+		// JL_NARGS(new, nf, nf)'s errors
+		{"too few", []any{two, tup(int64(1))}, `!ArgumentError("new: too few arguments (expected 2)")`},
+		{"too many", []any{two, tup(int64(1), int64(2), int64(3))}, `!ArgumentError("new: too many arguments (expected 2)")`},
+	} {
+		v, err := sh(vm, c.args)
+		check(t, c.name, v, err, c.want)
+	}
+}
+
 // A Ref{T} argument is passed as the Ptr{T} lowering converted it to.
 func TestRefArg(t *testing.T) {
 	vm := New()

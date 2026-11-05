@@ -175,6 +175,8 @@ func init() {
 	NamedTupleType = define(spec{module: "Core", name: "NamedTuple",
 		vars: []*TypeVar{tv("names"), {Name: "T", LB: Bottom, UB: AnyTupleType}}}).(*UnionAll)
 	NamedTupleTypeName = NamedTupleType.Body.(*UnionAll).Body.(*DataType).Name
+	// its body's parameters are free: no field types yet (namedTupleFields)
+	NamedTupleType.Body.(*UnionAll).Body.(*DataType).ntTypes = []any{}
 
 	NumberType = core0("Number", AnyType, true)
 	RealType = core0("Real", NumberType, true)

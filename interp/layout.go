@@ -42,7 +42,7 @@ func structLayout(t *core.DataType) (layout, error) {
 	}
 	ft, ok := t.FieldTypes()
 	if !ok {
-		return layout{}, fmt.Errorf("%w: the layout of %s", ErrUnsupported, t.Name.Name)
+		return layout{}, fmt.Errorf("%w: the layout of %s", ErrUnsupported, showValue(t))
 	}
 	l := layout{align: 1, isbitsegal: true}
 	used := 0

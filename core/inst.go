@@ -958,7 +958,9 @@ func namedTupleFields(ndt *DataType, nothrow int) bool {
 		}
 		throwf("NamedTuple names and field types must have matching lengths")
 	}
-	ndt.ntTypes = d.Parameters
+	// never nil, which would read as not known yet: @NamedTuple{}'s are
+	// Tuple{}'s parameters, none
+	ndt.ntTypes = append([]any{}, d.Parameters...)
 	return true
 }
 

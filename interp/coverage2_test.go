@@ -197,6 +197,7 @@ struct F11{T}; x::Union{S1{T},P{T,T}}; end`); err != nil {
 		{"Memory{Any}", "!Type GenericMemory does not have a definite size."},
 		{"Core.GenericMemory", "16"},
 		{"Task", "144"},
+		{"NamedTuple{(),Tuple{}}", "0"},
 		{"fieldtype(Task, 1)", "!Argument is an abstract type and does not have a definite size."},
 		{"Core.GenericMemoryRef{:not_atomic,Int,Core.CPU}", "16"},
 		{"Int.name", "112"},
