@@ -313,6 +313,24 @@ func (vm *VM) bootShims() {
 		"jl_has_free_typevars": func(vm *VM, a []any) (any, error) { return core.HasFreeTypeVars(a[0]), nil },
 		// jl_get_tls_world_age (task.c): the task's world, a UInt
 		"jl_get_tls_world_age": func(vm *VM, a []any) (any, error) { return vm.taskWorld, nil },
+		// jl_rethrow and jl_rethrow_other (task.c:800-821): the exception on
+		// top of the stack, the latter replacing it first, thrown again
+		// without being pushed again
+		"jl_rethrow": func(vm *VM, a []any) (any, error) {
+			n := len(vm.excStack)
+			if n == 0 {
+				return nil, vm.errorf("rethrow() not allowed outside a catch block")
+			}
+			return nil, &Thrown{Value: vm.excStack[n-1], rethrown: true}
+		},
+		"jl_rethrow_other": func(vm *VM, a []any) (any, error) {
+			n := len(vm.excStack)
+			if n == 0 {
+				return nil, vm.errorf("rethrow(exc) not allowed outside a catch block")
+			}
+			vm.excStack[n-1] = a[0]
+			return nil, &Thrown{Value: a[0], rethrown: true}
+		},
 		// jl_prepend_string (toplevel.c:1252-1264): prefix and str as C
 		// strings, each to its first NUL, in a 1024-byte buffer
 		"jl_prepend_string": func(vm *VM, a []any) (any, error) {

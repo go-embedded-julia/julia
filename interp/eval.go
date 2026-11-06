@@ -105,7 +105,9 @@ func (f *frame) evalBody(ip int) (any, error) {
 				if !errors.As(err, &thrown) || s.catch < 0 {
 					return nil, err
 				}
-				vm.excStack = append(vm.excStack, thrown.Value)
+				if !thrown.rethrown {
+					vm.excStack = append(vm.excStack, thrown.Value)
+				}
 				next = s.catch
 			}
 		case sAssign:

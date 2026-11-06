@@ -91,6 +91,45 @@ func TestIsConst(t *testing.T) {
 	}
 }
 
+// rethrow() and rethrow(e) from a catch, as julia 1.12.6 runs the same
+// program: the outer catch sees the exception, and the exception stack
+// (current_exceptions) holds it once; a throw from a catch stacks both.
+func TestRethrow(t *testing.T) {
+	vm := New()
+	// current_exceptions, read from the test
+	vm.shims["test_excstack"] = func(vm *VM, a []any) (any, error) {
+		return vm.newTuple(append([]any(nil), vm.excStack...)), nil
+	}
+	s := vm.NewSession()
+	if _, err := s.Eval(`function g(kind)
+    try
+        try
+            throw(1)
+        catch
+            kind === 1 && ccall(:jl_rethrow, Union{}, ())
+            kind === 2 && ccall(:jl_rethrow_other, Union{}, (Any,), 2)
+            throw(3)
+        end
+    catch e
+        return (e, ccall(:test_excstack, Any, ()))
+    end
+end`); err != nil {
+		t.Fatal(err)
+	}
+	for src, want := range map[string]string{
+		"g(1)": "(1, (1,))",
+		"g(2)": "(2, (2,))",
+		"g(3)": "(3, (1, 3))",
+		"try ccall(:jl_rethrow, Union{}, ()) catch e; e end":               `ErrorException("rethrow() not allowed outside a catch block")`,
+		"try ccall(:jl_rethrow_other, Union{}, (Any,), 5) catch e; e end": `ErrorException("rethrow(exc) not allowed outside a catch block")`,
+	} {
+		v, err := s.Eval(src)
+		if err != nil || Repr(v) != want {
+			t.Errorf("%s: %s %v, want %s", src, Repr(v), err, want)
+		}
+	}
+}
+
 // The builtins Base's first files call, each want julia 1.12.6's answer to
 // the same call.
 func TestBuiltins2(t *testing.T) {
