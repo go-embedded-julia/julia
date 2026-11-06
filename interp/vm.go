@@ -76,6 +76,8 @@ type VM struct {
 	// (cglobal((:name, lib), T))
 	libCglobals map[string]map[expr.Symbol]*ptrSlot
 	sessions    map[*Module]*Session
+	// mpfr is libmpfr's global state: the exponent range and the flags
+	mpfr mpfrEnv
 
 	// Sources holds the files include reads (load.go): julia's own sources
 	// by default, rooted as julia's base/ is.
