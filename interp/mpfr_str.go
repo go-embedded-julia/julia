@@ -27,9 +27,10 @@ func hasPrefixFold(s, prefix string) bool {
 	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
-// mpfrParse reads s as mpfr_strtofr does in base (0, or 2 to 62): the whole
-// string must be a number, after leading white space.
-func mpfrParse(s string, base int) (mpfrParsed, bool) {
+// mpfrParse reads s as mpfr_strtofr does in base (0, or 2 to 62), after
+// leading white space: the longest number it starts with, what follows it,
+// and false when there is none.
+func mpfrParse(s string, base int) (mpfrParsed, string, bool) {
 	s = strings.TrimLeftFunc(s, func(r rune) bool { return r < 128 && isCSpace(byte(r)) })
 	p := mpfrParsed{kind: kReg}
 	if s != "" && (s[0] == '+' || s[0] == '-') {
@@ -56,10 +57,10 @@ func mpfrParse(s string, base int) (mpfrParsed, bool) {
 			}
 		}
 		p.kind = sp.kind
-		return p, rest == ""
+		return p, rest, true
 	}
 	if base < 0 || base == 1 || base > 62 {
-		return p, false
+		return p, s, false
 	}
 	switch {
 	case (base == 0 || base == 16) && hasPrefixFold(s, "0x"):
@@ -90,39 +91,38 @@ func mpfrParse(s string, base int) (mpfrParsed, bool) {
 		}
 	}
 	if len(digits) == 0 {
-		return p, false
+		return p, s, false
 	}
 	p.n = new(big.Int)
 	p.n.SetString(string(digits), base)
 	p.m, p.c = big.NewInt(-frac), new(big.Int)
 	s = s[i:]
-	if s == "" {
-		return p, true
-	}
 	// an exponent: @ always, e or E in bases up to 10, p or P in powers of 2
 	binary := false
-	switch c := s[0]; {
-	case c == '@', (c == 'e' || c == 'E') && base <= 10:
-	case (c == 'p' || c == 'P') && base&(base-1) == 0:
+	switch {
+	case s == "":
+		return p, s, true
+	case s[0] == '@', (s[0] == 'e' || s[0] == 'E') && base <= 10:
+	case (s[0] == 'p' || s[0] == 'P') && base&(base-1) == 0:
 		binary = true
 	default:
-		return p, false
+		return p, s, true
 	}
-	s = s[1:]
+	// its sign and digits; without digits the number ends before the exponent
+	t := s[1:]
 	eneg := false
-	if s != "" && (s[0] == '+' || s[0] == '-') {
-		eneg = s[0] == '-'
-		s = s[1:]
+	if t != "" && (t[0] == '+' || t[0] == '-') {
+		eneg = t[0] == '-'
+		t = t[1:]
 	}
-	if s == "" {
-		return p, false
+	nd := 0
+	for nd < len(t) && '0' <= t[nd] && t[nd] <= '9' {
+		nd++
 	}
-	for _, c := range []byte(s) {
-		if c < '0' || c > '9' {
-			return p, false
-		}
+	if nd == 0 {
+		return p, s, true
 	}
-	e, _ := new(big.Int).SetString(s, 10)
+	e, _ := new(big.Int).SetString(t[:nd], 10)
 	if eneg {
 		e.Neg(e)
 	}
@@ -131,7 +131,7 @@ func mpfrParse(s string, base int) (mpfrParsed, bool) {
 	} else {
 		p.m.Add(p.m, e)
 	}
-	return p, true
+	return p, t[nd:], true
 }
 
 // mpfrOfParsed is the parsed number rounded to prec bits in rnd. A power of

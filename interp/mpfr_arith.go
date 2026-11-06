@@ -35,14 +35,16 @@ func (vm *VM) mpfrAdd(a, b *mpfrNum, prec int64, rnd int) (*mpfrNum, int) {
 		a, b = b, a
 	}
 	la := int64(a.mant.BitLen())
-	if uint64(a.exp)-uint64(b.exp) >= uint64(la)+2 {
-		// b lies two places below a's last bit: it only makes the sum a
-		// little more or less than a, and a's mantissa two bits longer
-		m := new(big.Int).Lsh(a.mant, 2)
+	if uint64(a.exp)-uint64(b.exp) >= uint64(max(la, prec))+2 {
+		// b lies two places below a's last bit and the result's: it only
+		// makes the sum a little (less than the unit of the last bit of a
+		// mantissa of max(la, prec)+2 bits) more or less than a
+		k := max(la, prec) + 2 - la
+		m := new(big.Int).Lsh(a.mant, uint(k))
 		if a.neg != b.neg {
 			m.Sub(m, bigOne)
 		}
-		ex := satAddI(a.exp, int64(m.BitLen())-la-2)
+		ex := satAddI(a.exp, int64(m.BitLen())-la-k)
 		return vm.mpfrParts(a.neg, m, ex, true, prec, rnd)
 	}
 	lo := min(a.lsb(), b.lsb())
@@ -97,8 +99,12 @@ func (vm *VM) mpfrFMA(a, b, c *mpfrNum, prec int64, rnd int) (*mpfrNum, int) {
 func (vm *VM) mpfrDiv(a, b *mpfrNum, prec int64, rnd int) (*mpfrNum, int) {
 	neg := a.neg != b.neg
 	switch {
-	case a.kind == kNaN || b.kind == kNaN, a.kind == kInf && b.kind == kInf, a.kind == kZero && b.kind == kZero:
+	case a.kind == kNaN || b.kind == kNaN:
 		return vm.nanResult()
+	case a.kind == kInf && b.kind == kInf, a.kind == kZero && b.kind == kZero:
+		// an invalid operation has the sign of the quotient
+		vm.mpfr.flags |= flagNaN
+		return nanSigned(neg), 0
 	case a.kind == kInf:
 		return infNum(neg), 0
 	case b.kind == kInf:

@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 )
 
@@ -34,6 +35,21 @@ var refusedFns = []struct{ name, sig, why string }{
 	{"sinu", "ffur", "sin(2*pi*x/u)"}, {"cosu", "ffur", "cos(2*pi*x/u)"}, {"tanu", "ffur", "tan(2*pi*x/u)"},
 	{"asinu", "ffur", "asin(x)*u/(2*pi)"}, {"acosu", "ffur", "acos(x)*u/(2*pi)"}, {"atanu", "ffur", "atan(x)*u/(2*pi)"},
 	{"atan2u", "fffur", "atan2(y,x)*u/(2*pi)"},
+}
+
+// scalarNaN gives the NaN result of an operation with an integer operand c
+// the sign MPFR's implementation leaves: it sets none, except that mpfr_mul_si
+// and its relatives with a negative long call the unsigned version and change
+// the sign of the result (flips says the operation is one). A double's, as
+// the division of a BigFloat by one, is the generic operation's.
+func scalarNaN(r *mpfrNum, tn string, c *mpfrNum, flips bool) {
+	if r.kind != kNaN || tn == "d" {
+		return
+	}
+	r.nsign = 0
+	if flips && c.neg && (tn == "si" || tn == "z" && c.exp <= 63) {
+		r.nsign = nsignFlip
+	}
 }
 
 func (vm *VM) mpfrFunctions() map[string]mpfrFn {
@@ -97,18 +113,15 @@ func (vm *VM) mpfrFunctions() map[string]mpfrFn {
 		}
 	}
 
-	op("set", "ffr", plain((*VM).mpfrSet))
+	op("set", "ffr", plain(func(vm *VM, x *mpfrNum, prec int64, rnd int) (*mpfrNum, int) {
+		return vm.mpfrSetSign(x, x.neg, prec, rnd)
+	}))
 	op("neg", "ffr", plain(func(vm *VM, x *mpfrNum, prec int64, rnd int) (*mpfrNum, int) {
-		return vm.mpfrSet(x.negated(), prec, rnd)
+		return vm.mpfrSetSign(x, !x.neg, prec, rnd)
 	}))
 	op("sqrt", "ffr", plain((*VM).mpfrSqrt))
 	op("copysign", "fffr", two(func(vm *VM, x, y *mpfrNum, prec int64, rnd int) (*mpfrNum, int) {
-		z := *x
-		z.neg = y.neg
-		if x.kind == kNaN {
-			z.neg = x.neg
-		}
-		return vm.mpfrSet(&z, prec, rnd)
+		return vm.mpfrSetSign(x, y.neg, prec, rnd)
 	}))
 	arith := map[string]func(vm *VM, x, y *mpfrNum, prec int64, rnd int) (*mpfrNum, int){
 		"add": (*VM).mpfrAdd, "mul": (*VM).mpfrMul, "div": (*VM).mpfrDiv,
@@ -130,6 +143,7 @@ func (vm *VM) mpfrFunctions() map[string]mpfrFn {
 					return nil, 0, err
 				}
 				r, t := f(vm, x, c, prec, rnd)
+				scalarNaN(r, tn, c, name == "mul" || name == "div")
 				return r, t, nil
 			})
 			if name != "sub" && name != "div" || tn == "z" && name == "div" {
@@ -144,7 +158,13 @@ func (vm *VM) mpfrFunctions() map[string]mpfrFn {
 				if err != nil {
 					return nil, 0, err
 				}
+				if name == "sub" && c.kind == kZero && tn != "d" {
+					// mpfr_ui_sub (and the others) of 0 is the opposite
+					r, t := vm.mpfrSetSign(x, !x.neg, prec, rnd)
+					return r, t, nil
+				}
 				r, t := f(vm, c, x, prec, rnd)
+				scalarNaN(r, tn, c, true)
 				return r, t, nil
 			})
 		}
@@ -173,7 +193,7 @@ func (vm *VM) mpfrFunctions() map[string]mpfrFn {
 		if err != nil {
 			return nil, 0, err
 		}
-		r, t := vm.mpfrMul2(x, int64(min(a[2].(uint64), 1<<62)), prec, rnd)
+		r, t := vm.mpfrMul2(x, int64(min(a[2].(uint64), math.MaxInt64)), prec, rnd)
 		return r, t, nil
 	})
 	op("hypot", "fffr", twoErr((*VM).mpfrHypot))
@@ -315,15 +335,20 @@ func (vm *VM) mpfrFunctions() map[string]mpfrFn {
 		if base < 0 || base == 1 || base > 62 {
 			return nil, fmt.Errorf("%w: mpfr_set_str in base %d (MPFR aborts)", ErrUnsupported, base)
 		}
-		p, ok := mpfrParse(a[1].(string), base)
+		p, rest, ok := mpfrParse(a[1].(string), base)
 		if !ok {
 			return int32(-1), nil
 		}
+		// the number it starts with is what the string is read as, and what
+		// sets the flags, whatever follows it
 		x, _, err := vm.mpfrOfParsed(p, z.prec, rnd)
 		if err != nil {
 			return nil, err
 		}
 		vm.mpfrWrite(z, x)
+		if rest != "" {
+			return int32(-1), nil
+		}
 		return int32(0), nil
 	}}
 

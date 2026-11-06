@@ -318,13 +318,16 @@ for (a, b) in ((-20, 20), (-1, 1), (0, 0), (-5, 3))
     global PFX = "R$(a),$(b):"
     R.set_emin!(a); R.set_emax!(b)
     emit("emin_emax", [], () -> [iout(R.get_emin()), iout(R.get_emax())])
-    for (i, (x, y)) in enumerate(Iterators.product(BF[b53(1), b53(-1), b53(3), b53(0.1), b53(1e-3), b53(2.0^-6), b53(7.5), b53(-100), b53(0.75), b53(1.5), third], BF[b53(1), b53(-1), b53(3), b53(0.1), b53(2.0^-4), b53(40)])), p in (2, 53), r in MODES
+    # MPFR assumes its operands are in the exponent range
+    POOL = filter(x -> a <= x.exp <= b, BF[b53(1), b53(-1), b53(3), b53(0.1), b53(1e-3), b53(2.0^-6), b53(7.5), b53(-100), b53(0.75), b53(1.5), third,
+                                           b53(0.5), b53(0.9), b53(0.6), b53(-0.5), b53(1.25), b53(2.5), b53(-3.5), b53(25), b53(-25), b53(40), b53(2.0^-4)])
+    for (i, (x, y)) in enumerate(Iterators.product(POOL, POOL)), p in (2, 53), r in MODES
         for (n, g) in (("add", bi_add), ("sub", bi_sub), ("mul", bi_mul), ("div", bi_div), ("pow", bi_pow), ("hypot", bi_hypot))
             keep(i + p + r + length(n), 3) || continue
             emit(n, [benc(x), benc(y), uin(p), rin(r)], () -> ((z, t) = g(x, y, p, r); [benc(z), iout(sign(t))]))
         end
     end
-    for (i, x) in enumerate(BF[b53(1), b53(-1), b53(3), b53(0.1), b53(2.0^-6), b53(7.5), b53(25), b53(-25), b53(0.75), b53(1.5), third]), p in (2, 53), r in MODES
+    for (i, x) in enumerate(POOL), p in (2, 53), r in MODES
         for f in (:sqrt, :exp, :exp2, :expm1, :sinh, :cosh, :cbrt, :log, :set, :neg, :exp10)
             keep(i + p + r + length(string(f)), 2) || continue
             g = getfield(Main, Symbol(:un_, f))
