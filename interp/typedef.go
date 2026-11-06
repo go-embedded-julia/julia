@@ -343,7 +343,7 @@ func (vm *VM) fieldAttrs(fattrs SVec, n int, mutable bool) (atomic, cnst []bool,
 }
 
 // fieldMarked is whether field i is marked in a mask of fieldAttrs.
-func fieldMarked(mask []bool, i int) bool { return i < len(mask) && mask[i] }
+func fieldMarked(mask []bool, i int) bool { return i >= 0 && i < len(mask) && mask[i] }
 
 // biSetsuper is jl_f__setsuper (builtins.c:2051-2058).
 func biSetsuper(vm *VM, args []any) (any, error) {

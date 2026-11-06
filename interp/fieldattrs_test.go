@@ -77,6 +77,10 @@ func TestFieldAttributes(t *testing.T) {
 		{get, []any{vm.Core, sym("Int"), sym("acquire")}, "Int64"},
 		{get, []any{tn, sym("name"), sym("acquire")}, "!ConcurrencyViolationError(\"getfield: non-atomic field cannot be accessed atomically\")"},
 		{get, []any{tn, sym("cache"), sym("not_atomic")}, "!not ported yet"},
+		// a Binding's partitions are atomic (jltypes.c:3279), as Base's
+		// `@atomic bnd.partitions` reads them (show.jl:1056)
+		{get, []any{vm.Core.own("Int64"), sym("globalref"), sym("acquire")}, "!ConcurrencyViolationError(\"getfield: non-atomic field cannot be accessed atomically\")"},
+		{get, []any{vm.Core.own("Int64"), sym("partitions"), sym("not_atomic")}, "!ConcurrencyViolationError(\"getfield: atomic field cannot be accessed non-atomically\")"},
 		{set, []any{x, sym("parts"), vm.newTuple([]any{int64(2)})}, "!setfield!: const field .parts of type LZ cannot be changed"},
 		{set, []any{x, sym("str"), "a"}, "!ConcurrencyViolationError(\"setfield!: atomic field cannot be written non-atomically\")"},
 		{set, []any{x, sym("str"), "a", sym("release")}, "\"a\""},
@@ -97,6 +101,9 @@ func TestFieldAttributes(t *testing.T) {
 	} {
 		v, err := vm.apply(c.f, c.args)
 		check(t, Repr(c.f)+" "+showValue(c.args[1]), v, err, c.want)
+	}
+	if v, err := vm.apply(get, []any{vm.Core.own("Int64"), sym("partitions"), sym("acquire")}); err != nil || v.(*Struct).Type != vm.tBindingPartition {
+		t.Errorf("@atomic bnd.partitions: %v %v", v, err)
 	}
 	// redefining the struct with other attributes is another type
 	a, _ := biStructtype(vm, []any{s.Mod, sym("E"), SVec{}, sv(sym("a")), sv(int64(1), sym("const")), true, int64(1)})

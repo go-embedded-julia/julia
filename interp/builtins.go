@@ -620,11 +620,13 @@ func (vm *VM) getfieldOrdered(args []any) (any, error) {
 	if _, isMod := args[0].(*Module); isMod {
 		return f, nil // the order is ignored (builtins.c:1040-1041)
 	}
+	// the field's atomicity is its type's (a TypeName's cache, a Binding's
+	// partitions), whatever Go value holds the object
 	isatomic := false
-	if tn, ok := args[0].(*core.TypeName); ok {
-		names := core.TypeNameType.Name.FieldNames
-		i, _ := vm.fieldIndex("getfield", core.TypeNameType, names, len(names), tn, args[1])
-		isatomic = fieldMarked(core.TypeNameType.Name.AtomicFields, i)
+	if dt, ok := vm.typeOf(args[0]).(*core.DataType); ok && dt.Name.AtomicFields != nil {
+		names := dt.FieldNames()
+		i, _ := vm.fieldIndex("getfield", dt, names, len(names), args[0], args[1])
+		isatomic = fieldMarked(dt.Name.AtomicFields, i)
 	}
 	if err := vm.getfieldOrder(order, isatomic); err != nil {
 		return nil, err
