@@ -26,6 +26,8 @@ const (
 	bkGuard          = 0x9
 	bkUndefConst     = 0xa
 	bkFlagExported   = 0x10
+	bkFlagDeprecated = 0x20
+	bkFlagDepwarn    = 0x40
 )
 
 // bootBindingTypes defines Binding and BindingPartition with julia's
@@ -125,24 +127,30 @@ func (vm *VM) moduleBinding(m *Module, name expr.Symbol, alloc bool) *Binding {
 }
 
 // bindingPartition is jl_get_binding_partition (module.c): b's partition
-// for world w.
+// for world w. Its partitions begin at the world it was declared in and at
+// each deprecation, a guard before them; each names the older as next.
 func (vm *VM) bindingPartition(b *Binding, w uint64) *Struct {
-	var guard *Struct
-	if b.World > 0 {
-		guard = &Struct{Type: vm.tBindingPartition, Fields: []any{undef, uint64(0), b.World - 1, nil, uint64(bkGuard)}}
-		if w < b.World {
-			return guard
+	if w < b.World {
+		return &Struct{Type: vm.tBindingPartition, Fields: []any{undef, uint64(0), b.World - 1, nil, uint64(bkGuard)}}
+	}
+	start, end := b.World, ^uint64(0)
+	for _, c := range b.deprecations {
+		if c.world <= w {
+			start = max(start, c.world)
+		} else {
+			end = min(end, c.world-1)
 		}
 	}
 	restriction, kind := vm.bindingKind(b)
 	if b.Exports {
 		kind |= bkFlagExported
 	}
+	kind |= b.depFlags(w)
 	var next any // nothing
-	if guard != nil {
-		next = guard
+	if start > 0 {
+		next = vm.bindingPartition(b, start-1)
 	}
-	return &Struct{Type: vm.tBindingPartition, Fields: []any{restriction, b.World, ^uint64(0), next, uint64(kind)}}
+	return &Struct{Type: vm.tBindingPartition, Fields: []any{restriction, start, end, next, uint64(kind)}}
 }
 
 // bindingKind is b's current kind and restriction (module.c:294-320 for an
@@ -243,11 +251,55 @@ func (vm *VM) bootBindingShims() {
 		}
 		return nil, fmt.Errorf("%w: jl_get_module_binding's NULL", ErrUnsupported)
 	}
-	vm.shims["jl_is_const"] = func(vm *VM, a []any) (any, error) {
+	moduleVar := func(fname string, a []any) (*Module, expr.Symbol, error) {
 		m, ok1 := a[0].(*Module)
 		name, ok2 := a[1].(expr.Symbol)
 		if !ok1 || !ok2 {
-			return nil, fmt.Errorf("%w: jl_is_const of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+			return nil, "", fmt.Errorf("%w: %s of %s", ErrUnsupported, fname, showValue(vm.newTuple(a)))
+		}
+		return m, name, nil
+	}
+	// jl_deprecate_binding (module.c:1811-1828): flag 1 deprecated with a
+	// warning, 2 without, 0 neither; a change starts a new world
+	vm.shims["jl_deprecate_binding"] = func(vm *VM, a []any) (any, error) {
+		m, name, err := moduleVar("jl_deprecate_binding", a)
+		if err != nil {
+			return nil, err
+		}
+		flag, ok := a[2].(int32)
+		if !ok {
+			return nil, vm.typeError("ccall", "", core.Int32Type, a[2])
+		}
+		var flags uint8
+		switch flag {
+		case 1:
+			flags = bkFlagDeprecated | bkFlagDepwarn
+		case 2:
+			flags = bkFlagDeprecated
+		}
+		b := vm.moduleBinding(m, name, true)
+		if b.depFlags(vm.taskWorld) == flags {
+			return nil, nil
+		}
+		b.deprecations = append(b.deprecations, depChange{vm.newWorld(), flags})
+		return nil, nil
+	}
+	// jl_is_binding_deprecated (module.c:1853-1859, should_depwarn): m's
+	// own binding of name, deprecated in the task's world
+	vm.shims["jl_is_binding_deprecated"] = func(vm *VM, a []any) (any, error) {
+		m, name, err := moduleVar("jl_is_binding_deprecated", a)
+		if err != nil {
+			return nil, err
+		}
+		if b := vm.moduleBinding(m, name, false); b != nil && b.depFlags(vm.taskWorld)&bkFlagDeprecated != 0 {
+			return int32(1), nil
+		}
+		return int32(0), nil
+	}
+	vm.shims["jl_is_const"] = func(vm *VM, a []any) (any, error) {
+		m, name, err := moduleVar("jl_is_const", a)
+		if err != nil {
+			return nil, err
 		}
 		if vm.isConst(m, name, vm.taskWorld) {
 			return int32(1), nil

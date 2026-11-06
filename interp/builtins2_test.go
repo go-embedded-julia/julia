@@ -130,6 +130,69 @@ end`); err != nil {
 	}
 }
 
+// Base.deprecate and Base.isdeprecated, julia 1.12.6's answers for the same
+// steps: a deprecation is seen from the next world on, in a partition of
+// its own whose flags are 0x60 (with a warning) or 0x20, and is undone by
+// flag 0.
+func TestDeprecateBinding(t *testing.T) {
+	vm := New()
+	s := vm.NewSession()
+	if _, err := s.Eval("x = 1\ny = 2\nnothing"); err != nil {
+		t.Fatal(err)
+	}
+	dep := func(name expr.Symbol, flag int32) {
+		t.Helper()
+		if _, err := vm.shims["jl_deprecate_binding"](vm, []any{s.Mod, name, flag}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	isdep := func(name expr.Symbol) any {
+		t.Helper()
+		v, err := vm.shims["jl_is_binding_deprecated"](vm, []any{s.Mod, name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	latest := func() { vm.taskWorld = vm.World() }
+	latest()
+	if isdep("x") != int32(0) || isdep("nope") != int32(0) {
+		t.Fatal("deprecated before deprecate")
+	}
+	dep("x", 1)
+	if isdep("x") != int32(0) {
+		t.Error("deprecated in the world before")
+	}
+	latest()
+	if isdep("x") != int32(1) {
+		t.Error("not deprecated after")
+	}
+	p := vm.bindingPartition(s.Mod.own("x"), vm.taskWorld)
+	next := p.Fields[3].(*Struct)
+	if p.Fields[4].(uint64)&0x70 != 0x60 || p.Fields[2] != ^uint64(0) || next.Fields[4].(uint64)&0x70 != 0 || next.Fields[2].(uint64)+1 != p.Fields[1].(uint64) {
+		t.Errorf("partitions %s then %s", showValue(p.Fields), showValue(next.Fields))
+	}
+	dep("y", 2)
+	latest()
+	if isdep("y") != int32(1) || vm.bindingPartition(s.Mod.own("y"), vm.taskWorld).Fields[4].(uint64)&0x70 != 0x20 {
+		t.Error("deprecated without a warning")
+	}
+	dep("y", 0)
+	latest()
+	w := vm.World()
+	if dep("y", 0); isdep("y") != int32(0) || vm.World() != w {
+		t.Error("undeprecated, then again with no new world")
+	}
+	if _, err := vm.shims["jl_deprecate_binding"](vm, []any{s.Mod, expr.Symbol("y"), int64(1)}); err == nil {
+		t.Error("a flag that is no Cint")
+	}
+	for _, f := range []expr.Symbol{"jl_deprecate_binding", "jl_is_binding_deprecated"} {
+		if _, err := vm.shims[f](vm, []any{int64(1), expr.Symbol("y"), int32(0)}); err == nil {
+			t.Errorf("%s of a non-module", f)
+		}
+	}
+}
+
 // The builtins Base's first files call, each want julia 1.12.6's answer to
 // the same call.
 func TestBuiltins2(t *testing.T) {

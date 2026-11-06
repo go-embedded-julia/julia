@@ -102,6 +102,26 @@ type Binding struct {
 	// (jl_binding_t): kept, not yet used to invalidate
 	backedges *Struct
 	flags     uint8
+	// deprecations are the changes of the partition's deprecation flags
+	// (jl_deprecate_binding), each from its world on, oldest first
+	deprecations []depChange
+}
+
+// depChange is a binding's deprecation flags from a world on.
+type depChange struct {
+	world uint64
+	flags uint8
+}
+
+// depFlags is b's deprecation flags in world w.
+func (b *Binding) depFlags(w uint64) uint8 {
+	var f uint8
+	for _, c := range b.deprecations {
+		if c.world <= w {
+			f = c.flags
+		}
+	}
+	return f
 }
 
 // resolve follows an import to the binding it names.
