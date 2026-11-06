@@ -520,6 +520,7 @@ func (vm *VM) bootShims() {
 	vm.bootModuleOptShims()
 	vm.bootPCRE()
 	vm.bootGMP()
+	vm.bootMPFR()
 	vm.bootUtf8proc()
 	vm.bootEnvShims()
 	// the parser's character classes (flisp/julia_extensions.c:127-170),
@@ -742,6 +743,10 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 			}
 		}
 		name, _ := lib.(string)
+		if s, isSym := lib.(expr.Symbol); isSym {
+			// ccall((:mpfr_sinu, :libmpfr), …): a library named by a symbol
+			name = string(s)
+		}
 		if sh := vm.libShims[name][x.name]; sh != nil {
 			return vm.foreignResult(rt, sh, args)
 		}
