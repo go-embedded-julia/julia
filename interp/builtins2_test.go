@@ -62,6 +62,35 @@ func TestTypeNameModule(t *testing.T) {
 	}
 }
 
+// jl_is_const, julia 1.12.6's answers for the same module: a const and a
+// function's binding are constants, an explicit import and a using of a
+// constant too, as is a name a module's usings bring; a global, a declared
+// global and an unknown name are not.
+func TestIsConst(t *testing.T) {
+	vm := New()
+	s := vm.NewSession()
+	if _, err := s.Eval("const c1 = 1\ng1 = 2\nglobal g2\nfn() = 1\nimport Core: Int64\nusing Core: Int32\nnothing"); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[expr.Symbol]int32{
+		"c1": 1, "g1": 0, "g2": 0, "fn": 1, "Int64": 1, "Int32": 1, "Int8": 1, "nope": 0,
+	} {
+		v, err := vm.shims["jl_is_const"](vm, []any{s.Mod, name})
+		if err != nil || v != want {
+			t.Errorf("%s: %v %v, want %d", name, v, err, want)
+		}
+	}
+	if _, err := vm.shims["jl_is_const"](vm, []any{int64(1), expr.Symbol("x")}); err == nil {
+		t.Error("jl_is_const of a non-module")
+	}
+	// a constant from a later world on: a guard before it
+	late := vm.Main.declare("late", 0)
+	late.Const, late.Value, late.World = true, int64(1), vm.taskWorld+1
+	if vm.isConst(vm.Main, "late", vm.taskWorld) || !vm.isConst(vm.Main, "late", vm.taskWorld+1) {
+		t.Error("a constant of a later world")
+	}
+}
+
 // The builtins Base's first files call, each want julia 1.12.6's answer to
 // the same call.
 func TestBuiltins2(t *testing.T) {

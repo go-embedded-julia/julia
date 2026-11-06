@@ -243,4 +243,34 @@ func (vm *VM) bootBindingShims() {
 		}
 		return nil, fmt.Errorf("%w: jl_get_module_binding's NULL", ErrUnsupported)
 	}
+	vm.shims["jl_is_const"] = func(vm *VM, a []any) (any, error) {
+		m, ok1 := a[0].(*Module)
+		name, ok2 := a[1].(expr.Symbol)
+		if !ok1 || !ok2 {
+			return nil, fmt.Errorf("%w: jl_is_const of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+		}
+		if vm.isConst(m, name, vm.taskWorld) {
+			return int32(1), nil
+		}
+		return int32(0), nil
+	}
+}
+
+// isConst is jl_is_const (module.c:1800-1806): m's binding of name, through
+// its imports and implicit globals (jl_walk_binding_inplace,
+// julia_internal.h:1024-1033), is a constant in world w
+// (jl_bkind_is_real_constant, julia_internal.h:997-999).
+func (vm *VM) isConst(m *Module, name expr.Symbol, w uint64) bool {
+	b := vm.moduleBinding(m, name, true)
+	for {
+		p := vm.bindingPartition(b, w)
+		switch p.Fields[4].(uint64) & 0xf {
+		case bkExplicit, bkImported, bkImplicitGlobal:
+			b = p.Fields[0].(*Binding)
+		case bkConst, bkImplicitConst:
+			return true
+		default:
+			return false
+		}
+	}
 }
