@@ -79,6 +79,36 @@ func structLayout(t *core.DataType) (layout, error) {
 	return l, nil
 }
 
+// fieldOffset is jl_get_field_offset (datatype.c:2313-2318), fieldoffset:
+// the byte offset of field i (from 1) of a type with a layout
+// (jl_struct_try_layout, datatype.c:362-372), a BoundsError otherwise. A
+// type with an immutable non-isbits field, which julia stores inline and
+// structLayout does not yet (#30), is refused rather than answered wrong.
+func (vm *VM) fieldOffset(a []any) (any, error) {
+	d, ok := a[0].(*core.DataType)
+	if !ok {
+		return nil, vm.typeError("ccall", "", core.DataTypeType, a[0])
+	}
+	i, ok := a[1].(int32)
+	if !ok {
+		return nil, vm.typeError("ccall", "", core.Int32Type, a[1])
+	}
+	ft, hasFields := d.FieldTypes()
+	if !hasFields || !d.IsConcrete && !hasFixedLayout(d) || i < 1 || int(i) > len(ft) {
+		return nil, vm.exception(vm.tBounds, d, int64(i))
+	}
+	for _, f := range ft {
+		if f, ok := f.(*core.DataType); ok && f.IsConcrete && !f.Name.Mutable && !f.IsBits() && f.Name.Bits == 0 {
+			return nil, fmt.Errorf("%w: fieldoffset of %s, whose field of type %s julia stores inline (#30)", ErrUnsupported, showValue(d), showValue(f))
+		}
+	}
+	l, err := structLayout(d)
+	if err != nil {
+		return nil, err
+	}
+	return uint64(l.offsets[i-1]), nil
+}
+
 // unionIsbits reports that every member of a Union is an isbits type, the
 // case julia stores inline.
 func unionIsbits(u any) bool {

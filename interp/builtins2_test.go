@@ -193,6 +193,57 @@ func TestDeprecateBinding(t *testing.T) {
 	}
 }
 
+// fieldoffset, julia 1.12.6's answers for the same types: mpfr.jl's
+// BigFloatLayout, padding, a pointer field, a tuple; BoundsError outside
+// the fields and for a type with no layout.
+func TestFieldOffset(t *testing.T) {
+	vm := New()
+	s := vm.NewSession()
+	if _, err := s.Eval(`struct BFL; prec::Int64; sign::Int32; exp::Int64; d::getfield(Core, :Ptr){UInt64}; p::UInt64; end
+struct Pad; a::Int8; b::Int64; c::Int16; end
+struct WithStr; a::Int8; s::String; end
+struct Nest; a::Int8; w::WithStr; end
+abstract type Ab end
+struct Par{T}; a::Int8; x::T; end
+nothing`); err != nil {
+		t.Fatal(err)
+	}
+	ty := func(src string) any {
+		t.Helper()
+		v, err := s.Eval(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	for _, c := range []struct {
+		t    string
+		i    int32
+		want string
+	}{
+		{"BFL", 1, "0x0000000000000000"}, {"BFL", 2, "0x0000000000000008"}, {"BFL", 3, "0x0000000000000010"},
+		{"BFL", 4, "0x0000000000000018"}, {"BFL", 5, "0x0000000000000020"},
+		{"Pad", 2, "0x0000000000000008"}, {"Pad", 3, "0x0000000000000010"},
+		{"WithStr", 2, "0x0000000000000008"},
+		{"Tuple{Int8, Int64}", 2, "0x0000000000000008"},
+		{"Pad", 0, "!BoundsError(Main.L.Pad, 0)"}, {"Pad", 4, "!BoundsError(Main.L.Pad, 4)"},
+		{"Ab", 1, "!BoundsError(Main.L.Ab, 1)"},
+		{"Par{Int64}", 2, "0x0000000000000008"},
+		// Par's body, whose x is of the free T
+		{"getfield(Par, :body)", 2, "!BoundsError(Main.L.Par{T}, 2)"},
+		// julia stores the WithStr inline; structLayout does not yet (#30)
+		{"Nest", 2, "!not ported yet: fieldoffset of Main.L.Nest"},
+	} {
+		v, err := vm.fieldOffset([]any{ty(c.t), c.i})
+		check(t, c.t, v, err, c.want)
+	}
+	for _, a := range [][]any{{int64(1), int32(1)}, {core.Int64Type, int64(1)}} {
+		if _, err := vm.fieldOffset(a); err == nil {
+			t.Errorf("fieldoffset of %v", a)
+		}
+	}
+}
+
 // The builtins Base's first files call, each want julia 1.12.6's answer to
 // the same call.
 func TestBuiltins2(t *testing.T) {
