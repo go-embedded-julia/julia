@@ -161,7 +161,16 @@ func (vm *VM) elemValue(name string, u bfUnary, prec int64, x *mpfrNum, rnd int)
 			return r, t, nil
 		}
 	}
-	return vm.bfEval(name, prec, rnd, []*mpfrNum{x}, func(res *big.Float, a []*big.Float) { u.f(res, a[0]) })
+	r, t, err := vm.bfEval(name, prec, rnd, []*mpfrNum{x}, func(res *big.Float, a []*big.Float) { u.f(res, a[0]) })
+	if err == nil && name == "mpfr_cbrt" && x.kind == kReg && x.neg && r.kind == kInf && rnd == rndD {
+		// MPFR 4.2.2's mpfr_cbrt of a negative number rounded down that
+		// overflows gives the largest negative number, not -Inf (julia
+		// 1.12.6: cbrt(-0.5) at precision 2, emax 0): its overflow is the
+		// one of the positive result, rounded down
+		m := new(big.Int).Lsh(bigOne, uint(prec))
+		return &mpfrNum{kind: kReg, neg: true, exp: vm.mpfr.emax, mant: m.Sub(m, bigOne)}, 1, nil
+	}
+	return r, t, err
 }
 
 // mpfrPow is x^y.

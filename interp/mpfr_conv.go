@@ -109,12 +109,16 @@ func (vm *VM) mpfrModf(x *mpfrNum, iprec, fprec int64, rnd int) (ip, fp *mpfrNum
 
 // mpfrFrexp is mpfr_frexp: x = y * 2^e with 0.5 <= |y| < 1.
 func (vm *VM) mpfrFrexp(x *mpfrNum, prec int64, rnd int) (y *mpfrNum, e int64, t int) {
+	// y of exponent 0: the exponent range does not apply
 	if x.kind != kReg {
 		y, t = vm.mpfrSet(x, prec, rnd)
 		return y, 0, t
 	}
 	y, t = vm.mpfrParts(x.neg, x.mant, 0, false, prec, rnd)
-	return y, x.exp, t
+	// rounding up to a power of two carries into the exponent
+	e = x.exp + y.exp
+	y.exp = 0
+	return y, e, t
 }
 
 // mpfrNextAbove is mpfr_nextabove at precision prec: the next number of that
@@ -218,17 +222,17 @@ func (vm *VM) mpfrGetInt(name string, x *mpfrNum, rnd int, lo, hi *big.Int) (*bi
 		if n, t, err = vm.rintExact(name, x, rnd); err != nil {
 			return nil, err
 		}
-		if t != 0 {
+		// the inexact flag is for a value that fits
+		switch {
+		case n.Cmp(lo) < 0:
+			e.flags |= flagErange
+			return lo, nil
+		case n.Cmp(hi) > 0:
+			e.flags |= flagErange
+			return hi, nil
+		case t != 0:
 			e.flags |= flagInexact
 		}
-	}
-	switch {
-	case n.Cmp(lo) < 0:
-		e.flags |= flagErange
-		return lo, nil
-	case n.Cmp(hi) > 0:
-		e.flags |= flagErange
-		return hi, nil
 	}
 	return n, nil
 }

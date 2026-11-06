@@ -96,9 +96,16 @@ type mpfrNum struct {
 	neg  bool
 	exp  int64
 	mant *big.Int
+	// nsign is the sign a NaN result gives its destination: MPFR's functions
+	// leave it alone (0), set it (+1, -1) or, mpfr_mul_si and its relatives
+	// with a negative operand, change it (nsignFlip)
+	nsign int8
 }
 
+const nsignFlip = 2
+
 func nanNum() *mpfrNum             { return &mpfrNum{kind: kNaN} }
+func nanSigned(neg bool) *mpfrNum  { return &mpfrNum{kind: kNaN, neg: neg, nsign: int8(signInt(neg))} }
 func infNum(neg bool) *mpfrNum     { return &mpfrNum{kind: kInf, neg: neg} }
 func zeroNum(neg bool) *mpfrNum    { return &mpfrNum{kind: kZero, neg: neg} }
 func (x *mpfrNum) isSpecial() bool { return x.kind != kReg }
@@ -286,6 +293,13 @@ func (vm *VM) mpfrWrite(r *mpfrRef, x *mpfrNum) {
 	special := [...]int64{kNaN: mpfrExpNaN, kInf: mpfrExpInf, kZero: mpfrExpZero}
 	switch x.kind {
 	case kNaN:
+		switch old, _ := memWord(r.m, 1); x.nsign {
+		case nsignFlip:
+			setSign(int32(old) > 0)
+		case 0:
+		default:
+			setSign(x.nsign < 0)
+		}
 		setWord(2, uint64(special[kNaN]))
 	case kInf, kZero:
 		setSign(x.neg)
@@ -337,13 +351,10 @@ func roundShift(m *big.Int, sh uint, sticky, neg bool, rnd int) (q *big.Int, up,
 // mpfrRoundBits rounds ±m * 2^(ex - bitlen(m)), plus a fraction when sticky,
 // to prec bits in rnd with no limit on the exponent: the mantissa, the
 // exponent, and the ternary value (the sign of the rounded value minus the
-// exact one).
+// exact one). A sticky fraction is less than the unit of m's last bit, and m
+// has at least prec+1 bits then, so the bit after the rounded ones is m's.
 func mpfrRoundBits(neg bool, m *big.Int, ex int64, sticky bool, prec int64, rnd int) (*big.Int, int64, int) {
 	bl := int64(m.BitLen())
-	if sticky && bl < prec+2 {
-		m = new(big.Int).Lsh(m, uint(prec+2-bl))
-		bl = prec + 2
-	}
 	if bl <= prec {
 		return m, ex, 0
 	}
@@ -400,9 +411,9 @@ func likeZ(rnd int, neg bool) bool {
 func (vm *VM) mpfrUnderflow(neg bool, rnd int, prec int64) (*mpfrNum, int) {
 	vm.mpfr.flags |= flagUnderflow | flagInexact
 	if likeZ(rnd, neg) {
-		return zeroNum(neg), signInt(neg)
+		return zeroNum(neg), -signInt(neg)
 	}
-	return &mpfrNum{kind: kReg, neg: neg, exp: vm.mpfr.emin, mant: new(big.Int).Lsh(bigOne, 0)}, -signInt(neg)
+	return &mpfrNum{kind: kReg, neg: neg, exp: vm.mpfr.emin, mant: big.NewInt(1)}, signInt(neg)
 }
 
 // mpfrOverflow is mpfr_overflow: infinity, or the largest number, by the
@@ -411,9 +422,9 @@ func (vm *VM) mpfrOverflow(neg bool, rnd int, prec int64) (*mpfrNum, int) {
 	vm.mpfr.flags |= flagOverflow | flagInexact
 	if likeZ(rnd, neg) {
 		m := new(big.Int).Lsh(bigOne, uint(prec))
-		return &mpfrNum{kind: kReg, neg: neg, exp: vm.mpfr.emax, mant: m.Sub(m, bigOne)}, signInt(neg)
+		return &mpfrNum{kind: kReg, neg: neg, exp: vm.mpfr.emax, mant: m.Sub(m, bigOne)}, -signInt(neg)
 	}
-	return infNum(neg), -signInt(neg)
+	return infNum(neg), signInt(neg)
 }
 
 // signInt is +1 for a positive value (neg false) and -1 for a negative one.
@@ -446,6 +457,18 @@ func (vm *VM) mpfrSet(x *mpfrNum, prec int64, rnd int) (*mpfrNum, int) {
 		return vm.mpfrParts(x.neg, x.mant, x.exp, false, prec, rnd)
 	}
 	return x, 0
+}
+
+// mpfrSetSign is mpfr_set4: x with the sign neg, rounded to prec bits; a NaN
+// result takes the sign too.
+func (vm *VM) mpfrSetSign(x *mpfrNum, neg bool, prec int64, rnd int) (*mpfrNum, int) {
+	y := *x
+	y.neg = neg
+	r, t := vm.mpfrSet(&y, prec, rnd)
+	if r.kind == kNaN {
+		r = nanSigned(neg)
+	}
+	return r, t
 }
 
 // ---- operands ----
