@@ -103,7 +103,7 @@ func TestAtomicPointers(t *testing.T) {
 		{"modify a tuple", "atomic_pointermodify", []any{pt, plus, int64(1), mono}, "!atomic_pointermodify: invalid pointer for atomic operation", nil},
 		{"modify a String's byte", "atomic_pointermodify", []any{str, second, uint8('x'), mono}, "!atomic_pointermodify: invalid pointer", nil},
 		{"replace a String's byte", "atomic_pointerreplace", []any{str, uint8('a'), uint8('x'), mono, mono}, "!atomic_pointerreplace: invalid pointer", nil},
-		{"a layout not computed", "atomic_pointerref", []any{uu, mono}, "!not ported yet: the layout of an isbits Union field", nil},
+		{"an inline Union's pointer", "atomic_pointerref", []any{uu, mono}, "!not ported yet: atomic_pointerref of a Main.L.UU pointer", nil},
 		{"fence sc", "atomic_fence", []any{sc}, "nothing", nil},
 		{"fence acquire", "atomic_fence", []any{sym("acquire")}, "nothing", nil},
 		{"fence unordered", "atomic_fence", []any{sym("unordered")}, "!ConcurrencyViolationError(\"invalid atomic ordering\")", nil},

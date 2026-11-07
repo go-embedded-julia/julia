@@ -78,7 +78,7 @@ func TestIRLongAndErrors(t *testing.T) {
 		want string
 	}{
 		{"a primitive of the wrong kind", mem(core.Int64Type, []any{"x"}), "!the bits of a"},
-		{"a struct with an isbits Union", &Struct{Type: f.typ("SU").(*core.DataType), Fields: []any{int64(1)}}, "!the layout of an isbits Union"},
+		{"a struct with an isbits Union", &Struct{Type: f.typ("SU").(*core.DataType), Fields: []any{int64(1)}}, "!the image of an inline Union field"},
 		{"an undefined field", &Struct{Type: f.typ("Mut").(*core.DataType), Fields: []any{undef}}, "!UndefRefError"},
 		{"a bad nested struct", &Struct{Type: f.typ("Outer").(*core.DataType), Fields: []any{int8(1), "x"}}, "!"},
 		{"a struct as bits", &Struct{Type: two, Fields: []any{"x", "y"}}, "!"},

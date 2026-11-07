@@ -2,6 +2,7 @@ package interp
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -75,7 +76,10 @@ mutable struct M1; a::Int32; s::String; end`); err != nil {
 	narrow := &Pointer{Type: vm.ptrType(eval("FieldDescStorage{UInt8}")), Target: layoutOf{d}, Off: 20}
 	_, err = vm.ptrLoad("pointerref", narrow, 4)
 	check(t, "a descriptor past the fields", nil, err, "!pointerref: invalid pointer")
+	// an inline Union: its members' size and the selector byte (3), not a pointer
 	u := eval("struct U1; a::Union{Int8,Int16}; end; U1").(*core.DataType)
-	_, err = vm.fieldDesc(u, eval("FieldDescStorage{UInt8}").(*core.DataType), 1)
-	check(t, "the descriptors of a layout not laid out here", nil, err, "!isbits Union field")
+	fd, err := vm.fieldDesc(u, eval("FieldDescStorage{UInt8}").(*core.DataType), 1)
+	if err != nil || !reflect.DeepEqual(fd.(*Struct).Fields, []any{uint8(3 << 1), uint8(0)}) {
+		t.Errorf("the descriptor of an inline Union: %v, %v", fd, err)
+	}
 }

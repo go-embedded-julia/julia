@@ -82,23 +82,20 @@ func structLayout(t *core.DataType) (layout, error) {
 	for i, fld := range ft {
 		atomic := fieldMarked(t.Name.AtomicFields, i)
 		fsz, al := 0, 1
-		n, nb, na, err := islayoutInline(fld)
+		n, acc, err := islayoutInline(fld)
 		if err != nil {
 			return layout{}, err
 		}
 		_, isDT := fld.(*core.DataType)
 		if n > 0 && (!atomic || isDT) { // datatype.c:729
 			l.pointers = append(l.pointers, false)
-			fsz, al = nb, na
+			fsz, al = acc.size, acc.align
 			if _, isUnion := fld.(*core.Union); isUnion {
 				fsz++ // selector byte
 				l.zeroinit = true
 				l.isbitsegal = false // some unions could be bits comparable
 			} else {
-				fl, err := structLayout(inlineType(fld.(*core.DataType)))
-				if err != nil {
-					return layout{}, err
-				}
+				fl := acc.dt
 				sub[i] = fl
 				if fsz > fl.size {
 					// padded to the integer size class
@@ -216,36 +213,40 @@ func fielddescType(l layout) int {
 // islayoutInline is jl_islayout_inline (datatype.c:424-428): how many types
 // a field or element of type t stores inline (a Union's members), 0 when it
 // is a pointer, with the size and alignment of the largest.
-func islayoutInline(t any) (n, size, align int, err error) {
-	n, err = unionInlinable(t, false, &size, &align, true)
+func islayoutInline(t any) (n int, acc inlineAcc, err error) {
+	n, err = unionInlinable(t, false, &acc, true)
 	if n >= maxInlineKinds {
 		n = 0
 	}
-	return n, size, align, err
+	return n, acc, err
+}
+
+// inlineAcc is what union_isinlinable accumulates: the size and alignment of
+// the largest inline type, and the layout of the last one (the type itself
+// when t is not a Union).
+type inlineAcc struct {
+	size, align int
+	dt          layout
 }
 
 // unionInlinable is union_isinlinable (datatype.c:392-416): the number of
-// inline types of t, raising *nbytes and *align to the largest. Members of a
-// Union must be free of pointers.
-func unionInlinable(t any, pointerfree bool, nbytes, align *int, asfield bool) (int, error) {
+// inline types of t, raising acc to the largest. Members of a Union must be
+// free of pointers.
+func unionInlinable(t any, pointerfree bool, acc *inlineAcc, asfield bool) (int, error) {
 	switch x := t.(type) {
 	case *core.Union:
-		na, err := unionInlinable(x.A, true, nbytes, align, asfield)
+		na, err := unionInlinable(x.A, true, acc, asfield)
 		if na == 0 || err != nil {
 			return 0, err
 		}
-		nb, err := unionInlinable(x.B, true, nbytes, align, asfield)
+		nb, err := unionInlinable(x.B, true, acc, asfield)
 		if nb == 0 || err != nil {
 			return 0, err
 		}
 		return na + nb, nil
 	case *core.DataType:
-		ok, err := datatypeIsInlineAlloc(x, pointerfree)
+		l, ok, err := datatypeIsInlineAlloc(x, pointerfree)
 		if !ok || err != nil {
-			return 0, err
-		}
-		l, err := structLayout(inlineType(x))
-		if err != nil {
 			return 0, err
 		}
 		sz := l.size
@@ -253,8 +254,7 @@ func unionInlinable(t any, pointerfree bool, nbytes, align *int, asfield bool) (
 		if asfield && x.Name.Bits > 0 {
 			sz = alignUp(sz, l.align)
 		}
-		*nbytes = max(*nbytes, sz)
-		*align = max(*align, l.align)
+		acc.size, acc.align, acc.dt = max(acc.size, sz), max(acc.align, l.align), l
 		return 1, nil
 	}
 	return 0, nil
@@ -275,19 +275,19 @@ func inlineType(t *core.DataType) *core.DataType {
 // pointers, they may be left undefined by `new` nowhere, the type is not
 // wanted pointer-free, and the GC can walk the layout (descriptors of at
 // most 16 bits).
-func datatypeIsInlineAlloc(ty *core.DataType, pointerfree bool) (bool, error) {
+func datatypeIsInlineAlloc(ty *core.DataType, pointerfree bool) (layout, bool, error) {
 	ty = inlineType(ty)
 	if !ty.Name.MayInlineAlloc || !core.HasFixedLayout(ty) {
-		return false, nil
+		return layout{}, false, nil
 	}
 	l, err := structLayout(ty)
 	if err != nil {
-		return false, err
+		return l, false, err
 	}
 	if len(l.ptrs) > 0 {
-		return !pointerfree && ty.Name.NUninitialized == 0 && fielddescType(l) <= 1, nil
+		return l, !pointerfree && ty.Name.NUninitialized == 0 && fielddescType(l) <= 1, nil
 	}
-	return true, nil
+	return l, true, nil
 }
 
 // pointerEgal is jl_pointer_egal (datatype.c:437-473): whether instances of

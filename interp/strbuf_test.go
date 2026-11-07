@@ -165,8 +165,9 @@ func TestStoredInline(t *testing.T) {
 		"DataType": "0", "Array{Int, 1}": "0", "Memory{Int}": "0", "Tuple{Int, String}": "1",
 		"Tuple{Any}": "0", "Array": "0", "Type{Int}": "0",
 		"NamedTuple{(:a,), Tuple{Int}}": "1", "NamedTuple{(:a,), Tuple{String}}": "1",
-		// julia's 1 needs mayinlinealloc and n_uninitialized
-		"HasPtr": "!not ported yet: jl_stored_inline of Main.L.HasPtr, an immutable struct holding references",
+		// holding references, inline as it may be (mayinlinealloc) and
+		// leaves no field uninitialized (testdata/layout.golden has more)
+		"HasPtr": "1",
 	} {
 		v, err := s.Eval("ccall(:jl_stored_inline, Int32, (Any,), " + ty + ")")
 		check(t, ty, v, err, want)
@@ -184,7 +185,7 @@ func TestStoredInline(t *testing.T) {
 		v, err := s.Eval("ccall(:jl_stored_inline, Int32, (Any,), Union{" + strings.Join(members[:n], ", ") + "})")
 		check(t, fmt.Sprintf("a Union of %d", n), v, err, want)
 	}
-	// an immutable DataType with free type variables: refused
-	_, err := storedInline(core.UnwrapUnionAll(core.PairType))
-	check(t, "Pair's body", nil, err, "!not ported yet: jl_stored_inline of Pair{A, B}")
+	// an immutable DataType with free type variables has no layout: boxed
+	n, err := storedInline(core.UnwrapUnionAll(core.PairType))
+	check(t, "Pair's body", n, err, "0")
 }

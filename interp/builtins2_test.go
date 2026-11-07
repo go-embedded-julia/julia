@@ -231,8 +231,8 @@ nothing`); err != nil {
 		{"Par{Int64}", 2, "0x0000000000000008"},
 		// Par's body, whose x is of the free T
 		{"getfield(Par, :body)", 2, "!BoundsError(Main.L.Par{T}, 2)"},
-		// julia stores the WithStr inline; structLayout does not yet (#30)
-		{"Nest", 2, "!not ported yet: fieldoffset of Main.L.Nest"},
+		// julia stores the WithStr inline (testdata/layout.golden has more)
+		{"Nest", 2, "0x0000000000000008"},
 	} {
 		v, err := vm.fieldOffset([]any{ty(c.t), c.i})
 		check(t, c.t, v, err, c.want)
@@ -245,12 +245,12 @@ nothing`); err != nil {
 	// through the ccall's shim
 	v, err := vm.shims["jl_get_field_offset"](vm, []any{ty("Pad"), int32(2)})
 	check(t, "the shim", v, err, "0x0000000000000008")
-	// an isbits Union field, which structLayout does not lay out yet
+	// an isbits Union field, at its alignment
 	if _, err := s.Eval("struct WithU; a::Int8; u::Union{Int8, Int16}; end"); err != nil {
 		t.Fatal(err)
 	}
 	v, err = vm.fieldOffset([]any{ty("WithU"), int32(2)})
-	check(t, "an isbits Union field", v, err, "!not ported yet: the layout of an isbits Union field")
+	check(t, "an isbits Union field", v, err, "0x0000000000000002")
 }
 
 // jl_fl_parse, Core._parse during Base's boot: the answers of julia 1.12.6

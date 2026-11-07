@@ -21,12 +21,12 @@ type layoutOf struct{ t *core.DataType }
 // (jl_islayout_inline, datatype.c:511-600): its size and alignment inline,
 // or a boxed pointer, or an inline isbits Union (with a selector byte).
 func memElem(t any) (size, align int, boxed, union bool) {
-	n, sz, al, err := islayoutInline(t)
+	n, acc, err := islayoutInline(t)
 	if err != nil || n == 0 {
 		return 8, 8, true, false
 	}
 	_, union = t.(*core.Union)
-	return alignUp(sz, max(al, 1)), max(al, 1), false, union
+	return alignUp(acc.size, max(acc.align, 1)), max(acc.align, 1), false, union
 }
 
 // storedInline is jl_stored_inline (datatype.c:430-434), Base's
@@ -35,7 +35,7 @@ func memElem(t any) (size, align int, boxed, union bool) {
 // An immutable concrete type is inline when it may be (mayinlinealloc), and,
 // holding references, leaves no field uninitialized (n_uninitialized).
 func storedInline(t any) (int, error) {
-	n, _, _, err := islayoutInline(t)
+	n, _, err := islayoutInline(t)
 	return n, err
 }
 

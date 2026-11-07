@@ -344,7 +344,7 @@ func TestUncompressIRRefusals(t *testing.T) {
 		{"a string", []byte{irString, 1, 0, 0, 0, 'a'}, ""},
 		{"a general of no type", cat([]byte{irGeneral}, one), "malformed"},
 		{"a general cut", []byte{irGeneral}, "malformed"},
-		{"a general of a type without a layout", cat([]byte{irGeneral}, typeSU), "!the layout of an isbits Union"},
+		{"a general of an inline Union field", cat([]byte{irGeneral}, typeSU), "!an inline Union field"},
 		{"a general of a primitive cut", cat([]byte{irGeneral}, f.enc(core.Int64Type), []byte{1, 2}), "malformed"},
 		{"a general of an unsupported primitive", cat([]byte{irGeneral}, typeFloat16, []byte{1, 2}), ""},
 		{"a general struct cut short", cat([]byte{irGeneral}, f.enc(f.typ("Two")), []byte{1, 2, 3}), "malformed"},

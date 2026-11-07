@@ -28,7 +28,8 @@ abstract type A1 end`); err != nil {
 	}
 	for _, c := range []struct{ src, want string }{
 		{"(sizeof(S1), sizeof(S2), sizeof(S3), sizeof(Tuple{Int8, Int64}), sizeof(Ptr{UInt8}))", "(24, 32, 16, 16, 8)"},
-		{"sizeof(U1)", "!not ported yet: the layout of an isbits Union field of U1"},
+		// the members' 2 bytes and a selector byte, at alignment 2
+		{"sizeof(U1)", "4"},
 		{"sizeof(A1)", "!Abstract type A1 does not have a definite size."},
 	} {
 		v, err := s.Eval(c.src)
@@ -40,16 +41,28 @@ abstract type A1 end`); err != nil {
 	if _, _, err := dataLayout(core.NumberType); err == nil {
 		t.Error("the layout of an abstract type")
 	}
-	// an isbits struct whose own layout cannot be computed, as a field
-	inner := core.NewIncompleteType("Main", "I3", nil, false, false, []expr.Symbol{"u"})
-	must(0, inner.SetSuper(core.AnyType))
-	must(0, inner.SetFieldTypes([]any{core.TypeUnion(core.Int8Type, core.Int16Type)}))
-	inner.Name.Isbits = true // as julia has it: a Union of isbits types is stored inline
+	// a struct that may be stored inline but has no layout to store, as a
+	// field, as an element and as a member of a Union
+	bad := core.NewIncompleteType("Main", "I3", nil, false, false, []expr.Symbol{"u"})
+	must(0, bad.SetSuper(core.AnyType))
+	bad.Name.MayInlineAlloc = true
 	outer := core.NewIncompleteType("Main", "I4", nil, false, false, []expr.Symbol{"x"})
 	must(0, outer.SetSuper(core.AnyType))
-	must(0, outer.SetFieldTypes([]any{inner}))
+	must(0, outer.SetFieldTypes([]any{bad}))
 	if _, _, err := dataLayout(outer); err == nil {
-		t.Error("the layout of a struct holding an unlaid struct")
+		t.Error("the layout of a struct holding a struct without a layout")
+	}
+	if _, err := storedInline(bad); err == nil {
+		t.Error("jl_stored_inline of a struct without a layout")
+	}
+	if _, err := storedInline(core.TypeUnion(bad, core.Int8Type)); err == nil {
+		t.Error("jl_stored_inline of a Union with a struct without a layout")
+	}
+	if _, err := storedInline(core.TypeUnion(core.Int8Type, bad)); err == nil {
+		t.Error("jl_stored_inline of a Union with a struct without a layout last")
+	}
+	if size, _, boxed, _ := memElem(bad); !boxed || size != 8 {
+		t.Error("a memory of structs without a layout is of pointers")
 	}
 	var p any
 	_, err := biCglobal(New(), []any{expr.Symbol("jl_options"), core.Bottom})
