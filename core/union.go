@@ -134,6 +134,10 @@ func (d *DataType) isSingleton() bool {
 	return true
 }
 
+// IsSingleton is jl_is_datatype_singleton (julia.h:1743): d has the one
+// instance of a type of size zero (isSingleton above).
+func (d *DataType) IsSingleton() bool { return d.isSingleton() }
+
 // fieldTypes returns the field types of a tuple or of a struct whose fields
 // the boot table records.
 func (d *DataType) fieldTypes() ([]any, bool) {
@@ -161,7 +165,7 @@ func (d *DataType) fieldTypes() ([]any, bool) {
 // bits — a primitive type, a singleton, or a struct or tuple whose field
 // types are all isbits (datatype.c, jl_compute_field_offsets).
 func (d *DataType) isbits() bool {
-	if !d.IsConcrete || d.Name.Mutable {
+	if !d.IsConcrete || d.Name.Mutable || !d.Name.MayInlineAlloc {
 		return false
 	}
 	if d.Name.Isbits || d.isSingleton() {

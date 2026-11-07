@@ -3,7 +3,6 @@ package interp
 import (
 	"encoding/binary"
 	"fmt"
-	"slices"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -22,64 +21,22 @@ type layoutOf struct{ t *core.DataType }
 // (jl_islayout_inline, datatype.c:511-600): its size and alignment inline,
 // or a boxed pointer, or an inline isbits Union (with a selector byte).
 func memElem(t any) (size, align int, boxed, union bool) {
-	if d, ok := t.(*core.DataType); ok {
-		if n, err := storedInline(d); err == nil && n > 0 {
-			if size, align, err := dataLayout(d); err == nil {
-				return size, align, false, false
-			}
-		}
+	n, sz, al, err := islayoutInline(t)
+	if err != nil || n == 0 {
+		return 8, 8, true, false
 	}
-	if _, ok := t.(*core.Union); ok && unionIsbits(t) {
-		for _, m := range unionMembers(t, nil) {
-			s, a, _ := dataLayout(m.(*core.DataType))
-			size, align = max(size, s), max(align, a)
-		}
-		return size, max(align, 1), false, true
-	}
-	return 8, 8, true, false
+	_, union = t.(*core.Union)
+	return alignUp(sz, max(al, 1)), max(al, 1), false, union
 }
 
-// storedInline is jl_stored_inline (datatype.c:374-434), Base's
+// storedInline is jl_stored_inline (datatype.c:430-434), Base's
 // allocatedinline: whether a memory of element type t holds its elements
-// inline, as the number of inline types (a Union's isbits members), 0 when
-// boxed. An immutable concrete type holding references is inline unless it
-// may reference itself or leaves fields uninitialized (mayinlinealloc,
-// builtins.c:2254-2269; n_uninitialized): known here for tuples and named
-// tuples, which can do neither, and refused for other structs, whose
-// TypeName does not record either.
+// inline, as the number of inline types (a Union's members), 0 when boxed.
+// An immutable concrete type is inline when it may be (mayinlinealloc), and,
+// holding references, leaves no field uninitialized (n_uninitialized).
 func storedInline(t any) (int, error) {
-	switch x := t.(type) {
-	case *core.Union:
-		// union_isinlinable with pointerfree: every member isbits
-		n := 0
-		for _, m := range unionMembers(x, nil) {
-			if !unionIsbits(m) {
-				return 0, nil
-			}
-			n++
-		}
-		if n >= 127 {
-			return 0, nil
-		}
-		return n, nil
-	case *core.DataType:
-		switch {
-		case x.Name.Abstract || x.Name.Mutable:
-			return 0, nil
-		case x.IsBits():
-			return 1, nil
-		case !x.IsConcrete:
-			// a layout only when fixed (jl_has_fixed_layout,
-			// jltypes.c:293-319): never a tuple's
-			if x.Name == core.TupleTypeName {
-				return 0, nil
-			}
-		case x.Name == core.TupleTypeName || x.Name == core.NamedTupleTypeName:
-			return 1, nil
-		}
-		return 0, fmt.Errorf("%w: jl_stored_inline of %s, an immutable struct holding references", ErrUnsupported, showValue(x))
-	}
-	return 0, nil // Union{}, a UnionAll, a TypeVar: no datatype to inline
+	n, _, _, err := islayoutInline(t)
+	return n, err
 }
 
 // memPtr is getfield(m, :ptr): a pointer to the first element.
@@ -223,13 +180,9 @@ func (vm *VM) layoutStruct(d, st *core.DataType) (any, error) {
 			return nil, err
 		}
 		size, align, nfields = l.size, l.align, len(l.offsets)
-		for i, isptr := range l.pointers {
-			if isptr {
-				if firstptr < 0 {
-					firstptr = int32(l.offsets[i] / 8) // in pointer-sized words
-				}
-				npointers++
-			}
+		npointers = len(l.ptrs)
+		if npointers > 0 {
+			firstptr = int32(l.ptrs[0]) // in pointer-sized words
 		}
 		if l.haspadding {
 			flags |= 1
@@ -240,26 +193,6 @@ func (vm *VM) layoutStruct(d, st *core.DataType) (any, error) {
 		flags |= uint16(fielddescType(l)) << 1
 	}
 	return vm.newStruct(st, []any{uint32(size), uint32(nfields), uint32(npointers), firstptr, uint16(align), flags})
-}
-
-// fielddescType is the smallest field descriptor that holds l's sizes and
-// offsets (datatype.c:200-223): 0 for jl_fielddesc8_t (a 7-bit size, an
-// 8-bit offset), 1 for 16 (15 and 16 bits), 2 for 32.
-func fielddescType(l layout) int {
-	maxSize, maxOffset := 0, 0
-	if n := len(l.offsets); n > 0 {
-		maxOffset = l.offsets[n-1]
-	}
-	for _, s := range l.sizes {
-		maxSize = max(maxSize, s)
-	}
-	switch {
-	case maxSize < 1<<7 && maxOffset < 1<<8:
-		return 0
-	case maxSize < 1<<15 && maxOffset < 1<<16:
-		return 1
-	}
-	return 2
 }
 
 // fieldDesc is field i's descriptor as Base reads it after the layout
@@ -547,7 +480,7 @@ func (vm *VM) unsetThrough(p *Pointer, m *Memory, x any, i int64) (int, bool) {
 	if !boxed {
 		// memElem stores inline only DataTypes and isbits unions
 		l, err := structLayout(eltype.(*core.DataType))
-		if err != nil || !slices.Contains(l.pointers, true) {
+		if err != nil || len(l.ptrs) == 0 {
 			return 0, false
 		}
 	}

@@ -58,6 +58,14 @@ type TypeName struct {
 	// (jl_typename_t.n_uninitialized): the field count less the
 	// constructor's minimum (datatype.c:898).
 	NUninitialized int32
+	// MayInlineAlloc is jl_typename_t.mayinlinealloc (julia.h:542): an
+	// immutable type whose instances may be stored inline in another's
+	// layout. A type gets it when it is made with field types
+	// (datatype.c:954-955), and _typebody! decides it for the rest, clearing
+	// it for a type that can reference itself (builtins.c:2254-2269); julia
+	// clears it by hand for UnionAll, Union, TypeofVararg, GlobalRef and
+	// DebugInfo (jltypes.c:3102, 3110, 3126, 3289, 3481).
+	MayInlineAlloc bool
 
 	// MaxArgs, CacheEntryCount, MaxMethods and ConstpropHeuristic are the
 	// hints of jl_typename_t that Julia code sets and type inference reads

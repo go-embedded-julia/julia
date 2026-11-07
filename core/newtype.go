@@ -38,6 +38,9 @@ func NewIncompleteType(module, name string, params []*TypeVar, abstract, mutable
 func NewIncompletePrimitive(module, name string, params []*TypeVar, bits int) *DataType {
 	d := NewIncompleteType(module, name, params, false, false, nil)
 	d.Name.Isbits, d.Name.Bits = true, bits
+	// jl_new_primitivetype makes it with an empty field list
+	// (datatype.c:970-971, 954-955)
+	d.Name.MayInlineAlloc = true
 	return d
 }
 
@@ -88,11 +91,23 @@ func (d *DataType) SetFieldTypes(fieldTypes []any) error {
 	// never nil: nil means "no fields recorded" to fieldTypes, and a struct
 	// without fields records an empty list
 	d.Name.Fields = append([]any{}, fieldTypes...)
+	// builtins.c:2254-2269: an immutable type whose supertype cannot
+	// reference it is decided by its fields; a mutable one, or one with such
+	// a supertype, keeps what it had
+	if !d.Name.Mutable && (len(fieldTypes) == 0 || d.Super == nil || !referencesName(d.Super, d.Name, false, true)) {
+		d.Name.MayInlineAlloc = true
+		for _, f := range fieldTypes {
+			if referencesName(f, d.Name, true, true) {
+				d.Name.MayInlineAlloc = false
+				break
+			}
+		}
+	}
 	// a parametric type decides per instance, from its instantiated field
 	// types (isSingleton, isbits)
 	if !d.Name.Mutable && len(d.Parameters) == 0 {
 		d.Name.Singleton = len(fieldTypes) == 0
-		d.Name.Isbits = isbitsFields(fieldTypes)
+		d.Name.Isbits = d.Name.MayInlineAlloc && isbitsFields(fieldTypes)
 	}
 	return nil
 }
