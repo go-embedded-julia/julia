@@ -182,3 +182,18 @@ Type{Plain}
 Array{Int,1}
 Array{HasStr,1}
 Memory{Int}
+Tuple{VecElement{Any},VecElement{Any}}
+Tuple{VecElement{P24},VecElement{P24}}
+Tuple{VecElement{Int8},VecElement{Int8},VecElement{Int8}}
+Tuple{VecElement{Union{Int8,Nothing}},VecElement{Union{Int8,Nothing}}}
+getfield(Param, :body)
+getfield(Fx, :body)
+getfield(Cplx, :body)
+getfield(ParamSelf, :body)
+getfield(SubStr, :body)
+getfield(Pair, :body)
+Fx{Int}
+getfield(Fx2, :body)
+getfield(Fx3, :body)
+Fx2{Int}
+Fx3{Int}

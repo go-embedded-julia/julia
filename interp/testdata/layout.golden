@@ -182,3 +182,18 @@ Type{Plain}	0	ERR
 Array{Int,1}	0	24	0,16	24,2,1,1,8,128	114	2
 Array{HasStr,1}	0	24	0,16	24,2,1,1,8,128	114	2
 Memory{Int}	0	ERR
+Tuple{VecElement{Any},VecElement{Any}}	1	16	0,8	16,2,2,0,8,0	118	4
+Tuple{VecElement{P24},VecElement{P24}}	1	8	0,4	8,2,0,-1,4,1	878	4
+Tuple{VecElement{Int8},VecElement{Int8},VecElement{Int8}}	1	4	0,1,2	4,3,0,-1,4,129	878	4
+Tuple{VecElement{Union{Int8,Nothing}},VecElement{Union{Int8,Nothing}}}	1	4	0,2	4,2,0,-1,1,0	886	4
+getfield(Param, :body)	0	ERR
+getfield(Fx, :body)	1	16	0,8	16,2,1,1,8,128	49	4
+getfield(Cplx, :body)	0	ERR
+getfield(ParamSelf, :body)	0	ERR
+getfield(SubStr, :body)	0	ERR
+getfield(Pair, :body)	0	ERR
+Fx{Int}	1	16	0,8	16,2,1,1,8,128	114	4
+getfield(Fx2, :body)	1	24	0,8	24,2,1,2,8,128	49	4
+getfield(Fx3, :body)	1	16	0,8	16,2,1,1,8,0	49	4
+Fx2{Int}	1	24	0,8	24,2,1,2,8,128	114	4
+Fx3{Int}	1	16	0,8	16,2,1,1,8,0	114	4

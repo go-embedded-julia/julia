@@ -125,3 +125,9 @@ struct StrHolder; a::String; b::String; end
 struct Vec4; t::NTuple{4,VecElement{Float32}}; end
 
 struct Vec2; t::Tuple{VecElement{Float64},VecElement{Float64}}; end
+
+struct Fx{T}; a::Int; b::Array{T,1}; end
+
+struct Fx2{T}; a::Int; q::Fx{T}; end
+
+struct Fx3{T}; a::Int; q::Union{Nothing,Fx{T}}; end

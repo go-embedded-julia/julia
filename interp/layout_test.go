@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -63,6 +64,23 @@ abstract type A1 end`); err != nil {
 	}
 	if size, _, boxed, _ := memElem(bad); !boxed || size != 8 {
 		t.Error("a memory of structs without a layout is of pointers")
+	}
+	// and what asks for the layout of the outer one, or of a Union of it,
+	// has the refusal
+	ptrToOuter := &Pointer{Type: vm.ptrType(outer)}
+	for name, f := range map[string]func() error{
+		"fieldoffset": func() error { _, err := vm.fieldOffset([]any{outer, int32(1)}); return err },
+		"fielddesc":   func() error { _, err := vm.fieldDesc(outer, outer, 1); return err },
+		"sizeof":      func() error { _, err := biSizeof(vm, []any{outer}); return err },
+		"sizeof of a Union": func() error {
+			_, err := biSizeof(vm, []any{core.TypeUnion(bad, core.Int8Type)})
+			return err
+		},
+		"an atomic pointer": func() error { return vm.atomicElem("atomic_pointerref", ptrToOuter, nil) },
+	} {
+		if err := f(); !errors.Is(err, ErrUnsupported) {
+			t.Errorf("%s of a struct holding a struct without a layout: %v", name, err)
+		}
 	}
 	var p any
 	_, err := biCglobal(New(), []any{expr.Symbol("jl_options"), core.Bottom})

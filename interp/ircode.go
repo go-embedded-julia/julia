@@ -1421,6 +1421,12 @@ func (d *irDecoder) fromImage(t *core.DataType) (any, error) {
 			return nil, err
 		}
 		start = off + (d.at - mark)
+		if !fd.IsBits() {
+			// a struct with pointers inline: its pointers took the bytes
+			// they were encoded in, not their slots, and its own padding
+			// was read
+			start = off + l.sizes[i]
+		}
 	}
 	if l.size > start {
 		if _, err := d.bytes(l.size - start); err != nil {
