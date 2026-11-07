@@ -37,8 +37,6 @@ var refusedFns = []struct{ name, sig, why string }{
 	{"sinu", "ffur", "sin(2*pi*x/u)"}, {"cosu", "ffur", "cos(2*pi*x/u)"}, {"tanu", "ffur", "tan(2*pi*x/u)"},
 	{"asinu", "ffur", "asin(x)*u/(2*pi)"}, {"acosu", "ffur", "acos(x)*u/(2*pi)"}, {"atanu", "ffur", "atan(x)*u/(2*pi)"},
 	{"atan2u", "fffur", "atan2(y,x)*u/(2*pi)"},
-	// Base.@irrational catalan (mathconstants.jl:17, irrationals.jl:256)
-	{"const_catalan", "fr", "Catalan's constant"},
 }
 
 // scalarNaN gives the NaN result of an operation with an integer operand c
@@ -175,6 +173,7 @@ func (vm *VM) mpfrFunctions() map[string]mpfrFn {
 	// by name (irrationals.jl:256, mathconstants.jl:13-17)
 	for name, f := range map[string]func(*big.Float) *big.Float{
 		"const_log2": bigfloat.Ln2, "const_pi": bigfloat.Pi, "const_euler": bigfloat.EulerGamma,
+		"const_catalan": bigfloat.Catalan,
 	} {
 		op(name, "fr", func(vm *VM, a []any, x []*mpfrNum, rnd int, prec int64) (*mpfrNum, int, error) {
 			return vm.mpfrConst("mpfr_"+name, f, prec, rnd)

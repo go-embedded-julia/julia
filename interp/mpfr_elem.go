@@ -215,7 +215,7 @@ func (vm *VM) mpfrAtan2(y, x *mpfrNum, prec int64, rnd int) (*mpfrNum, int, erro
 }
 
 // mpfrConst is a constant bigfloat computes at any precision: log(2), pi,
-// Euler's gamma.
+// Euler's gamma, Catalan's constant.
 func (vm *VM) mpfrConst(name string, f func(*big.Float) *big.Float, prec int64, rnd int) (*mpfrNum, int, error) {
 	return vm.bfEval(name, prec, rnd, nil, func(z *big.Float, _ []*big.Float) { f(z) })
 }

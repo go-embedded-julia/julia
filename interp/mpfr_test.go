@@ -145,7 +145,6 @@ func intTok(tok string) int64 { return must(strconv.ParseInt(tok[2:], 10, 64)) }
 var mpfrRefusedOps = map[string]bool{
 	"sech": true, "csch": true, "coth": true, "sec": true, "csc": true, "sinpi": true, "cospi": true, "tanpi": true,
 	"sinu": true, "cosu": true, "tanu": true, "asinu": true, "acosu": true, "atanu": true, "atan2u": true,
-	"const_catalan": true,
 }
 
 // run is one golden line: the outputs of the shims the operation names.
