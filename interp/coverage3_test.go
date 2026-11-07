@@ -105,6 +105,18 @@ func TestStringMemoryShims(t *testing.T) {
 		v, err := sh(c.name, c.arg)
 		check(t, c.name, v, err, c.want)
 	}
+	// strcmp's sign, the bytes compared unsigned as C does ("\xe9" > "z")
+	for _, c := range []struct {
+		a, b any
+		want string
+	}{
+		{cstr("abc"), cstr("abd"), "-1"}, {cstr("abc"), cstr("abc"), "0"}, {cstr("b"), cstr("abc"), "1"},
+		{cstr("\xe9"), cstr("z"), "1"}, {f.str("ab"), cstr("a"), "1"},
+		{cstr("a"), int64(1), "!strcmp of"},
+	} {
+		v, err := sh("strcmp", c.a, c.b)
+		check(t, "strcmp", v, err, c.want)
+	}
 	for _, c := range []struct {
 		name string
 		arg  any

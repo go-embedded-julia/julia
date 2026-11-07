@@ -562,6 +562,17 @@ func (vm *VM) bootShims() {
 		}
 		return uint64(len(s)), nil
 	}
+	// strcmp(a, b): the sign of the first difference of two Cstrings, their
+	// bytes unsigned as C compares them, all cmp(::Symbol, ::Symbol) reads
+	// (strings/basic.jl:364-366)
+	vm.shims["strcmp"] = func(vm *VM, a []any) (any, error) {
+		x, ok1 := vm.cstringArg(a[0])
+		y, ok2 := vm.cstringArg(a[1])
+		if !ok1 || !ok2 {
+			return nil, fmt.Errorf("%w: strcmp of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+		}
+		return int32(strings.Compare(x, y)), nil
+	}
 	// the parser's operator tables (ast.c:992-1035), which show consults
 	for name, q := range map[expr.Symbol]func(string) int32{
 		"jl_is_operator":                  func(s string) int32 { return cbool(lower.IsOperator(expr.Symbol(s))) },
