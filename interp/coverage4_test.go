@@ -158,6 +158,8 @@ func TestStartupShims(t *testing.T) {
 		{"uv_handle_size", int32(999), "0xffffffffffffffff"},
 		{"uv_req_size", int32(1), "0x0000000000000048"},
 		{"jl_sizeof_ios_t", nil, "184"},
+		// julia 1.12.6, Darwin aarch64: Base.termios_size == 72
+		{"jl_termios_size", nil, "72"},
 	} {
 		v, err := f.sh(c.name, c.arg)
 		check(t, c.name, v, err, c.want)

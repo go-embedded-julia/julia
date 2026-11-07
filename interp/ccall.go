@@ -250,6 +250,10 @@ func (vm *VM) bootShims() {
 		// sizeof(ios_t) in the official darwin/arm64 build: the bytes of an
 		// IOStream's ios buffer (iostream.jl:5, 25)
 		"jl_sizeof_ios_t": func(vm *VM, a []any) (any, error) { return int32(184), nil },
+		// jl_termios_size (sys.c:547-553), sizeof(struct termios) in the same
+		// build: julia 1.12.6 on Darwin aarch64 answers 72 (Base.termios_size,
+		// util.jl:309, the buffer make_termios allocates)
+		"jl_termios_size": func(vm *VM, a []any) (any, error) { return int32(72), nil },
 		// jl_stored_inline (datatype.c:430-434), array.jl's allocatedinline
 		"jl_stored_inline": func(vm *VM, a []any) (any, error) {
 			n, err := storedInline(a[0])
