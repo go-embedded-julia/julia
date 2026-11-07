@@ -55,7 +55,10 @@ type spec struct {
 // define creates a type from its spec and returns its wrapper.
 func define(s spec) any {
 	tn := &TypeName{Name: s.name, Module: s.module, Abstract: s.abstract, Mutable: s.mutable,
-		Singleton: s.singleton, Isbits: s.isbits}
+		Singleton: s.singleton, Isbits: s.isbits,
+		// jl_new_datatype gives an immutable type made with field types
+		// mayinlinealloc (datatype.c:954-955)
+		MayInlineAlloc: !s.abstract && !s.mutable}
 	params := make([]any, len(s.vars))
 	for i, v := range s.vars {
 		params[i] = v
@@ -161,7 +164,7 @@ func init() {
 	UnionType = define(spec{module: "Core", name: "Union", super: func([]any) any { return typeTypePrimary }}).(*DataType)
 	TypeofVarargType = define(spec{module: "Core", name: "TypeofVararg"}).(*DataType)
 
-	TupleTypeName = &TypeName{Name: "Tuple", Module: "Core"}
+	TupleTypeName = &TypeName{Name: "Tuple", Module: "Core", MayInlineAlloc: true}
 	AnyTupleType = &DataType{Name: TupleTypeName, Super: AnyType, Parameters: []any{&Vararg{T: AnyType}}, HasConcreteSubtype: true}
 	precomputeMemoized(AnyTupleType, false)
 	AnyTupleType.IsConcrete = false
@@ -278,4 +281,8 @@ func init() {
 	// ninitialized 0)
 	layout(TypeofVarargType, []Symbol{"T", "N"}, AnyType, AnyType)
 	TypeofVarargType.Name.NUninitialized = 2
+	// julia clears mayinlinealloc of these by hand (jltypes.c:3102, 3110, 3126)
+	UnionAllType.Name.MayInlineAlloc = false
+	UnionType.Name.MayInlineAlloc = false
+	TypeofVarargType.Name.MayInlineAlloc = false
 }

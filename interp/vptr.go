@@ -405,78 +405,6 @@ func (vm *VM) staticShow(a []any) (any, error) {
 	return nil, err
 }
 
-// hasFixedLayout is jl_has_fixed_layout (jltypes.c:293-319): whether a type
-// that may have free type variables has a layout all the same. Memory types
-// are left to the caller, which has its own answer for them, and so is a
-// concrete type (julia's first case): d is the body of a UnionAll.
-func hasFixedLayout(d *core.DataType) bool {
-	switch {
-	case d.Name.Abstract, d.Name == core.TupleTypeName:
-		return false
-	case d.Name == core.NamedTupleTypeName:
-		return !layoutUsesFreeTypevars(d.Parameters[0], nil) && !layoutUsesFreeTypevars(d.Parameters[1], nil)
-	}
-	ft, _ := d.FieldTypes()
-	for _, f := range ft {
-		if layoutUsesFreeTypevars(f, nil) {
-			return false
-		}
-	}
-	return true
-}
-
-// layoutUsesFreeTypevars is layout_uses_free_typevars (jltypes.c:52-106),
-// env the variables bound around v. julia's mayinlinealloc is taken as
-// immutability, which TypeName records; julia also excludes a type that
-// may reference itself, which it does not.
-func layoutUsesFreeTypevars(v any, env []*core.TypeVar) bool {
-	for {
-		if tv, ok := v.(*core.TypeVar); ok {
-			for _, b := range env {
-				if b == tv {
-					return false
-				}
-			}
-			return true
-		}
-		for {
-			ua, ok := v.(*core.UnionAll)
-			if !ok {
-				break
-			}
-			env = append(env, ua.Var)
-			v = ua.Body
-		}
-		switch x := v.(type) {
-		case *core.DataType:
-			switch {
-			case x.IsConcrete, x.Name.Mutable:
-				return false
-			case x.Name == core.NamedTupleTypeName:
-				return layoutUsesFreeTypevars(x.Parameters[0], env) || layoutUsesFreeTypevars(x.Parameters[1], env)
-			case x.Name == core.TupleTypeName:
-				return true // conservative, as julia
-			}
-			ft, _ := x.FieldTypes()
-			for _, f := range ft {
-				if layoutUsesFreeTypevars(f, env) {
-					return true
-				}
-			}
-			return false
-		case *core.Union:
-			if layoutUsesFreeTypevars(x.A, env) {
-				return true
-			}
-			v = x.B
-		default:
-			// julia also follows a Vararg's T and N; a Vararg is only ever
-			// a Tuple's last parameter, and a Tuple is answered above
-			return false
-		}
-	}
-}
-
 // biSizeof is jl_f_sizeof (builtins.c:530-570) for what has a size
 // without a struct layout: strings, symbols, simple vectors, primitive
 // values and types, memories of primitive elements.
@@ -489,19 +417,19 @@ func biSizeof(vm *VM, args []any) (any, error) {
 	switch args[0].(type) {
 	case *core.Union, *core.UnionAll:
 		x := core.UnwrapUnionAll(args[0])
-		if u, ok := x.(*core.Union); ok && unionIsbits(u) {
-			size := 0
-			for _, m := range unionMembers(u, nil) {
-				s, _, _ := dataLayout(m.(*core.DataType))
-				size = max(size, s)
-			}
+		var size, align int
+		n, err := unionInlinable(x, false, &size, &align, false)
+		if err != nil {
+			return nil, err
+		}
+		if n != 0 {
 			return int64(size), nil
 		}
 		d, ok := x.(*core.DataType)
 		if !ok {
 			return nil, vm.errorf("Argument is an abstract type and does not have a definite size.")
 		}
-		if !d.Name.Abstract && !hasFixedLayout(d) {
+		if !d.Name.Abstract && !tryLayout(d) {
 			return nil, vm.errorf("Argument is an incomplete %s type and does not have a definite size.", d.Name.Name)
 		}
 		args = []any{d}

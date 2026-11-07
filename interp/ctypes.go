@@ -34,8 +34,9 @@ func (vm *VM) bootCTypes() {
 	imm("PhiCNode", []expr.Symbol{"values"}, vecAny)
 	imm("UpsilonNode", []expr.Symbol{"val"}, core.AnyType)
 	vm.tNewvarNode = imm("NewvarNode", []expr.Symbol{"slot"}, vm.tSlotNumber)
+	// mayinlinealloc cleared by hand (jltypes.c:3481)
 	imm("DebugInfo", []expr.Symbol{"def", "linetable", "edges", "codelocs"},
-		core.AnyType, core.AnyType, core.SimpleVectorType, core.StringType)
+		core.AnyType, core.AnyType, core.SimpleVectorType, core.StringType).Name.MayInlineAlloc = false
 
 	opaque := func(name string, params ...string) *core.DataType {
 		tvs := make([]*core.TypeVar, len(params))

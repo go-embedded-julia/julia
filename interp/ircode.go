@@ -712,11 +712,19 @@ func (vm *VM) image(t *core.DataType, v any) ([]byte, []imagePtr, error) {
 			ptrs = append(ptrs, imagePtr{l.offsets[i], f})
 			continue
 		}
-		sub, _, err := vm.image(ft[i].(*core.DataType), f)
+		fd, isDT := ft[i].(*core.DataType)
+		if !isDT {
+			return nil, nil, fmt.Errorf("%w: the image of an inline Union field of %s", ErrUnsupported, showValue(t))
+		}
+		// an inline field's own pointers lie within it
+		sub, subptrs, err := vm.image(inlineType(fd), f)
 		if err != nil {
 			return nil, nil, err
 		}
 		copy(raw[l.offsets[i]:], sub)
+		for _, p := range subptrs {
+			ptrs = append(ptrs, imagePtr{l.offsets[i] + p.off, p.val})
+		}
 	}
 	return raw, ptrs, nil
 }
@@ -1405,7 +1413,11 @@ func (d *irDecoder) fromImage(t *core.DataType) (any, error) {
 			continue
 		}
 		mark := d.at
-		if fields[i], err = d.fromImage(ft[i].(*core.DataType)); err != nil {
+		fd, isDT := ft[i].(*core.DataType)
+		if !isDT {
+			return nil, fmt.Errorf("%w: jl_uncompress_ir of an inline Union field of %s", ErrUnsupported, showValue(t))
+		}
+		if fields[i], err = d.fromImage(inlineType(fd)); err != nil {
 			return nil, err
 		}
 		start = off + (d.at - mark)

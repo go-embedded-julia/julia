@@ -47,21 +47,14 @@ func smallTag(d *core.DataType) uint16 {
 }
 
 // zeroinit is set for a concrete struct with a field julia stores as a
-// pointer, which must start as NULL (jl_compute_field_offsets).
+// pointer or an inline Union, or inline with its own zeroinit, which must
+// start as zeroes (jl_compute_field_offsets, datatype.c:737, 766-767, 777).
 func zeroinit(d *core.DataType) bool {
-	if !d.IsConcrete || d.IsBits() {
+	if !d.IsConcrete {
 		return false
 	}
-	ft, ok := d.FieldTypes()
-	if !ok {
-		return false
-	}
-	for _, f := range ft {
-		if fd, ok := f.(*core.DataType); !ok || !fd.IsBits() {
-			return true
-		}
-	}
-	return false
+	l, err := structLayout(d)
+	return err == nil && l.zeroinit
 }
 
 // typeNameFlags is a TypeName's flags field: abstract, mutable,
@@ -75,7 +68,7 @@ func typeNameFlags(tn *core.TypeName) uint8 {
 	if tn.Mutable {
 		f |= 2
 	}
-	if !tn.Abstract && !tn.Mutable {
+	if tn.MayInlineAlloc {
 		f |= 4
 	}
 	return f

@@ -334,8 +334,12 @@ func (vm *VM) bootCore() {
 	vm.tQuoteNode = mustType("Core", "QuoteNode", core.AnyType, false, []expr.Symbol{"value"}, []any{core.AnyType})
 	vm.tLineNumberNode = mustType("Core", "LineNumberNode", core.AnyType, false,
 		[]expr.Symbol{"line", "file"}, []any{core.Int64Type, core.TypeUnion(core.SymbolType, core.NothingType)})
+	// julia clears mayinlinealloc of GlobalRef by hand: "not at all
+	// worthwhile, since the only constructor returns a boxed object"
+	// (jltypes.c:3289)
 	vm.tGlobalRef = mustType("Core", "GlobalRef", core.AnyType, false,
 		[]expr.Symbol{"mod", "name", "binding"}, []any{core.ModuleType, core.SymbolType, core.AnyType})
+	vm.tGlobalRef.Name.MayInlineAlloc = false
 	for name, t := range map[expr.Symbol]*core.DataType{"Expr": vm.tExpr, "QuoteNode": vm.tQuoteNode,
 		"LineNumberNode": vm.tLineNumberNode, "GlobalRef": vm.tGlobalRef} {
 		vm.setCore(name, t)
