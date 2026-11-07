@@ -442,8 +442,9 @@ func (vm *VM) bootShims() {
 		"jl_is_assertsbuild": func(vm *VM, a []any) (any, error) { return int8(0), nil },
 		// jl_is_debugbuild (jlapi.c:540-547): the official build is no debug
 		// build (JL_DEBUG_BUILD undefined)
-		"jl_is_debugbuild": func(vm *VM, a []any) (any, error) { return int32(0), nil },
-		"jl_copy_code_info":  func(vm *VM, a []any) (any, error) { return vm.copyCodeInfo(a) },
+		"jl_is_debugbuild":  func(vm *VM, a []any) (any, error) { return int32(0), nil },
+		"jl_cache_flags":    func(vm *VM, a []any) (any, error) { return cacheFlags(), nil },
+		"jl_copy_code_info": func(vm *VM, a []any) (any, error) { return vm.copyCodeInfo(a) },
 		// a DebugInfo's code locations (ircode.c:1425-1566), lowering's
 		// encoding
 		"jl_compress_codelocs": func(vm *VM, a []any) (any, error) {

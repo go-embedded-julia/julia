@@ -358,6 +358,22 @@ func (vm *VM) fieldOffset(a []any) (any, error) {
 	return uint64(l.offsets[i-1]), nil
 }
 
+// jlOptionDefaults are the jl_options fields jl_init_options sets to other
+// than 0 (jloptions.c:87-160): a julia started without flags.
+var jlOptionDefaults = map[expr.Symbol]int64{
+	"banner": -1, "historyfile": 1, "compile_enabled": 1, "opt_level": 2, "debug_level": 1,
+	"can_inline": 1, "polly": 1, "handle_signals": 1, "use_sysimage_native_code": 1,
+	"use_compiled_modules": 1, "use_pkgimages": 1, "warn_scope": 1, "timeout_for_safepoint_straggler_s": -1,
+}
+
+// cacheFlags is jl_cache_flags (staticdata_utils.c:430-443) of those
+// options: OOICCDDP, julia 1.12.6 answers 163 started without flags.
+func cacheFlags() uint8 {
+	o := jlOptionDefaults
+	return uint8(o["use_pkgimages"]&1 | (o["debug_level"]&3)<<1 | (o["check_bounds"]&3)<<3 |
+		(o["can_inline"]&1)<<5 | (o["opt_level"]&3)<<6)
+}
+
 // defaultOptions is jl_options as jl_init_options sets it
 // (jloptions.c:87-160), as an instance of Base.JLOptions, which mirrors the
 // C struct field for field: the options a julia started without flags has.
@@ -366,11 +382,7 @@ func (vm *VM) defaultOptions(t *core.DataType) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: jl_options as %s", ErrUnsupported, showValue(t))
 	}
-	set := map[expr.Symbol]int64{
-		"banner": -1, "historyfile": 1, "compile_enabled": 1, "opt_level": 2, "debug_level": 1,
-		"can_inline": 1, "polly": 1, "handle_signals": 1, "use_sysimage_native_code": 1,
-		"use_compiled_modules": 1, "use_pkgimages": 1, "warn_scope": 1, "timeout_for_safepoint_straggler_s": -1,
-	}
+	set := jlOptionDefaults
 	fields := make([]any, len(ft))
 	for i, f := range ft {
 		d, _ := f.(*core.DataType)

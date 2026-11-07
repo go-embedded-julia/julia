@@ -67,6 +67,8 @@ func TestModuleOpts(t *testing.T) {
 		{"jl_set_module_nospecialize", []any{int64(1), int32(1)}, "!not ported yet: jl_set_module_nospecialize"},
 		{"jl_is_assertsbuild", nil, "0"},
 		{"jl_is_debugbuild", nil, "0"},
+		// julia 1.12.6 started without flags: ccall(:jl_cache_flags, UInt8, ()) == 163
+		{"jl_cache_flags", nil, "0xa3"},
 	} {
 		v, err := vm.shims[expr.Symbol(c.f)](vm, c.args)
 		check(t, c.f, v, err, c.want)
