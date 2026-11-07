@@ -22,6 +22,8 @@ func TestLibraryQualifiedCcall(t *testing.T) {
 	for _, c := range []struct{ src, want string }{
 		{`ccall((:twice, "libtest"), Int, (Int,), 21)`, "42"},
 		{`const LIBT = "libtest"; ccall((:twice, LIBT), Int, (Int,), 4)`, "8"},
+		// a literal String name, as mpfr.jl's @eval builds ("mpfr_const_pi")
+		{`ccall(("twice", "libtest"), Int, (Int,), 5)`, "10"},
 		{`ccall((:twice, "libother"), Int, (Int,), 1)`, `!not ported yet: ccall((:twice, "libother"))`},
 		{`ccall((:thrice, "libtest"), Int, (Int,), 1)`, `!not ported yet: ccall((:thrice, "libtest"))`},
 		{`f() = ccall((:twice, throw(ErrorException("no library"))), Int, (Int,), 1); f()`, "!no library"},

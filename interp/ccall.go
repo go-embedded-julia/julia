@@ -645,6 +645,11 @@ func (c *code) prepForeign(x *expr.Expr) op {
 	if t, ok := callee.(*expr.Expr); ok && t.Head == "call" && len(t.Args) == 3 && t.Args[0] == any(expr.GlobalRef{Mod: "Core", Name: "tuple"}) {
 		callee, f.lib = t.Args[1], c.prepValue(t.Args[2])
 	}
+	// a literal String names the function as its Symbol does
+	// (ccall(("mpfr_const_pi", libmpfr), …), which mpfr.jl's @eval builds)
+	if s, isStr := callee.(string); isStr {
+		callee = expr.QuoteNode{Value: expr.Symbol(s)}
+	}
 	q, ok := callee.(expr.QuoteNode)
 	name, ok2 := q.Value.(expr.Symbol)
 	if !ok || !ok2 {
