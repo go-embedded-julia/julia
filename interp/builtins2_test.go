@@ -318,6 +318,25 @@ func TestFlParse(t *testing.T) {
 	}
 }
 
+// T{x} takes any isbits value of the runtime as it takes an Int
+// (jl_valid_type_param, builtins.c:1543): an Int128, a UInt128, a Float16,
+// a BFloat16, a pointer (julia 1.12.6: VP{C_NULL} and VP{Float16(1)} are
+// types).
+func TestValueTypeParams(t *testing.T) {
+	vm := New()
+	s := vm.NewSession()
+	vp, err := s.Eval("struct VP{D}; x::Int; end; VP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []any{Int128{0, 1}, UInt128{0, 1}, Float16(0x3c00), BFloat16(0x3f80), &Pointer{Type: vm.ptrType(core.NothingType)}} {
+		v, err := biApplyType(vm, []any{vp, p})
+		if err != nil || v.(*core.DataType).Parameters[0] != p {
+			t.Errorf("VP{%s}: %v %v", showValue(p), v, err)
+		}
+	}
+}
+
 // A compressed value of a primitive type with no value of its own (a
 // parametric primitive with free parameters, which IR never holds) is
 // refused, not decoded.

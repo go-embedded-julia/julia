@@ -543,3 +543,7 @@ NT = getfield(Core, :NamedTuple)
 (ft(NT{(:a, :b), Tuple{Int, String}}, :b), ft(NT{(:a, :b), Tuple{Int, String}}, 2),
  ft(NT{(:a, :b), Tuple{Int, String}}, 3), ft(NT{(:a,), T} where T<:Tuple, 1),
  ft(NT{(:a,)}, 1))
+#---
+struct VP{D}; x::Int; end
+ap(p) = try VP{p}(1) catch e; e end
+(ap(nothing), ap(1.5), ap(0x01), ap('a'), ap(:s), ap(Int), ap("s"))

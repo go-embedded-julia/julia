@@ -9,6 +9,8 @@ package core
 import (
 	"strings"
 	"testing"
+
+	"github.com/go-embedded-julia/julia/expr"
 )
 
 func mk(t *testing.T, tc any, ps ...any) any {
@@ -309,10 +311,34 @@ func TestWhiteboxShowAndTypes(t *testing.T) {
 	if p := NewIncompletePrimitive("Main", "P24", nil, 24); p.Name.Bits != 24 || !p.Name.Isbits {
 		t.Errorf("NewIncompletePrimitive: %+v", p.Name)
 	}
-	if TypeOf(&Instance{Type: Int64Type}) != any(Int64Type) || TypeOf(3.5) != nil {
+	if TypeOf(&Instance{Type: Int64Type}) != any(Int64Type) || TypeOf(struct{}{}) != nil {
 		t.Error("TypeOf")
 	}
+	for v, want := range map[any]*DataType{
+		nil: NothingType, int8(1): Int8Type, int16(1): Int16Type, int32(1): Int32Type,
+		uint8(1): UInt8Type, uint16(1): UInt16Type, uint32(1): UInt32Type, uint64(1): UInt64Type,
+		float32(1): Float32Type, 3.5: Float64Type, expr.Char('a'): CharType, "s": StringType,
+		typedValue{}: Float16Type,
+	} {
+		if TypeOf(v) != any(want) {
+			t.Errorf("TypeOf(%#v) = %v, want %s", v, TypeOf(v), Show(want))
+		}
+	}
+	// T{x} takes any isbits x (jl_valid_type_param, builtins.c:1543)
+	for _, v := range []any{nil, 1.5, uint8(1), expr.Char('a'), typedValue{}} {
+		if !ValidTypeParam(v) {
+			t.Errorf("%#v is no valid type parameter", v)
+		}
+	}
+	if ValidTypeParam("s") {
+		t.Error("a String is a valid type parameter")
+	}
 }
+
+// typedValue is a runtime value that names its type, a Float16 here.
+type typedValue struct{}
+
+func (typedValue) JuliaType() any { return Float16Type }
 
 func TestWhiteboxFreeVars(t *testing.T) {
 	T := fresh("T")

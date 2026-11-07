@@ -280,9 +280,41 @@ func TypeOf(v any) any {
 		return x.Type
 	case ModuleValue:
 		return ModuleType
+	case nil:
+		return NothingType
+	case int8:
+		return Int8Type
+	case int16:
+		return Int16Type
+	case int32:
+		return Int32Type
+	case uint8:
+		return UInt8Type
+	case uint16:
+		return UInt16Type
+	case uint32:
+		return UInt32Type
+	case uint64:
+		return UInt64Type
+	case float32:
+		return Float32Type
+	case float64:
+		return Float64Type
+	case expr.Char:
+		return CharType
+	case string:
+		return StringType
+	case Typed:
+		return x.JuliaType()
 	}
 	return nil
 }
+
+// Typed is a value of the runtime that knows its Julia type: a struct, a
+// pointer, a primitive value with no Go type of its own. jl_valid_type_param
+// asks a type parameter's type whether it is isbits (builtins.c:1543), and
+// T{x} takes any isbits x: nothing, 1.5, a Float16, an isbits struct.
+type Typed interface{ JuliaType() any }
 
 // Tuple is a tuple value: its type, a concrete Tuple type, and its
 // elements. The interpreter's tuples are these; a tuple of symbols and
