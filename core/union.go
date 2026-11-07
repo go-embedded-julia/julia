@@ -115,7 +115,9 @@ func unionSortCmp(a, b any) int {
 // themselves (Tuple{Missing}, Pair{Nothing,Missing}), which is when julia
 // gives it an instance.
 func (d *DataType) isSingleton() bool {
-	if !d.IsConcrete || d.Name.Mutable {
+	// a type that may reference itself has a pointer field (the walk of its
+	// fields below would not end)
+	if !d.IsConcrete || d.Name.Mutable || !d.Name.MayInlineAlloc {
 		return false
 	}
 	if d.Name.Singleton {

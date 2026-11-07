@@ -1,0 +1,184 @@
+Array{Int,1}	0	24	0,16	24,2,1,1,8,128	114	2
+Array{Any,1}	0	24	0,16	24,2,1,1,8,128	114	2
+Array{String,2}	0	32	0,16	32,2,1,1,8,128	114	2
+Array{Int,0}	0	16	0,16	16,2,1,1,8,128	114	2
+Array{Plain,3}	0	40	0,16	40,2,1,1,8,128	114	2
+Core.GenericMemoryRef{:not_atomic,Int,Core.CPU}	1	16	0,8	16,2,1,1,8,128	114	4
+Core.GenericMemoryRef{:not_atomic,String,Core.CPU}	1	16	0,8	16,2,1,1,8,128	114	4
+Core.GenericMemoryRef{:atomic,Int,Core.CPU}	1	16	0,8	16,2,1,1,8,128	114	4
+Core.GenericMemory	0	ERR
+Core.GenericMemoryRef	0	ERR
+Pair{String,Int}	1	16	0,8	16,2,1,0,8,0	882	4
+Pair{Int,String}	1	16	0,8	16,2,1,1,8,0	882	4
+Pair{Any,Any}	1	16	0,8	16,2,2,0,8,0	114	4
+Pair{Int8,Int64}	1	16	0,8	16,2,0,-1,8,129	874	4
+Pair{Union{Int8,Int16},Int}	1	16	0,8	16,2,0,-1,8,1	882	4
+Pair{Pair{String,Int},Int8}	1	24	0,16	24,2,1,0,8,1	882	4
+Sm{String}	1	8	0	8,1,1,0,8,0	882	4
+Sm{Int}	1	8	0	8,1,0,-1,8,128	874	4
+Sm{Any}	1	8	0	8,1,1,0,8,0	114	4
+Sm{Union{Nothing,Int}}	1	16	0	16,1,0,-1,8,1	882	4
+Sm{Sm{String}}	1	8	0	8,1,1,0,8,0	882	4
+Union{Nothing,Sm{Int}}	2	ERR
+Union{Nothing,Sm{String}}	0	ERR
+NamedTuple{(:a,:b),Tuple{Int,String}}	1	16	0,8	16,2,1,1,8,0	882	4
+NamedTuple{(:a,),Tuple{Tuple{Int,String}}}	1	16	0	16,1,1,1,8,0	882	4
+NamedTuple{(:a,:b),Tuple{Int8,Int64}}	1	16	0,8	16,2,0,-1,8,129	874	4
+NamedTuple{(),Tuple{}}	1	0		0,0,0,-1,1,128	874	4
+Tuple{Int,String}	1	16	0,8	16,2,1,1,8,0	886	4
+Tuple{String,Int8,String}	1	24	0,8,16	24,3,2,0,8,1	886	4
+Tuple{Tuple{Int,String},Int8}	1	24	0,16	24,2,1,1,8,1	886	4
+Tuple{Union{Int,Nothing},String}	0	ERR
+Tuple{Int8,Int64}	1	16	0,8	16,2,0,-1,8,129	878	4
+Tuple{Int8,Union{Int8,Int16},Int8}	0	ERR
+Tuple{}	1	0		0,0,0,-1,1,128	878	4
+Tuple{Any}	0	ERR
+Tuple{Int,Any}	0	ERR
+Tuple	0	ERR
+NTuple{3,String}	1	24	0,8,16	24,3,3,0,8,0	886	4
+NTuple{4,VecElement{Float32}}	1	16	0,4,8,12	16,4,0,-1,16,128	878	4
+NTuple{3,VecElement{Float64}}	1	32	0,8,16	32,3,0,-1,32,129	878	4
+Tuple{VecElement{Float64},VecElement{Float64}}	1	16	0,8	16,2,0,-1,16,128	878	4
+Tuple{Int8,Int8,Int8}	1	3	0,1,2	3,3,0,-1,1,128	878	4
+Tuple{Float32,Float32,Float32,Float32}	1	16	0,4,8,12	16,4,0,-1,4,128	878	4
+Core.LineNumberNode	1	16	0,8	16,2,1,1,8,128	114	4
+Core.GlobalRef	0	24	0,8,16	24,3,3,0,8,128	114	0
+Core.SSAValue	1	8	0	8,1,0,-1,8,128	874	4
+Core.PhiNode	1	16	0,8	16,2,2,0,8,128	114	4
+Core.ReturnNode	0	8	0	8,1,1,0,8,0	114	4
+Core.GotoIfNot	1	16	0,8	16,2,1,0,8,0	114	4
+Core.GotoNode	1	8	0	8,1,0,-1,8,128	874	4
+Core.EnterNode	0	16	0,8	16,2,1,1,8,0	114	4
+Core.PiNode	1	16	0,8	16,2,2,0,8,0	114	4
+Core.UpsilonNode	0	8	0	8,1,1,0,8,0	114	4
+Core.QuoteNode	1	8	0	8,1,1,0,8,0	114	4
+Core.NewvarNode	1	8	0	8,1,0,-1,8,128	874	4
+Core.LegacyLineInfoNode	1	16	0,8,12	16,3,1,0,8,128	114	4
+Core.DebugInfo	0	32	0,8,16,24	32,4,4,0,8,0	114	0
+Core.Const	1	8	0	8,1,1,0,8,0	114	4
+Core.PartialStruct	1	16	0,8	16,2,2,0,8,0	114	4
+Core.InterConditional	1	24	0,8,16	24,3,2,1,8,0	114	4
+Core.MethodMatch	1	32	0,8,16,24	32,4,3,0,8,1	114	4
+Core.TypeVar	0	24	0,8,16	24,3,3,0,8,0	114	2
+Core.UnionAll	0	16	0,8	16,2,2,0,8,0	370	0
+Core.Union	0	16	0,8	16,2,2,0,8,0	370	0
+Core.TypeofVararg	0	16	0,8	16,2,2,0,8,0	370	0
+Core.TypeName	0	112	0,8,16,24,32,40,48,56,64,72,80,88,96,100,104,105,106,107	112,18,9,0,8,1	370	2
+Core.DataType	0	56	0,8,16,24,32,40,48,52	56,8,5,0,8,1	370	2
+Core.CodeInstance	0	128	0,8,16,24,32,40,48,56,64,72,80,88,96,100,102,104,106,108,109,112,120	128,21,10,0,8,1	114	2
+Core.Method	0	192	0,8,16,24,28,32,40,48,56,64,72,80,88,96,104,112,120,128,136,144,152,160,168,172,176,180,184,185,186,187,188,189,190	192,33,18,0,8,1	114	2
+Core.MethodInstance	0	48	0,8,16,24,32,40,41,42	48,8,5,0,8,1	114	2
+Core.Binding	0	40	0,8,16,24,32	40,5,4,0,8,1	114	2
+Core.BindingPartition	0	40	0,8,16,24,32	40,5,2,0,8,0	114	2
+Core.Box	0	8	0	8,1,1,0,8,0	114	2
+Core.Expr	0	16	0,8	16,2,2,0,8,128	114	2
+typeof(Core.CPU)	1	1		1,0,0,-1,1,128	490	4
+Core.LLVMPtr{Int,1}	1	8		8,0,0,-1,8,128	490	4
+Ptr{Int}	1	8		8,0,0,-1,8,128	490	4
+Ptr{HasStr}	1	8		8,0,0,-1,8,128	490	4
+Int	1	8		8,0,0,-1,8,128	1002	4
+Int8	1	1		1,0,0,-1,1,128	1002	4
+Int128	1	16		16,0,0,-1,16,128	1002	4
+UInt128	1	16		16,0,0,-1,16,128	1002	4
+Float16	1	2		2,0,0,-1,2,128	1002	4
+Bool	1	1		1,0,0,-1,1,128	1002	4
+Char	1	4		4,0,0,-1,4,128	1002	4
+Nothing	1	0		0,0,0,-1,1,128	874	4
+Miss	1	0		0,0,0,-1,1,128	874	4
+Symbol	0	ERR
+String	0	ERR
+Any	0	ERR
+Integer	0	ERR
+Union{}	0	ERR
+Plain	1	24	0,8,16	24,3,0,-1,8,129	874	4
+HasStr	1	16	0,8	16,2,1,1,8,0	882	4
+Nest	1	24	0,16	24,2,1,1,8,1	882	4
+Nest2	1	40	0,8,32	40,3,1,2,8,1	882	4
+Self	0	16	0,8	16,2,1,1,8,0	114	0
+SelfVec	0	8	0	8,1,1,0,8,128	114	0
+TupleSelf	0	8	0	8,1,1,0,8,0	114	0
+NTSelf	0	8	0	8,1,1,0,8,0	114	0
+AF	0	8	0	8,1,1,0,8,0	114	0
+RefAF	0	8	0	8,1,1,0,8,0	114	0
+PtrSelf	1	8	0	8,1,0,-1,8,128	362	4
+MemSelf	0	8	0	8,1,1,0,8,128	114	0
+AB	0	ERR
+SubAB	0	8	0	8,1,0,-1,8,128	866	0
+SmallU	1	8	0,4	8,2,0,-1,4,1	882	4
+SmallU2	1	24	0,12	24,2,0,-1,8,1	882	4
+BigU	1	8	0	8,1,1,0,8,0	882	4
+UPtr	1	8	0	8,1,1,0,8,0	882	4
+NothingU	1	1	0	1,1,0,-1,1,0	882	4
+Mut	0	16	0,8	16,2,1,1,8,0	114	2
+MutAtom	0	24	0,8,16	24,3,1,1,8,1	114	2
+MutAtom2	0	80	16,32,48	80,3,0,-1,16,129	98	2
+MutAtom3	0	8	0	8,1,1,0,8,0	114	2
+MutAtomH	0	16	0	16,1,1,1,16,0	114	2
+Mut2	0	48	0,16,24	48,3,2,1,8,1	114	2
+Uninit	0	16	0,8	16,2,1,1,8,0	882	4
+UninitInline	0	24	0,8	24,2,1,2,8,0	882	4
+UninitMid	0	32	0,8,24	32,3,1,2,8,1	882	4
+HoldsUninit	1	8	0	8,1,1,0,8,0	882	4
+HoldsUI	1	8	0	8,1,1,0,8,0	882	4
+HoldsUIField	1	32	0,8,24	32,3,2,2,8,1	882	4
+Param	0	ERR
+Param{String}	1	16	0,8	16,2,1,0,8,1	882	4
+Param{Int}	1	16	0,8	16,2,0,-1,8,129	874	4
+Param{HasStr}	1	24	0,16	24,2,1,1,8,1	882	4
+Param{Nest}	1	32	0,24	32,2,1,1,8,1	882	4
+Param{Union{Int8,Int16}}	1	4	0,3	4,2,0,-1,2,0	882	4
+Param{Union{Nothing,Int}}	1	16	0,9	16,2,0,-1,8,1	882	4
+Param{Any}	1	16	0,8	16,2,1,0,8,1	114	4
+Param{Tuple{Int,String}}	1	24	0,16	24,2,1,1,8,1	882	4
+Param{Array{Int,1}}	1	16	0,8	16,2,1,0,8,129	114	4
+ParamSelf{Int}	0	16	0,8	16,2,1,1,8,0	114	0
+ParamSelf{String}	0	16	0,8	16,2,2,0,8,0	114	0
+ParamRef{Int}	1	8	0	8,1,1,0,8,128	114	4
+ParamRef{ParamRef{Int}}	1	8	0	8,1,1,0,8,128	114	4
+P24	1	3		3,0,0,-1,4,128	1002	4
+P48	1	6		6,0,0,-1,8,128	1002	4
+HasP24	1	12	0,4,8	12,3,0,-1,4,1	874	4
+HoldsP48	1	16	0,8	16,2,0,-1,8,1	874	4
+UP	1	8	0	8,1,0,-1,4,1	882	4
+Empty	1	0		0,0,0,-1,1,128	874	4
+HoldsEmpty	1	1	0,0	1,2,0,-1,1,128	874	4
+Zero2	1	0	0,0	0,2,0,-1,1,128	874	4
+UZ	1	1	0	1,1,0,-1,1,0	882	4
+HoldsTypeT	1	16	0,8	16,2,1,0,8,129	370	4
+HoldsTBot	1	1	0,0	1,2,0,-1,1,128	354	4
+BigField	1	208	0,200	208,2,1,25,8,2	882	4
+BigNest	1	208	0	208,1,1,25,8,2	882	4
+Huge	0	120008	0,60000,120000	120008,3,1,15000,8,4	882	4
+HoldsHuge	1	8	0	8,1,1,0,8,0	882	4
+SymF	1	16	0,8	16,2,1,0,8,128	882	4
+StrF	1	8	0	8,1,1,0,8,0	882	4
+MutF	1	8	0	8,1,1,0,8,128	114	4
+TypF	1	8	0	8,1,1,0,8,128	370	4
+KindF	1	8	0	8,1,1,0,8,0	370	4
+UnionF	1	8	0	8,1,1,0,8,128	882	4
+SubStr{String}	1	24	0,8,16	24,3,1,0,8,0	882	4
+SubStr{Array{Int,1}}	1	24	0,8,16	24,3,1,0,8,128	114	4
+UnitR{Int}	1	16	0,8	16,2,0,-1,8,128	874	4
+UnitR{Float64}	1	16	0,8	16,2,0,-1,8,128	874	4
+Cplx{Float64}	1	16	0,8	16,2,0,-1,8,128	874	4
+Cplx{Int8}	1	2	0,1	2,2,0,-1,1,128	874	4
+StrHolder	1	16	0,8	16,2,2,0,8,0	882	4
+Vec4	1	16	0	16,1,0,-1,16,128	874	4
+Vec2	1	16	0	16,1,0,-1,16,128	874	4
+Union{Int8,Int16}	2	ERR
+Union{Int8,P24}	2	ERR
+Union{Nothing,Int}	2	ERR
+Union{Int,String}	0	ERR
+Union{Nothing,HasStr}	0	ERR
+Union{Empty,Nothing}	2	ERR
+Union{Plain,Empty}	2	ERR
+Union{Plain,Nest}	0	ERR
+Union{Symbol,Nothing}	0	ERR
+Union{Tuple{Int,Int},Tuple{Int8}}	2	ERR
+Union{Tuple{Int,String},Int}	0	ERR
+Type{Int}	0	ERR
+Type{Union{}}	1	ERR
+Type{Plain}	0	ERR
+Array{Int,1}	0	24	0,16	24,2,1,1,8,128	114	2
+Array{HasStr,1}	0	24	0,16	24,2,1,1,8,128	114	2
+Memory{Int}	0	ERR
