@@ -29,7 +29,7 @@ func hasPrefixFold(s, prefix string) bool {
 
 // mpfrParse reads s as mpfr_strtofr does in base (0, or 2 to 62), after
 // leading white space: the longest number it starts with, what follows it,
-// and false when there is none.
+// and false when there is none. The base is one MPFR accepts.
 func mpfrParse(s string, base int) (mpfrParsed, string, bool) {
 	s = strings.TrimLeftFunc(s, func(r rune) bool { return r < 128 && isCSpace(byte(r)) })
 	p := mpfrParsed{kind: kReg}
@@ -58,9 +58,6 @@ func mpfrParse(s string, base int) (mpfrParsed, string, bool) {
 		}
 		p.kind = sp.kind
 		return p, rest, true
-	}
-	if base < 0 || base == 1 || base > 62 {
-		return p, s, false
 	}
 	switch {
 	case (base == 0 || base == 16) && hasPrefixFold(s, "0x"):
@@ -260,10 +257,8 @@ func (vm *VM) formatE(x *mpfrNum, xprec, prec int64) (string, error) {
 		} else {
 			den.Lsh(den, uint(-l))
 		}
-		e10 = int64(math.Floor(float64(x.exp-1) * math.Log10(2)))
-		for pow10Cmp(num, den, e10) < 0 {
-			e10--
-		}
+		// the estimate is at most one too low, whatever the float's error
+		e10 = int64(math.Floor(float64(x.exp-1)*math.Log10(2))) - 1
 		for pow10Cmp(num, den, e10+1) >= 0 {
 			e10++
 		}

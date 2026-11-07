@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"math/big"
@@ -187,12 +188,9 @@ func (vm *VM) mpfrFunctions() map[string]mpfrFn {
 	}
 	fns["mpfr_sin_cos"] = mpfrFn{"fffr", 2, func(vm *VM, a []any, x []*mpfrNum) (any, error) {
 		s, c, rnd := a[0].(*mpfrRef), a[1].(*mpfrRef), a[3].(int)
-		sr, st, err := vm.elemValue("mpfr_sin", bfUnaries["sin"], s.prec, x[2], rnd)
-		if err != nil {
-			return nil, err
-		}
-		cr, ct, err := vm.elemValue("mpfr_cos", bfUnaries["cos"], c.prec, x[2], rnd)
-		if err != nil {
+		sr, st, err1 := vm.elemValue("mpfr_sin", bfUnaries["sin"], s.prec, x[2], rnd)
+		cr, ct, err2 := vm.elemValue("mpfr_cos", bfUnaries["cos"], c.prec, x[2], rnd)
+		if err := cmp.Or(err1, err2); err != nil {
 			return nil, err
 		}
 		vm.mpfrWrite(s, sr)
