@@ -29,6 +29,14 @@ func TestModuleUUID(t *testing.T) {
 		v, err := set(vm, c.args)
 		check(t, c.name, v, err, c.want)
 	}
+	// jl_module_uuid reads it back; a module of no package has (0, 0)
+	get := vm.shims["jl_module_uuid"]
+	v, err := get(vm, []any{vm.Main})
+	check(t, "jl_module_uuid", v, err, "(0x807dbc54b67e4c79, 0x8afbeafe4df6f2e1)")
+	v, err = get(vm, []any{vm.Core})
+	check(t, "jl_module_uuid of Core", v, err, "(0x0000000000000000, 0x0000000000000000)")
+	_, err = get(vm, []any{int64(1)})
+	check(t, "jl_module_uuid of 1", nil, err, "!TypeError(:ccall")
 
 	// jl_field_index, as fieldindex calls it (runtime_internals.jl:1096-1102)
 	vm.Boot()

@@ -73,6 +73,15 @@ func (vm *VM) bootShims() {
 			m.uuid = [2]uint64{hi, lo}
 			return nil, nil
 		},
+		// jl_module_uuid (module.c:2038), the same two halves, (0, 0) for a
+		// module of no package (pkgid.jl:13)
+		"jl_module_uuid": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Module)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
+			}
+			return vm.newTuple([]any{m.uuid[0], m.uuid[1]}), nil
+		},
 		// jl_field_index (datatype.c:1781-1806), fieldindex: the 0-based
 		// index of a field by name, -1 or a FieldError when there is none
 		"jl_field_index": func(vm *VM, a []any) (any, error) {
