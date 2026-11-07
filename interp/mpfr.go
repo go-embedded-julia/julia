@@ -268,8 +268,11 @@ func memWord(m *Memory, k int) (uint64, bool) {
 
 // mpfrRead is the number a BigFloat holds.
 func (vm *VM) mpfrRead(r *mpfrRef) (*mpfrNum, error) {
-	sw, _ := memWord(r.m, 1)
-	ew, _ := memWord(r.m, 2)
+	sw, ok1 := memWord(r.m, 1)
+	ew, ok2 := memWord(r.m, 2)
+	if !ok1 || !ok2 {
+		return nil, vm.errorf("mpfr: the sign or the exponent of a BigFloat is not a word")
+	}
 	x := &mpfrNum{neg: int32(sw) < 0}
 	switch exp := int64(ew); exp {
 	case mpfrExpZero:

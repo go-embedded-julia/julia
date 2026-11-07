@@ -452,6 +452,22 @@ func (vm *VM) memLoadBytes(fname string, m *Memory, off int64, at *core.DataType
 	if err != nil {
 		return nil, err
 	}
+	if at.Name == typeNameOf(core.PtrType) && es == 8 && off%8 == 0 {
+		// a pointer stored in a whole word (mpfr.jl keeps a BigFloat's limb
+		// pointer in its memory); a word never stored is C_NULL
+		switch w := m.Elems[off/8].(type) {
+		case *Pointer:
+			return w, nil
+		case uint64:
+			if w == 0 {
+				return &Pointer{Type: at}, nil
+			}
+		default:
+			if w == undef {
+				return &Pointer{Type: at}, nil
+			}
+		}
+	}
 	var b []byte
 	for k := int(off) / es; len(b) < int(off)%es+n; k++ {
 		eb, err := vm.elemBytes(m, k, es)
@@ -470,6 +486,18 @@ func (vm *VM) memLoadBytes(fname string, m *Memory, off int64, at *core.DataType
 // memStoreBytes is a store of x at byte offset off of a primitive memory,
 // the elements it overlaps rewritten.
 func (vm *VM) memStoreBytes(fname string, m *Memory, off int64, x any) error {
+	if p, isPtr := x.(*Pointer); isPtr {
+		// a pointer into a whole word of a memory of 8-byte words is kept as
+		// the pointer (see memLoadBytes)
+		es, err := vm.memByteRange(fname, m, off, 8)
+		if err != nil {
+			return err
+		}
+		if es == 8 && off%8 == 0 {
+			m.Elems[off/8] = p
+			return nil
+		}
+	}
 	bits, w, ok := primBits(x)
 	if !ok {
 		return fmt.Errorf("%w: %s of a %s", ErrUnsupported, fname, showValue(vm.typeOf(x)))
