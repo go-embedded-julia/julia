@@ -547,3 +547,9 @@ NT = getfield(Core, :NamedTuple)
 struct VP{D}; x::Int; end
 ap(p) = try VP{p}(1) catch e; e end
 (ap(nothing), ap(1.5), ap(0x01), ap('a'), ap(:s), ap(Int), ap("s"))
+#---
+struct SP{D}; x::Int; end
+SP{D}() where {D} = SP{D}(7)
+sp(::SP{D}) where {D} = D
+tag(::SP{D}, y::D) where {D} = (D, y)
+(SP{nothing}(), sp(SP{nothing}(1)), sp(SP{3}(1)), tag(SP{Nothing}(1), nothing))

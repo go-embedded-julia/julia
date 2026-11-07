@@ -2074,7 +2074,9 @@ func typeIntersectionEnv(a, b any) (ans any, env []any, issubty bool) {
 		if ltb && !mightIntersectConcrete(a) {
 			return Bottom, nil, false
 		}
-		clear(envb)
+		for i := range envb {
+			envb[i] = null // julia's NULL, unset (nil is nothing)
+		}
 		e := getStenv(envb)
 		e.intersection, e.ignoreFree = true, true
 		ans = e.intersectAll(a, b)

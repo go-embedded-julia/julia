@@ -268,7 +268,7 @@ func (e *stenv) restoreEnvRoot(se *savedEnv, root bool) {
 	e.runions.depth = se.rdepth
 	if e.envout != nil && e.envidx < len(e.envout) {
 		for k := e.envidx; k < len(e.envout); k++ {
-			e.envout[k] = nil
+			e.envout[k] = null
 		}
 	}
 }
@@ -783,7 +783,7 @@ func widenType(t any) any {
 
 // fixInferredVarBound is fix_inferred_var_bound (subtype.c:896-914).
 func fixInferredVarBound(v *TypeVar, ty any) any {
-	if ty == nil {
+	if ty == null {
 		return v
 	}
 	if !isTypeVar(ty) && HasFreeTypeVars(ty) {
@@ -927,7 +927,7 @@ func (e *stenv) subtypeUnionAll(t any, u *UnionAll, R bool, param int) bool {
 		default:
 			val = &TypeVar{Name: u.Var.Name, LB: vb.lb, UB: vb.ub}
 		}
-		if old := e.envout[e.envidx]; old != nil && !Egal(old, val) {
+		if old := e.envout[e.envidx]; old != null && !Egal(old, val) {
 			e.envout[e.envidx] = u.Var
 		} else {
 			e.envout[e.envidx] = val
@@ -2086,8 +2086,10 @@ func subtypeEnv(x, y any, env []any) bool {
 			return true
 		}
 	}
+	// unset slots are null, julia's NULL: nil is the embedder's nothing, a
+	// variable's value (Parser{nothing} binds Dates to it)
 	for i := range env {
-		env[i] = nil
+		env[i] = null
 	}
 	sub := freshForallExists(x, y, env)
 	// julia's `if (env)` loop runs envsz times; an empty env must not look
