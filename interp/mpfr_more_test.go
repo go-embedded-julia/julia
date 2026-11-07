@@ -177,6 +177,15 @@ func TestMPFRStrings(t *testing.T) {
 	}
 }
 
+// A library named by a symbol, as mpfr.jl names it for mpfr_sinu.
+func TestMPFRLibrarySymbol(t *testing.T) {
+	f := newMPFRFixture(t)
+	v, err := f.s.Eval("ccall((:mpfr_get_emin, :libmpfr), Int, ())")
+	if err != nil || v != any(int64(mpfrEminMin)) {
+		t.Errorf("emin through :libmpfr: %v, %v", v, err)
+	}
+}
+
 // A pointer kept in a word of a Memory{UInt64}, as BigFloat keeps its limb
 // pointer (mpfr.jl:219-228).
 func TestPointerInWord(t *testing.T) {
