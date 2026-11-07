@@ -104,11 +104,10 @@ type mpfrNum struct {
 
 const nsignFlip = 2
 
-func nanNum() *mpfrNum             { return &mpfrNum{kind: kNaN} }
-func nanSigned(neg bool) *mpfrNum  { return &mpfrNum{kind: kNaN, neg: neg, nsign: int8(signInt(neg))} }
-func infNum(neg bool) *mpfrNum     { return &mpfrNum{kind: kInf, neg: neg} }
-func zeroNum(neg bool) *mpfrNum    { return &mpfrNum{kind: kZero, neg: neg} }
-func (x *mpfrNum) isSpecial() bool { return x.kind != kReg }
+func nanNum() *mpfrNum            { return &mpfrNum{kind: kNaN} }
+func nanSigned(neg bool) *mpfrNum { return &mpfrNum{kind: kNaN, neg: neg, nsign: int8(signInt(neg))} }
+func infNum(neg bool) *mpfrNum    { return &mpfrNum{kind: kInf, neg: neg} }
+func zeroNum(neg bool) *mpfrNum   { return &mpfrNum{kind: kZero, neg: neg} }
 
 // lsb is the exponent of x's least significant bit.
 func (x *mpfrNum) lsb() int64 { return satAddI(x.exp, -int64(x.mant.BitLen())) }
@@ -137,12 +136,15 @@ func satAddI(a, b int64) int64 {
 
 // mpfrFn is one libmpfr function: the kinds of its arguments, one letter
 // each (f a BigFloat, r a rounding mode, z an mpz_t, u an unsigned long, i a
-// long, c an int, d a double, p a pointer, s a C string), checked once before
-// the body runs, which then finds them as *mpfrRef, int, *Struct, uint64,
-// int64, int32, float64, *Pointer and string.
+// long, c an int, d a double, p a pointer, s a C string, w an mpz_t written),
+// checked once before the body runs, which then finds them as *mpfrRef, int
+// (a rounding mode MPFR defines exactly), *big.Int, uint64, int64, int32,
+// float64, *Pointer, string and *Struct. The BigFloats after the first nres
+// arguments are read too, into x at their positions.
 type mpfrFn struct {
-	sig string
-	fn  func(vm *VM, a []any) (any, error)
+	sig  string
+	nres int
+	fn   func(vm *VM, a []any, x []*mpfrNum) (any, error)
 }
 
 // mpfrRef is a BigFloat argument: its memory and precision.
@@ -165,7 +167,15 @@ func (vm *VM) bootMPFR() {
 			if err != nil {
 				return nil, err
 			}
-			return f.fn(vm, args)
+			x := make([]*mpfrNum, len(args))
+			for i, v := range args {
+				if r, ok := v.(*mpfrRef); ok && i >= f.nres {
+					if x[i], err = vm.mpfrRead(r); err != nil {
+						return nil, err
+					}
+				}
+			}
+			return f.fn(vm, args, x)
 		}
 	}
 	vm.libShims[mpfrLib] = shims
@@ -191,10 +201,25 @@ func (vm *VM) mpfrArgs(fname, sig string, a []any) ([]any, error) {
 			pv, isPrim := a[i].(PrimValue)
 			ok = isPrim && pv.Type.Name.Name == "MPFRRoundingMode"
 			if ok {
-				out[i] = int(int32(pv.Bits.lo))
+				// faithful rounding (MPFR_RNDF) leaves the result to the
+				// implementation, and any other number is not a mode
+				r := int(int32(pv.Bits.lo))
+				if r < rndN || r > rndA {
+					return nil, fmt.Errorf("%w: %s in rounding mode %d (only the five of MPFR's directed and nearest modes are ported)", ErrUnsupported, fname, r)
+				}
+				out[i] = r
 			}
-		case 'z':
-			out[i], ok = mpzStruct(a[i], 3)
+		case 'z', 'w':
+			var st *Struct
+			if st, ok = mpzStruct(a[i], 3); ok && sig[i] == 'w' {
+				out[i] = st
+			} else if ok {
+				n, err := vm.getMpz(st.Fields[:3])
+				if err != nil {
+					return nil, err
+				}
+				out[i] = n
+			}
 		case 'u':
 			out[i], ok = a[i].(uint64)
 		case 'i':
@@ -499,22 +524,6 @@ func numOfFloat(d float64) *mpfrNum {
 
 func numOfUint(u uint64) *mpfrNum { return numOfInt(new(big.Int).SetUint64(u)) }
 func numOfInt64(i int64) *mpfrNum { return numOfInt(big.NewInt(i)) }
-
-// ---- exact reading of the memory words ----
-
-// mpfrNumArg reads a BigFloat argument.
-func (vm *VM) mpfrNumArg(a any) (*mpfrNum, error) { return vm.mpfrRead(a.(*mpfrRef)) }
-
-// roundingArg is the rounding mode of an argument, refused when it is not
-// one of the five MPFR defines exactly: faithful rounding (MPFR_RNDF) leaves
-// the result to the implementation, and any other number is not a mode.
-func (vm *VM) roundingArg(fname string, rnd any) (int, error) {
-	r := rnd.(int)
-	if r < rndN || r > rndA {
-		return 0, fmt.Errorf("%w: %s in rounding mode %d (only the five of MPFR's directed and nearest modes are ported)", ErrUnsupported, fname, r)
-	}
-	return r, nil
-}
 
 // mpfrRet writes x in r and returns the ternary value, which is the sign
 // MPFR's functions return.
