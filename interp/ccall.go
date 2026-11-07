@@ -432,6 +432,7 @@ func (vm *VM) bootShims() {
 			return nil, vm.errorf("cannot determine field types of incomplete type %s", d.Name.Name)
 		},
 		"jl_get_field_offset": func(vm *VM, a []any) (any, error) { return vm.fieldOffset(a) },
+		"jl_fl_parse":         func(vm *VM, a []any) (any, error) { return vm.flParse(a) },
 		// jl_is_assertsbuild (jlapi.c:554-560): the official build is
 		// built without assertions (JL_NDEBUG)
 		"jl_is_assertsbuild": func(vm *VM, a []any) (any, error) { return int8(0), nil },

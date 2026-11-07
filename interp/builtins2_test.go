@@ -253,6 +253,71 @@ nothing`); err != nil {
 	check(t, "an isbits Union field", v, err, "!not ported yet: the layout of an isbits Union field")
 }
 
+// jl_fl_parse, Core._parse during Base's boot: the answers of julia 1.12.6
+// for the same text (testdata/golden/parserule.jsonl), a syntax error's
+// message as a String, and jl_fl_parse's own checks (ast.c:848-859).
+func TestFlParse(t *testing.T) {
+	vm := New()
+	text := func(s string) *Pointer { return &Pointer{Type: vm.ptrType(core.UInt8Type), Target: s} }
+	call := func(s string, offset uint64, rule string) (any, error) {
+		return vm.shims["jl_fl_parse"](vm, []any{text(s), uint64(len(s)), "none", uint64(1), offset, expr.Symbol(rule)})
+	}
+	for _, c := range []struct {
+		s      string
+		offset uint64
+		rule   string
+		want   string
+	}{
+		{"$(n+1) is $(f(x)[2])", 1, "atom", `svec(Expr(:call, :+, :n, 1), 6)`},
+		{"(α, β) = 3, 5", 10, "statement", `svec(Expr(:tuple, 3, 5), 15)`},
+		{"   ", 0, "atom", `svec(nothing, 3)`},
+		{"(α, β) = 3, 5", 16, "atom", `!BoundsError("(α, β) = 3, 5", 17)`},
+		{"x", 0, "toplevel", `!jl_fl_parse: unrecognized parse options`},
+		{"x\ny", 1, "all", "!Parse `all`: offset not supported"},
+	} {
+		v, err := call(c.s, c.offset, c.rule)
+		check(t, c.rule+" of "+c.s, v, err, c.want)
+	}
+	// a syntax error's message is a String, flisp's form, where the parser
+	// puts it: the expression, or the last form of a toplevel one
+	for _, c := range []struct {
+		s, rule string
+		at      func(any) any
+	}{
+		{"x = ", "statement", func(v any) any { return v.(*expr.Expr).Args[0] }},
+		{"a\n)\n", "all", func(v any) any { e := v.(*expr.Expr); return e.Args[len(e.Args)-1].(*expr.Expr).Args[0] }},
+	} {
+		v, err := call(c.s, 0, c.rule)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if msg, ok := c.at(v.(SVec)[0]).(string); !ok || !strings.HasPrefix(msg, "ParseError:") {
+			t.Errorf("%q: the error's argument is %#v", c.s, c.at(v.(SVec)[0]))
+		}
+	}
+	// nested past the parser's depth limit: a syntax error, not a crash
+	deep := strings.Repeat("(", 5000) + "x" + strings.Repeat(")", 5000)
+	v, err := call(deep, 0, "atom")
+	if err != nil || v.(SVec)[0].(*expr.Expr).Head != "error" || v.(SVec)[1] != int64(0) {
+		t.Errorf("past the depth limit: %v %v", v, err)
+	}
+	// arguments jl_fl_parse cannot have been given
+	for _, a := range [][]any{
+		{int64(1), uint64(1), "none", uint64(1), uint64(0), expr.Symbol("atom")},
+		{text("x"), int64(1), "none", uint64(1), uint64(0), expr.Symbol("atom")},
+		{text("x"), uint64(9), "none", uint64(1), uint64(0), expr.Symbol("atom")},
+		{text("x"), uint64(1), "none", uint64(1), uint64(0), int64(1)},
+	} {
+		if _, err := vm.shims["jl_fl_parse"](vm, a); err == nil {
+			t.Errorf("jl_fl_parse of %v", a)
+		}
+	}
+	// an Expr with no arguments is left as it is
+	if e := expr.New("block"); parseErrorsAsStrings(e) != any(e) {
+		t.Error("an empty Expr")
+	}
+}
+
 // A compressed value of a primitive type with no value of its own (a
 // parametric primitive with free parameters, which IR never holds) is
 // refused, not decoded.

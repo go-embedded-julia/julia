@@ -552,6 +552,15 @@ function answer(op, args)
         return string(VERSION, ' ', Base.GIT_VERSION_INFO.commit)
     elseif op == "parseall"
         return parseall(String(base64decode(args[1])), String(base64decode(args[2])))
+    elseif op == "parserule"
+        # Core._parse's hook: text, filename, line, 0-based offset, rule
+        # (all, statement, atom); the expression and the 0-based offset
+        # where parsing stopped, tab-separated
+        ex, last = JS.core_parser_hook(String(base64decode(args[1])), String(base64decode(args[2])),
+                                       parse(Int, String(base64decode(args[3]))),
+                                       parse(Int, String(base64decode(args[4]))),
+                                       Symbol(String(base64decode(args[5]))))
+        return serialize_expr(ex) * "\t" * string(last)
     elseif op == "parsefile"
         rel = String(base64decode(args[1]))
         return parseall(read(joinpath(SHARE, rel), String), rel)
