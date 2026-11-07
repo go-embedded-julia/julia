@@ -100,7 +100,9 @@ sincos_(x, p, r) = (s = newf(p); c = newf(p); t = ccall((:mpfr_sin_cos, L), Int3
 modf_(x, p, r) = (zi = newf(p); zf = newf(p); t = ccall((:mpfr_modf, L), Int32, (Ref{BF}, Ref{BF}, Ref{BF}, R.MPFRRoundingMode), zi, zf, x, rm(r)); (zi, zf, t))
 frexp_(x, p, r) = (z = newf(p); c = Ref{Clong}(); t = ccall((:mpfr_frexp, L), Int32, (Ptr{Clong}, Ref{BF}, Ref{BF}, R.MPFRRoundingMode), c, z, x, rm(r)); (z, c[], t))
 fac_(n, p, r) = (z = newf(p); t = ccall((:mpfr_fac_ui, L), Int32, (Ref{BF}, Culong, R.MPFRRoundingMode), z, n, rm(r)); (z, t))
-log2c(p, r) = (z = newf(p); t = ccall((:mpfr_const_log2, L), Cint, (Ref{BF}, R.MPFRRoundingMode), z, rm(r)); (z, t))
+for c in (:log2, :pi, :euler, :catalan)
+    @eval constc(::Val{$(QuoteNode(c))}, p, r) = (z = newf(p); t = ccall(($(QuoteNode(Symbol(:mpfr_const_, c))), L), Cint, (Ref{BF}, R.MPFRRoundingMode), z, rm(r)); (z, t))
+end
 nextf(::Val{:mpfr_nextabove}, x) = (z = R._duplicate(x); ccall((:mpfr_nextabove, L), Int32, (Ref{BF},), z); z)
 nextf(::Val{:mpfr_nextbelow}, x) = (z = R._duplicate(x); ccall((:mpfr_nextbelow, L), Int32, (Ref{BF},), z); z)
 
@@ -242,8 +244,8 @@ end
 for n in Culong[0, 1, 2, 5, 20, 21, 25, 100, 1000], p in (2, 53, 130, 1100), r in MODES
     emit("fac_ui", [uin(n), uin(p), rin(r)], () -> ((z, t) = fac_(n, p, r); [benc(z), iout(sign(t))]))
 end
-for p in (1, 2, 53, 64, 65, 130, 400), r in MODES
-    emit("const_log2", [uin(p), rin(r)], () -> ((z, t) = log2c(p, r); [benc(z), iout(sign(t))]))
+for c in (:log2, :pi, :euler, :catalan), p in (1, 2, 53, 64, 65, 130, 400), r in MODES
+    emit("const_$c", [uin(p), rin(r)], () -> ((z, t) = constc(Val(c), p, r); [benc(z), iout(sign(t))]))
 end
 
 # predicates and comparisons

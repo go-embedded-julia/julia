@@ -145,6 +145,7 @@ func intTok(tok string) int64 { return must(strconv.ParseInt(tok[2:], 10, 64)) }
 var mpfrRefusedOps = map[string]bool{
 	"sech": true, "csch": true, "coth": true, "sec": true, "csc": true, "sinpi": true, "cospi": true, "tanpi": true,
 	"sinu": true, "cosu": true, "tanu": true, "asinu": true, "acosu": true, "atanu": true, "atan2u": true,
+	"const_catalan": true,
 }
 
 // run is one golden line: the outputs of the shims the operation names.
@@ -231,9 +232,9 @@ func (f *mpfrFixture) run(op string, in []string) ([]string, error) {
 			return nil, err
 		}
 		return []string{f.enc(z), tsign(t)}, nil
-	case "const_log2":
+	case "const_log2", "const_pi", "const_euler", "const_catalan":
 		z := f.newBF(prec(in[0]))
-		t, err := f.call("mpfr_const_log2", z, f.arg(in[1]))
+		t, err := f.call("mpfr_"+op, z, f.arg(in[1]))
 		if err != nil {
 			return nil, err
 		}
@@ -363,7 +364,7 @@ func inputsOf(op string) int {
 		"expm1", "cosh", "sinh", "tanh", "cbrt", "log", "log2", "log10", "log1p", "sin", "cos", "tan", "acos", "asin", "atan",
 		"acosh", "asinh", "atanh", "add_alias":
 		return 3
-	case "trunc", "roundeven", "ceil", "floor", "round", "const_log2", "equal_p", "lessequal_p", "greaterequal_p", "less_p",
+	case "trunc", "roundeven", "ceil", "floor", "round", "const_log2", "const_pi", "const_euler", "const_catalan", "equal_p", "lessequal_p", "greaterequal_p", "less_p",
 		"greater_p", "cmp_z", "cmp_si", "cmp_ui", "cmp_d", "get_sj", "get_uj", "get_z", "asprintf":
 		return 2
 	case "integer_p", "get_prec", "get_exp", "nextabove", "nextbelow", "custom_get_size", "set_emin", "set_emax":

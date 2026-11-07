@@ -214,9 +214,10 @@ func (vm *VM) mpfrAtan2(y, x *mpfrNum, prec int64, rnd int) (*mpfrNum, int, erro
 	return vm.bfEval("mpfr_atan2", prec, rnd, []*mpfrNum{y, x}, func(z *big.Float, a []*big.Float) { bigfloat.Atan2(z, a[0], a[1]) })
 }
 
-// mpfrLog2Const is log(2).
-func (vm *VM) mpfrLog2Const(prec int64, rnd int) (*mpfrNum, int, error) {
-	return vm.bfEval("mpfr_const_log2", prec, rnd, nil, func(z *big.Float, _ []*big.Float) { bigfloat.Ln2(z) })
+// mpfrConst is a constant bigfloat computes at any precision: log(2), pi,
+// Euler's gamma.
+func (vm *VM) mpfrConst(name string, f func(*big.Float) *big.Float, prec int64, rnd int) (*mpfrNum, int, error) {
+	return vm.bfEval(name, prec, rnd, nil, func(z *big.Float, _ []*big.Float) { f(z) })
 }
 
 // facBits bounds the bits of n!, as the float the gamma function gives, for
