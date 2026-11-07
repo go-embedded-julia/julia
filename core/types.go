@@ -27,8 +27,8 @@ type TypeName struct {
 	// ModuleRef is the module the runtime defined the type in, opaque to
 	// core; nil for the types core makes itself, which name theirs
 	ModuleRef any
-	Abstract bool
-	Mutable  bool
+	Abstract  bool
+	Mutable   bool
 	// Wrapper is the UnionAll over all parameters, or the DataType itself
 	// when it has none (Vector's wrapper is Array{T,1} where T, not Array).
 	Wrapper any

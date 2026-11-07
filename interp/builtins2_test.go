@@ -120,7 +120,7 @@ end`); err != nil {
 		"g(1)": "(1, (1,))",
 		"g(2)": "(2, (2,))",
 		"g(3)": "(3, (1, 3))",
-		"try ccall(:jl_rethrow, Union{}, ()) catch e; e end":               `ErrorException("rethrow() not allowed outside a catch block")`,
+		"try ccall(:jl_rethrow, Union{}, ()) catch e; e end":              `ErrorException("rethrow() not allowed outside a catch block")`,
 		"try ccall(:jl_rethrow_other, Union{}, (Any,), 5) catch e; e end": `ErrorException("rethrow(exc) not allowed outside a catch block")`,
 	} {
 		v, err := s.Eval(src)
