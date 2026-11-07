@@ -57,7 +57,9 @@ func (vm *VM) bootCodeInstanceType() {
 	must(0, t.SetFieldTypes([]any{any_, any_, t, ulong, ulong, any_, any_, any_, any_,
 		vm.Core.own("DebugInfo").Value, core.SimpleVectorType, any_, core.UInt32Type,
 		core.UInt16Type, core.UInt16Type, core.UInt16Type, core.UInt16Type, core.UInt8Type,
-		core.BoolType, any_, any_}))
+		// invoke and specptr, Any when julia makes the type and Ptr{Cvoid}
+		// once it can (jltypes.c:3862-3863)
+		core.BoolType, vm.ptrType(core.NothingType), vm.ptrType(core.NothingType)}))
 	t.Name.ConstFields = marked(ciNumFields, 0, 1, 5, 6, 7, 11, 13, 14, 15)
 	t.Name.AtomicFields = marked(ciNumFields, 2, 3, 4, 8, 9, 10, 12, 16, 17, 18, 19, 20)
 	vm.tCodeInstance = t

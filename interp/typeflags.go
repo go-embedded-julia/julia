@@ -122,7 +122,9 @@ func fieldsFree(d *core.DataType, seen map[*core.DataType]bool, mutation bool) b
 		return false
 	}
 	if d.Name.Bits > 0 {
-		return true
+		// jl_new_primitivetype sets isidentityfree of the wrapper only
+		// (datatype.c:992-993): not of Ptr{Int}
+		return mutation || len(d.Parameters) == 0
 	}
 	ft, ok := d.FieldTypes()
 	if !ok {

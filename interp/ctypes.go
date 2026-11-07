@@ -58,6 +58,8 @@ func (vm *VM) bootCTypes() {
 	vm.methodTable = &Struct{Type: opaque("MethodTable")}
 	vm.setCore("methodtable", vm.methodTable)
 	vm.bootBindingTypes()
+	// GlobalRef's binding field is a Binding (jltypes.c:3285-3288)
+	vm.tGlobalRef.Name.Fields[2] = vm.tBinding
 	vm.bootReflectionTypes()
 	vm.bootCodeInstanceType()
 	vm.bootCodeInfoType()
