@@ -242,6 +242,26 @@ nothing`); err != nil {
 			t.Errorf("fieldoffset of %v", a)
 		}
 	}
+	// through the ccall's shim
+	v, err := vm.shims["jl_get_field_offset"](vm, []any{ty("Pad"), int32(2)})
+	check(t, "the shim", v, err, "0x0000000000000008")
+	// an isbits Union field, which structLayout does not lay out yet
+	if _, err := s.Eval("struct WithU; a::Int8; u::Union{Int8, Int16}; end"); err != nil {
+		t.Fatal(err)
+	}
+	v, err = vm.fieldOffset([]any{ty("WithU"), int32(2)})
+	check(t, "an isbits Union field", v, err, "!not ported yet: the layout of an isbits Union field")
+}
+
+// A compressed value of a primitive type with no value of its own (a
+// parametric primitive with free parameters, which IR never holds) is
+// refused, not decoded.
+func TestFromImageRefusesAnAbstractPrimitive(t *testing.T) {
+	vm := New()
+	llvm := core.UnwrapUnionAll(vm.Core.own("LLVMPtr").Value).(*core.DataType)
+	d := &irDecoder{vm: vm, b: "\x00\x00\x00\x00\x00\x00\x00\x00", tables: vm.irTagTables()}
+	v, err := d.fromImage(llvm)
+	check(t, "LLVMPtr{T, AS}", v, err, "!not ported yet: jl_uncompress_ir of a")
 }
 
 // The builtins Base's first files call, each want julia 1.12.6's answer to

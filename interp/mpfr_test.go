@@ -384,17 +384,18 @@ func beyondInt32(tok string) bool {
 	return e > math.MaxInt32 || e < math.MinInt32
 }
 
-// outOfScope is whether MPFR's answer is one math/big cannot hold or the
-// shim refuses on purpose: a function not ported, an argument or result whose
-// exponent is beyond int32, or an infinity or zero from regular numbers.
-func outOfScope(op string, ins, outs []string) bool {
+// outOfScope is why MPFR's answer is one math/big cannot hold or the shim
+// refuses on purpose, "" when it is neither: a function not ported ("op"),
+// an argument or result whose exponent is beyond int32 ("int32"), or an
+// infinity or zero from regular numbers ("special").
+func outOfScope(op string, ins, outs []string) string {
 	if mpfrRefusedOps[op] {
-		return true
+		return "op"
 	}
 	regularIn, specialOut := true, false
 	for _, tok := range append(append([]string{}, ins...), outs...) {
 		if beyondInt32(tok) {
-			return true
+			return "int32"
 		}
 	}
 	for _, tok := range ins {
@@ -407,7 +408,10 @@ func outOfScope(op string, ins, outs []string) bool {
 			specialOut = true
 		}
 	}
-	return regularIn && specialOut
+	if regularIn && specialOut {
+		return "special"
+	}
+	return ""
 }
 
 func TestMPFRGolden(t *testing.T) {
@@ -421,6 +425,7 @@ func TestMPFRGolden(t *testing.T) {
 	sc.Buffer(make([]byte, 1<<20), 1<<24)
 	lines, refused, fails := 0, 0, map[string]int{}
 	refusedBy := map[string]int{}
+	refusedWhy, refusedNarrow, refusedSpecial := map[string]int{}, map[string]int{}, map[string]int{}
 	shown := map[string]int{}
 	for sc.Scan() {
 		fields := strings.Split(sc.Text(), "\t")
@@ -453,9 +458,18 @@ func TestMPFRGolden(t *testing.T) {
 			f.must("mpfr_set_emax", int64(mpfrEmaxMax))
 		}
 		if err != nil {
-			if (errors.Is(err, ErrUnsupported) || errors.Is(err, ErrMemoryLimit)) && outOfScope(name, rest[:nin], want) {
+			if why := outOfScope(name, rest[:nin], want); why != "" && (errors.Is(err, ErrUnsupported) || errors.Is(err, ErrMemoryLimit)) {
 				refused++
 				refusedBy[name]++
+				refusedWhy[why]++
+				if why == "special" {
+					refusedSpecial[name]++
+					if strings.HasPrefix(op, "R") {
+						// an overflow or underflow in a narrowed exponent
+						// range, within what math/big holds
+						refusedNarrow[name]++
+					}
+				}
 				continue
 			}
 			fails[op]++
@@ -473,5 +487,11 @@ func TestMPFRGolden(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("%d golden lines, %d refused as out of scope, %d failing operations; refused by operation: %v", lines, refused, len(fails), refusedBy)
+	t.Logf("%d golden lines, %d refused as out of scope, %d failing operations; refused by operation: %v; by reason: %v; an infinity or zero from regular numbers: %v",
+		lines, refused, len(fails), refusedBy, refusedWhy, refusedSpecial)
+	// an overflow or underflow in a narrowed exponent range is within what
+	// math/big holds: refusing one would hide a case the shims miss
+	if len(refusedNarrow) > 0 {
+		t.Errorf("refused in a narrowed exponent range: %v", refusedNarrow)
+	}
 }
