@@ -417,13 +417,13 @@ func biSizeof(vm *VM, args []any) (any, error) {
 	switch args[0].(type) {
 	case *core.Union, *core.UnionAll:
 		x := core.UnwrapUnionAll(args[0])
-		var size, align int
-		n, err := unionInlinable(x, false, &size, &align, false)
+		var acc inlineAcc
+		n, err := unionInlinable(x, false, &acc, false)
 		if err != nil {
 			return nil, err
 		}
 		if n != 0 {
-			return int64(size), nil
+			return int64(acc.size), nil
 		}
 		d, ok := x.(*core.DataType)
 		if !ok {
