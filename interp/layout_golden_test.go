@@ -66,7 +66,7 @@ func layoutLine(vm *VM, src string, v any, dtl *core.DataType) (string, error) {
 	}
 	line := fmt.Sprintf("%s\t%d\t", src, inl)
 	d, ok := v.(*core.DataType)
-	if !ok || !d.IsConcrete {
+	if !ok || !tryLayout(d) {
 		return line + "ERR", nil
 	}
 	size, err := biSizeof(vm, []any{d})

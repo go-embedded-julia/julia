@@ -50,7 +50,9 @@ func smallTag(d *core.DataType) uint16 {
 // pointer or an inline Union, or inline with its own zeroinit, which must
 // start as zeroes (jl_compute_field_offsets, datatype.c:737, 766-767, 777).
 func zeroinit(d *core.DataType) bool {
-	if !d.IsConcrete {
+	// a type without free type variables in its layout has one, concrete or
+	// not (jl_has_fixed_layout)
+	if !core.HasFixedLayout(d) {
 		return false
 	}
 	l, err := structLayout(d)
