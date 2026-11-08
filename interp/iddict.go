@@ -161,10 +161,22 @@ func (vm *VM) tablePeek(a *Memory, key any) int {
 	}
 }
 
-// valuePtr is jl_value_ptr (Ptr{Cvoid}, (Any,)), pointer_from_objref: a
-// pointer to the object itself.
+// valuePtr is jl_value_ptr, the identity in C whose ccall types do the
+// work; Base calls it two ways (pointer.jl:285, 302; summarysize.jl:99,
+// 122): (Ptr{Cvoid}, (Any,)), pointer_from_objref, a pointer to the
+// object itself; and (Any, (Ptr{Cvoid},)), unsafe_pointer_to_objref, the
+// object at that address. The argument tells them apart: an object of the
+// first is mutable, never a Ptr. An address not at an object's start, or
+// NULL, has no object.
 func (vm *VM) valuePtr(a []any) (any, error) {
-	return &Pointer{Type: vm.ptrType(core.NothingType), Target: a[0]}, nil
+	p, ok := a[0].(*Pointer)
+	if !ok {
+		return &Pointer{Type: vm.ptrType(core.NothingType), Target: a[0]}, nil
+	}
+	if p.Target == nil || p.Off != 0 {
+		return nil, fmt.Errorf("%w: unsafe_pointer_to_objref of %s", ErrUnsupported, showValue(p))
+	}
+	return p.Target, nil
 }
 
 // The jl_eqtable_* entry points (iddict.c:143-192).

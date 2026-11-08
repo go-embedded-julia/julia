@@ -296,6 +296,15 @@ func (vm *VM) bootBindingShims() {
 		}
 		return int32(0), nil
 	}
+	// a Ptr{Cvoid} to the module, which binding_module reads back with
+	// unsafe_pointer_to_objref (runtime_internals.jl:183-187)
+	vm.shims["jl_get_module_of_binding"] = func(vm *VM, a []any) (any, error) {
+		m, name, err := moduleVar("jl_get_module_of_binding", a)
+		if err != nil {
+			return nil, err
+		}
+		return &Pointer{Type: vm.ptrType(core.NothingType), Target: vm.moduleOfBinding(m, name, vm.taskWorld)}, nil
+	}
 	vm.shims["jl_is_const"] = func(vm *VM, a []any) (any, error) {
 		m, name, err := moduleVar("jl_is_const", a)
 		if err != nil {
@@ -305,6 +314,28 @@ func (vm *VM) bootBindingShims() {
 			return int32(1), nil
 		}
 		return int32(0), nil
+	}
+}
+
+// moduleOfBinding is jl_get_module_of_binding (module.c:859-872),
+// Base.binding_module: the module that holds the binding m's name
+// resolves to in world w, through imports and implicit globals; an
+// implicit constant's is the module of the binding it was imported from.
+// Module.lookup resolves an implicit import to one binding, the first
+// using's, so julia's error for a constant several modules export does
+// not arise here.
+func (vm *VM) moduleOfBinding(m *Module, name expr.Symbol, w uint64) *Module {
+	b := vm.moduleBinding(m, name, true)
+	for {
+		p := vm.bindingPartition(b, w)
+		switch p.Fields[4].(uint64) & 0xf {
+		case bkExplicit, bkImported, bkImplicitGlobal:
+			b = p.Fields[0].(*Binding)
+			continue
+		case bkImplicitConst:
+			return b.Mod.lookup(b.Name, w).Mod
+		}
+		return b.Mod
 	}
 }
 

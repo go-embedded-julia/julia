@@ -211,6 +211,14 @@ func TestStartupShims(t *testing.T) {
 	if err != nil || p.(*Pointer).Target != any("x") {
 		t.Errorf("jl_value_ptr: %v %v", p, err)
 	}
+	// back: unsafe_pointer_to_objref(pointer_from_objref(x)) === x
+	if back, err := f.sh("jl_value_ptr", p); err != nil || back != any("x") {
+		t.Errorf("unsafe_pointer_to_objref: %v %v", back, err)
+	}
+	for _, q := range []*Pointer{{Type: vm.ptrType(core.NothingType)}, {Type: vm.ptrType(core.NothingType), Target: "x", Off: 1}} {
+		_, err := f.sh("jl_value_ptr", q)
+		check(t, "unsafe_pointer_to_objref of "+showValue(q), nil, err, "!not ported yet: unsafe_pointer_to_objref of")
+	}
 	// the grapheme break's state: the store back through a pointer of another type
 	slot := &ptrSlot{name: "st", val: int32(0)}
 	_, err = f.sh("utf8proc_grapheme_break_stateful", uint32('a'), uint32('b'), &Pointer{Type: vm.ptrType(core.Int64Type), Target: slot})

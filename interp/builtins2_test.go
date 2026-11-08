@@ -416,6 +416,45 @@ nothing`); err != nil {
 	}
 }
 
+// jl_get_module_of_binding, Base.binding_module, julia 1.12.6's answers for
+// the same modules: the module itself for its own binding and an unknown
+// name, the defining module through an import, an implicit global and an
+// implicit constant.
+func TestModuleOfBinding(t *testing.T) {
+	vm := New()
+	s := vm.NewSession()
+	if _, err := s.Eval(`module A
+export ax, ac
+ax = 1
+const ac = 2
+end
+module BM
+using ..A
+import Core: Int64
+c1 = 1
+fn() = 1
+end`); err != nil {
+		t.Fatal(err)
+	}
+	bm, a := s.Mod.own("BM").Value.(*Module), s.Mod.own("A").Value.(*Module)
+	for name, want := range map[expr.Symbol]*Module{
+		"c1": bm, "fn": bm, "Int64": vm.Core, "ax": a, "ac": a, "Int8": vm.Core, "nope": bm,
+	} {
+		p, err := vm.shims["jl_get_module_of_binding"](vm, []any{bm, name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// binding_module reads it back with unsafe_pointer_to_objref
+		m, err := vm.shims["jl_value_ptr"](vm, []any{p})
+		if err != nil || m != any(want) {
+			t.Errorf("binding_module(BM, :%s) = %v %v, want %s", name, m, err, want.Name)
+		}
+	}
+	if _, err := vm.shims["jl_get_module_of_binding"](vm, []any{int64(1), expr.Symbol("x")}); err == nil {
+		t.Error("jl_get_module_of_binding of a non-module")
+	}
+}
+
 // jl_macroexpand, as julia 1.12.6 expands the same macros (show_sexpr):
 // what a macro introduces is resolved in its module, a GlobalRef; its local
 // is renamed #<n>#t; a form with no macro comes back as it is; a macro's
