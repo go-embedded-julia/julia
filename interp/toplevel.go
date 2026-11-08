@@ -264,6 +264,18 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 	b.Value, b.Const = newm, true
 	s := vm.sessionFor(newm)
 	bootstrapBase := parent == vm.Main && name == "Base" && newm == vm.baseModule
+	// open while its forms run (jl_current_modules, toplevel.c:182-205)
+	vm.openModules[newm]++
+	closed := false
+	closeModule := func() {
+		if !closed {
+			closed = true
+			if vm.openModules[newm]--; vm.openModules[newm] == 0 {
+				delete(vm.openModules, newm)
+			}
+		}
+	}
+	defer closeModule()
 	for _, form := range body.Args {
 		if _, ok := form.(expr.LineNumberNode); ok {
 			continue
@@ -279,6 +291,12 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 		if _, err := s.evalForm(form); err != nil {
 			return nil, err
 		}
+	}
+	closeModule()
+	// its __init__, and its submodules', once no module around it is open
+	// (toplevel.c:207-242)
+	if err := vm.moduleDefined(newm); err != nil {
+		return nil, err
 	}
 	return newm, nil
 }

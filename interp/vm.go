@@ -76,6 +76,11 @@ type VM struct {
 	// (cglobal((:name, lib), T))
 	libCglobals map[string]map[expr.Symbol]*ptrSlot
 	sessions    map[*Module]*Session
+	// openModules are the modules whose definition is under way
+	// (jl_current_modules), moduleInitOrder those defined whose __init__
+	// waits for the outermost open one (jl_module_init_order); modinit.go
+	openModules     map[*Module]int
+	moduleInitOrder []*Module
 	// mpfr is libmpfr's global state: the exponent range and the flags
 	mpfr mpfrEnv
 
@@ -190,7 +195,7 @@ const DefaultMaxDepth = 4000
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
-		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources, BinDir: "/julia/bin", HomeDir: "/julia/home", WorkDir: "/julia/home",
+		sessions: map[*Module]*Session{}, openModules: map[*Module]int{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources, BinDir: "/julia/bin", HomeDir: "/julia/home", WorkDir: "/julia/home",
 		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{}, singletons: map[*core.DataType]any{},
 		reflected: map[*dispatch.Method]*reflected{}, reflectedOf: map[*Struct]*reflected{},
 		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard,

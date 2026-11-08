@@ -55,6 +55,61 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+// Module initializers, as julia 1.12.6 runs them for the same modules
+// (toplevel.c:207-242): [:B, :A, :O, :P], each module's __init__ waiting
+// for the outermost module being defined around it; an __init__'s error is
+// InitError(name, error); jl_init_restored_module runs one now.
+func TestModuleInitializers(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	s := vm.NewSession()
+	// rec(:x) records x after what came before: ((((), :B), :A), ...)
+	v, err := s.Eval(`mutable struct Rec; v; end
+const R = Rec(())
+rec(x) = (setfield!(R, :v, (getfield(R, :v), x)); nothing)
+module O
+    module A
+        __init__() = getfield(getfield(Main, :L), :rec)(:A)
+        module B
+            __init__() = getfield(getfield(Main, :L), :rec)(:B)
+        end
+    end
+    __init__() = getfield(getfield(Main, :L), :rec)(:O)
+    module C end
+end
+module P
+    __init__() = getfield(getfield(Main, :L), :rec)(:P)
+end
+getfield(R, :v)`)
+	check(t, "the order", v, err, "(((((), :B), :A), :O), :P)")
+	_, err = s.Eval(`module Bad
+    __init__() = throw(ErrorException("boom"))
+end`)
+	check(t, "an __init__'s error", nil, err, `!InitError(:Bad, ErrorException("boom"))`)
+	// jl_init_restored_module: P's __init__ again, now
+	p := s.Mod.own("P").Value.(*Module)
+	if _, err := vm.shims["jl_init_restored_module"](vm, []any{p}); err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.Eval("getfield(R, :v)")
+	check(t, "jl_init_restored_module", v, err, "((((((), :B), :A), :O), :P), :P)")
+	_, err = vm.shims["jl_init_restored_module"](vm, []any{int64(1)})
+	check(t, "jl_init_restored_module of 1", nil, err, "!TypeError(:ccall")
+	// a module defined elsewhere stays waiting when another one's
+	// initializers run
+	other := newModule("Other", nil)
+	vm.moduleInitOrder = []*Module{other}
+	if err := vm.moduleDefined(newModule("Fresh", vm.Main)); err != nil || len(vm.moduleInitOrder) != 1 || vm.moduleInitOrder[0] != other {
+		t.Errorf("the waiting module: %v %v", vm.moduleInitOrder, err)
+	}
+	// before Core has InitError (boot.jl), the error as it is
+	bare := New()
+	_, err = bare.NewSession().Eval("module Early\n__init__() = throw(1)\nend")
+	check(t, "an __init__'s error before InitError", nil, err, "!julia exception: 1")
+}
+
 // Base.jl:410-415's loop records the Compiler's sources from the embedded
 // ones: (mod, abspath, size, CRC-32C, -1.0), julia's _crc32c of
 // "123456789" being 0xe3069283; files of other modules are left out.
