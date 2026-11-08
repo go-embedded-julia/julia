@@ -22,6 +22,8 @@ func TestBaseProgress(t *testing.T) {
 	}
 	var out strings.Builder
 	vm.Stdout = &out
+	// julia's build generates its system image: initializers wait
+	vm.GeneratingOutput = true
 	_, err := vm.jlLoad([]any{vm.Main, "Base_compiler.jl"})
 	t.Logf("Base_compiler.jl: %v\nprinted:\n%s", err, out.String())
 	if err != nil {
@@ -34,6 +36,17 @@ func TestBaseProgress(t *testing.T) {
 	_, err = vm.jlLoad([]any{vm.Main, "sysimg.jl"})
 	t.Logf("sysimg.jl: %v\nprinted:\n%s", err, out.String())
 	var th *Thrown
+	if errors.As(err, &th) {
+		t.Logf("unwound:\n%s", strings.Join(th.Trace, "\n"))
+	}
+	if err != nil {
+		return
+	}
+	// julia starting from its image: the modules' __init__, in order
+	out.Reset()
+	vm.GeneratingOutput = false
+	err = vm.RunModuleInitializers()
+	t.Logf("module initializers: %v\nprinted:\n%s", err, out.String())
 	if errors.As(err, &th) {
 		t.Logf("unwound:\n%s", strings.Join(th.Trace, "\n"))
 	}

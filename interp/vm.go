@@ -76,6 +76,10 @@ type VM struct {
 	// (cglobal((:name, lib), T))
 	libCglobals map[string]map[expr.Symbol]*ptrSlot
 	sessions    map[*Module]*Session
+	// GeneratingOutput is jl_generating_output(): set while the VM builds
+	// Base as julia builds its system image, module initializers wait
+	// (modinit.go, RunModuleInitializers).
+	GeneratingOutput bool
 	// openModules are the modules whose definition is under way
 	// (jl_current_modules), moduleInitOrder those defined whose __init__
 	// waits for the outermost open one (jl_module_init_order); modinit.go

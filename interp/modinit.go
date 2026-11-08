@@ -7,11 +7,15 @@ import (
 	"github.com/go-embedded-julia/julia/expr"
 )
 
-// Module initializers. The VM builds Base when it starts, as a julia not
-// generating output (jl_generating_output() false): a module's __init__
-// runs once the outermost module being defined around it is done
-// (toplevel.c:207-242), and Base's own once sysimg.jl has loaded it
-// (jl_init_restored_module, module.c:2087-2095).
+// Module initializers. While the VM builds Base from Base_compiler.jl and
+// sysimg.jl it is julia building its system image (VM.GeneratingOutput,
+// jl_generating_output()): each module defined, and Base itself
+// (jl_init_restored_module, module.c:2087-2095), joins jl_module_init_order
+// and none runs, an __init__ needing what later files define (Sys's ENV,
+// env.jl). RunModuleInitializers then runs them in that order, as julia
+// starting from the image does (init.c:618-629). Otherwise a module's
+// __init__ runs once the outermost module being defined around it is done
+// (toplevel.c:207-242).
 
 // isSubmodule is jl_is_submodule (module.c:2044-2053): child is parent or
 // lies under it.
@@ -30,7 +34,7 @@ func isSubmodule(child, parent *Module) bool {
 // their definitions ended, and leave the list.
 func (vm *VM) moduleDefined(newm *Module) error {
 	vm.moduleInitOrder = append(vm.moduleInitOrder, newm)
-	if vm.openModules[newm.Parent] > 0 {
+	if vm.GeneratingOutput || vm.openModules[newm.Parent] > 0 {
 		return nil
 	}
 	var run, keep []*Module
@@ -76,12 +80,31 @@ func (vm *VM) runInitializer(m *Module) error {
 }
 
 // initRestoredModule is jl_init_restored_module (module.c:2087-2095), as
-// sysimg.jl:9 calls it for Base: its __init__ now, the VM not generating
-// output.
+// sysimg.jl:9 calls it for Base: its __init__ now, or, generating output,
+// the module joins jl_module_init_order (jl_add_to_module_init_list).
 func (vm *VM) initRestoredModule(a []any) (any, error) {
 	m, ok := a[0].(*Module)
 	if !ok {
 		return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
 	}
+	if vm.GeneratingOutput {
+		vm.moduleInitOrder = append(vm.moduleInitOrder, m)
+		return nil, nil
+	}
 	return nil, vm.runInitializer(m)
+}
+
+// RunModuleInitializers runs the __init__ of the modules waiting for it, in
+// jl_module_init_order's order, as julia does once restored from its system
+// image (init.c:618-629): after Base is built, with GeneratingOutput false.
+// The list is empty afterwards; the first error stops it.
+func (vm *VM) RunModuleInitializers() error {
+	order := vm.moduleInitOrder
+	vm.moduleInitOrder = nil
+	for _, m := range order {
+		if err := vm.runInitializer(m); err != nil {
+			return err
+		}
+	}
+	return nil
 }

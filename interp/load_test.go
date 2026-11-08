@@ -108,6 +108,32 @@ end`)
 	bare := New()
 	_, err = bare.NewSession().Eval("module Early\n__init__() = throw(1)\nend")
 	check(t, "an __init__'s error before InitError", nil, err, "!julia exception: 1")
+
+	// generating output, as the VM builds Base: the initializers wait, Base
+	// itself joins them (jl_init_restored_module), and they run in order
+	// afterwards; the first error stops them
+	vm.moduleInitOrder = nil
+	vm.GeneratingOutput = true
+	if _, err := s.Eval(`setfield!(R, :v, ())
+module Q
+    __init__() = getfield(getfield(Main, :L), :rec)(:Q)
+end`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vm.shims["jl_init_restored_module"](vm, []any{p}); err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.Eval("getfield(R, :v)")
+	check(t, "none run while generating output", v, err, "()")
+	vm.GeneratingOutput = false
+	if err := vm.RunModuleInitializers(); err != nil {
+		t.Fatal(err)
+	}
+	v, err = s.Eval("getfield(R, :v)")
+	check(t, "run afterwards, in order", v, err, "(((), :Q), :P)")
+	vm.moduleInitOrder = []*Module{s.Mod.own("Bad").Value.(*Module), p}
+	err = vm.RunModuleInitializers()
+	check(t, "the first error stops them", nil, err, `!InitError(:Bad, ErrorException("boom"))`)
 }
 
 // Base.jl:410-415's loop records the Compiler's sources from the embedded
