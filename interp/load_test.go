@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/go-embedded-julia/julia/expr"
 )
 
 // jl_load_ reads VM.Sources only, evaluates each form in the module given,
@@ -48,6 +50,45 @@ func TestLoad(t *testing.T) {
 	for _, name := range []string{"boot.jl", "optimized_generics.jl"} {
 		if _, err := fs.Stat(New().Sources, name); err != nil {
 			t.Errorf("default sources: %v", err)
+		}
+	}
+}
+
+// Base.jl:317's include of JuliaSyntax's Julia source gives Base a native
+// JuliaSyntax (juliasyntax.go), whose enable_in_core!() Base's __init__
+// calls; the same form outside Base, or another file, is evaluated as is.
+func TestJuliaSyntaxInBase(t *testing.T) {
+	vm := New()
+	const inc = `include(@__MODULE__, string(BUILDROOT, "JuliaSyntax/src/JuliaSyntax.jl"))`
+	vm.Sources = fstest.MapFS{
+		"base.jl":  {Data: []byte(inc + "\ngetfield(JuliaSyntax, :enable_in_core!)()\n")},
+		"other.jl": {Data: []byte("include(@__MODULE__, string(BUILDROOT, \"x.jl\"))\n")},
+	}
+	// the bootstrap's Base, as `module Base` in Main makes it (toplevel.go)
+	base := newModule("Base", vm.Main)
+	base.usings = []*Module{vm.Core}
+	vm.baseModule = base
+	vm.replaceBase(base)
+	v, err := vm.jlLoad([]any{base, "base.jl"})
+	check(t, "enable_in_core!()", v, err, "nothing")
+	js, ok := base.own("JuliaSyntax").Value.(*Module)
+	if !ok || js.Parent != base || !base.own("JuliaSyntax").Const {
+		t.Fatalf("Base.JuliaSyntax: %v", base.own("JuliaSyntax").Value)
+	}
+	// outside Base the form is evaluated: here no include is defined
+	if _, err := vm.jlLoad([]any{vm.Main, "base.jl"}); err == nil {
+		t.Error("the include evaluated outside Base")
+	}
+	if _, err := vm.jlLoad([]any{base, "other.jl"}); err == nil {
+		t.Error("another file's include taken for JuliaSyntax's")
+	}
+	for _, form := range []any{
+		int64(1),
+		expr.New("call", expr.Symbol("f"), int64(1), int64(2)),
+		expr.New("call", expr.Symbol("include"), int64(1), "JuliaSyntax/src/JuliaSyntax.jl"),
+	} {
+		if isJuliaSyntaxInclude(form) {
+			t.Errorf("%s taken for JuliaSyntax's include", showValue(form))
 		}
 	}
 }

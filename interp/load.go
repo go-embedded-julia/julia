@@ -57,6 +57,13 @@ func (vm *VM) jlLoad(a []any) (any, error) {
 			line = l.Line
 			continue
 		}
+		// JuliaSyntax, the parser Base includes from its Julia source
+		// (Base.jl:317), is package syntax here: Base gets a native module
+		// in its place (juliasyntax.go)
+		if m == vm.baseModule && isJuliaSyntaxInclude(form) {
+			vm.defineJuliaSyntax(m)
+			continue
+		}
 		if v, err = s.evalForm(form); err != nil {
 			// a Julia exception comes out as LoadError(file, line, error)
 			// once post_boot_hooks has found LoadError; before that, as is
