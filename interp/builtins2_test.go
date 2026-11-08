@@ -337,6 +337,85 @@ func TestValueTypeParams(t *testing.T) {
 	}
 }
 
+// precompile's jl_compile_hint, julia 1.12.6's answers for the same
+// methods: 1 where one method matches (the most specific covering a
+// concrete query, the others pruned), 0 where none does or an ambiguity
+// leaves none; several matches (an abstract or Union query) need
+// jl_isa_compileable_sig, refused here where julia answers 0.
+func TestCompileHint(t *testing.T) {
+	vm := New()
+	s := vm.NewSession()
+	if _, err := s.Eval(`f1(x::Int) = 1
+g(x::Int) = 1
+g(x::Real) = 2
+h(x::Integer, y) = 1
+h(x, y::Integer) = 2
+k(x::Int8) = 1
+k(x::Int16) = 2
+nothing`); err != nil {
+		t.Fatal(err)
+	}
+	for src, want := range map[string]string{
+		"Tuple{typeof(f1), Int}":               "1",
+		"Tuple{typeof(f1), String}":            "0",
+		"Tuple{typeof(g), Int}":                "1",
+		"Tuple{typeof(g), Float64}":            "1",
+		"Tuple{typeof(h), Int, Int}":           "0",
+		"Tuple{typeof(f1), T} where T":         "1",
+		"Tuple{typeof(g), Real}":               "!not ported yet: jl_compile_hint of",
+		"Tuple{typeof(k), Union{Int8, Int16}}": "!not ported yet: jl_compile_hint of",
+	} {
+		tt, err := s.Eval(src)
+		if err != nil {
+			t.Fatalf("%s: %v", src, err)
+		}
+		v, err := vm.shims["jl_compile_hint"](vm, []any{tt})
+		check(t, src, v, err, want)
+	}
+	// a type with free variables, a bare type variable's tuple; Union{};
+	// a callee with no method table; a tuple with no callee
+	T := &core.TypeVar{Name: "T", LB: core.Bottom, UB: core.AnyType}
+	for _, c := range []struct {
+		tt   any
+		want string
+	}{
+		{must(core.ApplyType(core.AnyTupleType, T)), "0"},
+		{core.Bottom, "0"},
+		// calling an Int64, which has no method
+		{must(core.ApplyType(core.AnyTupleType, core.Int64Type)), "0"},
+		// an abstract callee's methods, in no one table here
+		{must(core.ApplyType(core.AnyTupleType, core.RealType)), "!not ported yet: jl_compile_hint of the methods of Real"},
+		{core.EmptyTupleType, "0"},
+		{core.Int64Type, "0"},
+	} {
+		v, err := vm.shims["jl_compile_hint"](vm, []any{c.tt})
+		check(t, showValue(c.tt), v, err, c.want)
+	}
+	// the type algebra's work bound, struck while matching, is an error
+	gt, err := s.Eval("w(x::T, y::T) where {T<:Integer} = 1\nTuple{typeof(w), Int, Int}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := core.SetMaxSubtypeSteps(1)
+	_, err = vm.shims["jl_compile_hint"](vm, []any{gt})
+	core.SetMaxSubtypeSteps(saved)
+	check(t, "under the work bound", nil, err, "!exceeded")
+	// jl_has_concrete_subtype (gf.c:4932-4942): a Vararg answers for its
+	// element type (Any when it has none); a non-DataType is true
+	noConcrete := &core.DataType{Name: core.Int64Type.Name}
+	for _, c := range []struct {
+		t    any
+		want bool
+	}{
+		{&core.Vararg{T: noConcrete}, false}, {&core.Vararg{}, true}, {&core.Vararg{T: core.Int64Type}, true},
+		{core.TypeUnion(core.Int8Type, core.Int16Type), true}, {T, true},
+	} {
+		if got := hasConcreteSubtype(c.t); got != c.want {
+			t.Errorf("hasConcreteSubtype(%s) = %v", showValue(c.t), got)
+		}
+	}
+}
+
 // A compressed value of a primitive type with no value of its own (a
 // parametric primitive with free parameters, which IR never holds) is
 // refused, not decoded.
