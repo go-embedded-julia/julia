@@ -64,6 +64,14 @@ func (vm *VM) jlLoad(a []any) (any, error) {
 			vm.defineJuliaSyntax(m)
 			continue
 		}
+		// Base.jl:410-415 reads the Compiler's sources to record them as
+		// dependencies: done from the embedded ones (compilerdeps.go)
+		if m == vm.baseModule && isCompilerDependencyLoop(form) {
+			if err := vm.recordCompilerDependencies(m); err != nil {
+				return nil, fmt.Errorf("%s:%d: %w", name, line, err)
+			}
+			continue
+		}
 		if v, err = s.evalForm(form); err != nil {
 			// a Julia exception comes out as LoadError(file, line, error)
 			// once post_boot_hooks has found LoadError; before that, as is

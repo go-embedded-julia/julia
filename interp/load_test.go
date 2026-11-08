@@ -6,6 +6,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
 
@@ -51,6 +52,66 @@ func TestLoad(t *testing.T) {
 		if _, err := fs.Stat(New().Sources, name); err != nil {
 			t.Errorf("default sources: %v", err)
 		}
+	}
+}
+
+// Base.jl:410-415's loop records the Compiler's sources from the embedded
+// ones: (mod, abspath, size, CRC-32C, -1.0), julia's _crc32c of
+// "123456789" being 0xe3069283; files of other modules are left out.
+func TestCompilerDependencies(t *testing.T) {
+	vm := New()
+	vm.Sources = fstest.MapFS{
+		"julia/Compiler/src/Compiler.jl": {Data: []byte("123456789")},
+		"julia/Compiler/src/sub.jl":      {Data: []byte("")},
+		"other.jl":                       {Data: []byte("x")},
+		"loop.jl": {Data: []byte("for i = 1:length(_included_files)\n" +
+			"    _include_dependency!(_compiler_require_dependencies, true, i)\nend\n")},
+	}
+	base := newModule("Base", vm.Main)
+	base.usings = []*Module{vm.Core}
+	vm.baseModule = base
+	vm.replaceBase(base)
+	compiler := newModule("Compiler", base)
+	sub := newModule("Sub", compiler)
+	set := func(name expr.Symbol, v any) {
+		b := base.declare(name, vm.newWorld())
+		b.Value, b.Const = v, true
+	}
+	set("Compiler", compiler)
+	set("_included_files", vm.newVector(core.AnyType, []any{
+		vm.newTuple([]any{compiler, "julia/Compiler/src/Compiler.jl"}),
+		vm.newTuple([]any{sub, "julia/Compiler/src/sub.jl"}),
+		vm.newTuple([]any{base, "other.jl"}),
+		undef,
+	}))
+	deps := vm.newVector(core.AnyType, nil)
+	set("_compiler_require_dependencies", deps)
+	if _, err := vm.jlLoad([]any{base, "loop.jl"}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, got, _ := arrayOf(deps)
+	want := []string{
+		`(Main.Base.Compiler, "/julia/home/julia/Compiler/src/Compiler.jl", 0x0000000000000009, 0xe3069283, -1.0)`,
+		`(Main.Base.Compiler.Sub, "/julia/home/julia/Compiler/src/sub.jl", 0x0000000000000000, 0x00000000, -1.0)`,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("%d dependencies: %s", len(got), showValue(got))
+	}
+	for i := range want {
+		if Repr(got[i]) != want[i] {
+			t.Errorf("dependency %d: %s, want %s", i, Repr(got[i]), want[i])
+		}
+	}
+	// a Compiler source the VM does not have, and a Base without the loop's globals
+	set("_included_files", vm.newVector(core.AnyType, []any{vm.newTuple([]any{compiler, "julia/Compiler/src/gone.jl"})}))
+	if _, err := vm.jlLoad([]any{base, "loop.jl"}); err == nil || !strings.Contains(err.Error(), "not among the VM's") {
+		t.Errorf("a missing Compiler source: %v", err)
+	}
+	if err := vm.recordCompilerDependencies(newModule("Bare", vm.Main)); err == nil {
+		t.Error("a Base without _included_files")
+	}
+	if isCompilerDependencyLoop(expr.New("for", expr.Symbol("other"))) || isCompilerDependencyLoop(int64(1)) {
+		t.Error("another loop taken for Base.jl:410's")
 	}
 }
 
