@@ -416,6 +416,68 @@ nothing`); err != nil {
 	}
 }
 
+// jl_macroexpand, as julia 1.12.6 expands the same macros (show_sexpr):
+// what a macro introduces is resolved in its module, a GlobalRef; its local
+// is renamed #<n>#t; a form with no macro comes back as it is; a macro's
+// error is thrown.
+func TestJlMacroexpand(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	s := vm.NewSession()
+	if _, err := s.Eval(`module ME
+macro m(x)
+    quote
+        local t = $(Expr(:escape, x))
+        t + y
+    end
+end
+macro e() :(error_here(1)) end
+macro bad() throw(ErrorException("no")) end
+end`); err != nil {
+		t.Fatal(err)
+	}
+	me := s.Mod.own("ME").Value.(*Module)
+	expand := func(src string) (any, error) {
+		t.Helper()
+		x, err := s.Eval(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return vm.shims["jl_macroexpand"](vm, []any{x, me})
+	}
+	// (:block, line, (:local, (:(=), #2#t, 1)), line, (:call, Main.ME.:+, #2#t, Main.ME.y))
+	v, err := expand(":(ME.@m 1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stmts []any
+	for _, a := range v.(*expr.Expr).Args {
+		if _, line := a.(expr.LineNumberNode); !line {
+			stmts = append(stmts, a)
+		}
+	}
+	local := stmts[0].(*expr.Expr).Args[0].(*expr.Expr)
+	tname, _ := local.Args[0].(expr.Symbol)
+	call := stmts[1].(*expr.Expr)
+	plus, y := call.Args[0].(expr.GlobalRef), call.Args[2].(expr.GlobalRef)
+	if !strings.HasPrefix(string(tname), "#") || !strings.HasSuffix(string(tname), "#t") || local.Args[1] != int64(1) ||
+		call.Args[1] != any(tname) || plus.Name != "+" || y.Name != "y" {
+		t.Errorf("@m 1 expanded to %s", showValue(v))
+	}
+	v, err = expand(":(ME.@e())")
+	if err != nil || v.(*expr.Expr).Args[0].(expr.GlobalRef).Name != "error_here" {
+		t.Errorf("@e() expanded to %s %v", showValue(v), err)
+	}
+	v, err = expand(":(1 + 2)")
+	check(t, "1 + 2", v, err, "Expr(:call, :+, 1, 2)")
+	_, err = expand(":(ME.@bad())")
+	check(t, "@bad()", nil, err, `!ErrorException("no")`)
+	_, err = vm.shims["jl_macroexpand"](vm, []any{int64(1), int64(2)})
+	check(t, "jl_macroexpand in a non-module", nil, err, "!TypeError(:ccall")
+}
+
 // A compressed value of a primitive type with no value of its own (a
 // parametric primitive with free parameters, which IR never holds) is
 // refused, not decoded.

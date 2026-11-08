@@ -39,6 +39,23 @@ func (s *Session) macroexpand(form any) (any, error) {
 	return s.expandMacros(copyAST(form), nil)
 }
 
+// jlMacroexpand is jl_macroexpand(x, m) (ast.c:1256-1265), Base's
+// macroexpand(m, x) (expr.jl:124-130): the macros of a copy of x expanded
+// in m, in the newest world, and the hygienic scopes they left resolved
+// (jl-expand-macroscope).
+func (vm *VM) jlMacroexpand(a []any) (any, error) {
+	m, ok := a[1].(*Module)
+	if !ok {
+		return nil, vm.typeError("ccall", "", core.ModuleType, a[1])
+	}
+	s := vm.sessionFor(m)
+	ex, err := s.macroexpand(a[0])
+	if err != nil {
+		return nil, err
+	}
+	return s.low.ExpandMacroscope(ex)
+}
+
 // isSelfQuoting is is_self_quoting_expr (ast.c:1076-1086).
 func isSelfQuoting(e *expr.Expr) bool {
 	switch e.Head {
