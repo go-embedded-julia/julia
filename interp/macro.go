@@ -53,7 +53,11 @@ func (vm *VM) jlMacroexpand(a []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.low.ExpandMacroscope(ex)
+	out, err := s.low.ExpandMacroscope(syntaxModules(ex))
+	if err != nil {
+		return nil, err
+	}
+	return vm.runtimeModules(out), nil
 }
 
 // isSelfQuoting is is_self_quoting_expr (ast.c:1076-1086).
@@ -244,6 +248,35 @@ func (vm *VM) moduleOf(v any) (*Module, error) {
 		return x, nil
 	}
 	return nil, vm.typeError("hygienic-scope", "", core.ModuleType, v)
+}
+
+// syntaxModules gives the modules in an expression's tree (Expr arguments)
+// as lowering names them, expr.Module: julia_to_scm carries a Module value
+// into the front end as it is (Docs.loaddocs evaluates
+// Expr(:hygienic-scope, docstring, Docs, lno)), and lowering here knows a
+// module by its name. It changes e in place, a copy macro expansion made.
+func syntaxModules(v any) any {
+	switch x := v.(type) {
+	case *Module:
+		return exprModule(x)
+	case *expr.Expr:
+		for i, a := range x.Args {
+			x.Args[i] = syntaxModules(a)
+		}
+	}
+	return v
+}
+
+// runtimeModules is syntaxModules undone, for an expression handed back to
+// julia code (macroexpand's): each expr.Module the runtime's module.
+func (vm *VM) runtimeModules(v any) any {
+	if e, ok := v.(*expr.Expr); ok {
+		for i, a := range e.Args {
+			e.Args[i] = vm.runtimeModules(a)
+		}
+		return e
+	}
+	return vm.constValue(v)
 }
 
 // exprModule is the value of module m inside syntax: its full name.

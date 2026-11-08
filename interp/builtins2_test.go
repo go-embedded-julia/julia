@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
+	"github.com/go-embedded-julia/julia/lower"
 )
 
 // A TypeName's singletonname, julia 1.12.6's for the same names (of
@@ -416,6 +417,30 @@ nothing`); err != nil {
 	}
 }
 
+// A Module value inside an evaluated Expr, as Docs.loaddocs evaluates
+// Expr(:hygienic-scope, docstring, Docs, lno) (docs/Docs.jl:765): julia
+// 1.12.6 answers (true, 1, 42, false, 7, 7) for the same program, the
+// module an argument as itself, the scope's assignment hygienic, the
+// escaped one global. macroexpand hands modules back as modules.
+func TestModuleValuesInSyntax(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	s := vm.NewSession()
+	v, err := s.Eval(`module HM end
+r1 = Core.eval(HM, Expr(:call, Core.tuple, HM, 1))
+r2 = Core.eval(HM, Expr(Symbol("hygienic-scope"), Expr(:(=), :hx, 42), HM, LineNumberNode(1, :f)))
+r3 = Core.eval(HM, Expr(Symbol("hygienic-scope"), Expr(:escape, Expr(:(=), :hy, 7)), HM, LineNumberNode(1, :f)))
+(getfield(r1, 1) === HM, getfield(r1, 2), r2, isdefined(HM, :hx), r3, getfield(HM, :hy))`)
+	check(t, "modules in syntax", v, err, "(true, 1, 42, false, 7, 7)")
+	hm := s.Mod.own("HM").Value.(*Module)
+	out, err := vm.shims["jl_macroexpand"](vm, []any{expr.New("call", expr.Symbol("f"), hm), hm})
+	if err != nil || out.(*expr.Expr).Args[1] != any(hm) {
+		t.Errorf("macroexpand of a module value: %s %v", showValue(out), err)
+	}
+}
+
 // jl_get_module_of_binding, Base.binding_module, julia 1.12.6's answers for
 // the same modules: the module itself for its own binding and an unknown
 // name, the defining module through an import, an implicit global and an
@@ -515,6 +540,15 @@ end`); err != nil {
 	check(t, "@bad()", nil, err, `!ErrorException("no")`)
 	_, err = vm.shims["jl_macroexpand"](vm, []any{int64(1), int64(2)})
 	check(t, "jl_macroexpand in a non-module", nil, err, "!TypeError(:ccall")
+	// nested past lowering's depth limit: its error, not a crash
+	var deep any = int64(1)
+	for range lower.MaxDepth + 2 {
+		deep = expr.New("block", deep)
+	}
+	_, err = vm.shims["jl_macroexpand"](vm, []any{deep, me})
+	if !errors.Is(err, lower.ErrLimit) {
+		t.Errorf("jl_macroexpand too deep: %v", err)
+	}
 }
 
 // A compressed value of a primitive type with no value of its own (a

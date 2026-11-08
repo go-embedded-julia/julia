@@ -71,7 +71,7 @@ func (s *Session) evalForm(form any) (any, error) {
 		return nil, err
 	}
 	s.low.SetTop(s.VM.baseRelativeTo(s.Mod).Name)
-	lowered, err := s.low.Lower(form)
+	lowered, err := s.low.Lower(syntaxModules(form))
 	if err != nil {
 		return nil, err
 	}
