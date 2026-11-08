@@ -235,6 +235,40 @@ func (vm *VM) promoteCIToCurrent(a []any) (any, error) {
 	return nil, nil
 }
 
+// promoteCIsToCurrent is jl_promote_cis_to_current (gf.c:1790-1804), as
+// finish_cycle calls it (typeinfer.jl:279): cis a Ptr{CodeInstance} into a
+// Vector{CodeInstance}'s memory, n of them, validated at world w.
+func (vm *VM) promoteCIsToCurrent(a []any) (any, error) {
+	ptr, ok1 := a[0].(*Pointer)
+	n, ok2 := a[1].(uint64)
+	w, ok3 := a[2].(uint64)
+	if !ok1 || !ok2 || !ok3 {
+		return nil, fmt.Errorf("%w: jl_promote_cis_to_current of %s", ErrUnsupported, vm.argTypes(a))
+	}
+	m, ok := ptr.Target.(*Memory)
+	if !ok || ptr.Off < 0 || ptr.Off%8 != 0 {
+		return nil, fmt.Errorf("%w: jl_promote_cis_to_current of %s", ErrUnsupported, vm.argTypes(a))
+	}
+	i := ptr.Off / 8
+	if i > int64(len(m.Elems)) || n > uint64(int64(len(m.Elems))-i) {
+		return nil, fmt.Errorf("%w: jl_promote_cis_to_current past the memory", ErrUnsupported)
+	}
+	cis := make([]*Struct, n)
+	for k := range cis {
+		ci, err := vm.codeInstanceArg(m.Elems[i+int64(k)])
+		if err != nil {
+			return nil, err
+		}
+		cis[k] = ci
+	}
+	if vm.World() == w {
+		for _, ci := range cis {
+			vm.promoteCI(ci, w)
+		}
+	}
+	return nil, nil
+}
+
 func (vm *VM) promoteCI(ci *Struct, w uint64) {
 	if ci.Fields[ciMaxWorld] != any(w) {
 		return

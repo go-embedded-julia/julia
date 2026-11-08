@@ -528,6 +528,7 @@ func (vm *VM) bootShims() {
 		"jl_engine_reserve":        func(vm *VM, a []any) (any, error) { return vm.engineReserve(a) },
 		"jl_engine_fulfill":        func(vm *VM, a []any) (any, error) { return vm.engineFulfill(a) },
 		"jl_promote_ci_to_current": func(vm *VM, a []any) (any, error) { return vm.promoteCIToCurrent(a) },
+		"jl_promote_cis_to_current": func(vm *VM, a []any) (any, error) { return vm.promoteCIsToCurrent(a) },
 		"jl_invoke_api":            func(vm *VM, a []any) (any, error) { return vm.invokeAPI(a) },
 		"jl_maybe_add_binding_backedge": func(vm *VM, a []any) (any, error) {
 			return vm.maybeAddBindingBackedge(a)
@@ -805,11 +806,42 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 	return vm.foreignResult(rt, sh, args)
 }
 
+// intLowBit is the low bit of an integer value as a Bool, ok when v is one.
+func intLowBit(v any) (bool, bool) {
+	switch x := v.(type) {
+	case uint8:
+		return x&1 != 0, true
+	case int8:
+		return x&1 != 0, true
+	case uint16:
+		return x&1 != 0, true
+	case int16:
+		return x&1 != 0, true
+	case uint32:
+		return x&1 != 0, true
+	case int32:
+		return x&1 != 0, true
+	case uint64:
+		return x&1 != 0, true
+	case int64:
+		return x&1 != 0, true
+	}
+	return false, false
+}
+
 // foreignResult is a shim's result as the ccall's return type rt: a pointer
 // returned for a 64-bit primitive type that is no Ptr (a Cstring) is that
 // type's value of the same bits, as the C ABI passes it.
 func (vm *VM) foreignResult(rt any, sh shim, args []any) (any, error) {
 	v, err := sh(vm, args)
+	if rt == any(core.BoolType) && err == nil {
+		// ccall(…, Bool, …) of a C function returning uint8_t or int: the
+		// result truncated to its low bit (ccall.cpp, Bool results), as
+		// jl_ir_flag_has_fcall's 0x00 must be false for `!`
+		if b, ok := intLowBit(v); ok {
+			return b, nil
+		}
+	}
 	if p, ok := v.(*Pointer); ok && err == nil {
 		if d, ok := rt.(*core.DataType); ok && d.Name.Bits == 64 && d.Name != typeNameOf(core.PtrType) {
 			return biBitcast(vm, []any{d, p})

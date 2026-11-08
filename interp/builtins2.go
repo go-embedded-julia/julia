@@ -156,8 +156,9 @@ func biIsdefined(vm *VM, args []any) (any, error) {
 		return nil, vm.atomicError("isdefined: non-atomic field cannot be accessed atomically")
 	}
 	switch args[0].(type) {
-	case *core.DataType, *core.TypeName:
-		// a type's instance and types can be undefined: defined is what
+	case *core.DataType, *core.TypeName, *core.Vararg:
+		// a type's instance and types can be undefined (so can a Vararg's
+		// N, as jl_vararg_t leaves it NULL): defined is what
 		// getfield reads without UndefRefError
 		_, err := vm.kindField(args[0], int64(idx+1))
 		if th, ok := err.(*Thrown); ok && vm.typeOf(th.Value) == any(vm.tUndefRef) {
