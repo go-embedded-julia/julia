@@ -439,6 +439,11 @@ r3 = Core.eval(HM, Expr(Symbol("hygienic-scope"), Expr(:escape, Expr(:(=), :hy, 
 	if err != nil || out.(*expr.Expr).Args[1] != any(hm) {
 		t.Errorf("macroexpand of a module value: %s %v", showValue(out), err)
 	}
+	// quoted code is data: the module in it stays the runtime's
+	v, err = s.Eval(`Core.eval(HM, Expr(:quote, Expr(:call, :f, HM)))`)
+	if q, ok := v.(*expr.Expr); err != nil || !ok || q.Args[1] != any(hm) {
+		t.Errorf("a module in quoted code: %s %v", showValue(v), err)
+	}
 }
 
 // jl_get_module_of_binding, Base.binding_module, julia 1.12.6's answers for

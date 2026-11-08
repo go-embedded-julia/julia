@@ -250,21 +250,35 @@ func (vm *VM) moduleOf(v any) (*Module, error) {
 	return nil, vm.typeError("hygienic-scope", "", core.ModuleType, v)
 }
 
-// syntaxModules gives the modules in an expression's tree (Expr arguments)
-// as lowering names them, expr.Module: julia_to_scm carries a Module value
-// into the front end as it is (Docs.loaddocs evaluates
-// Expr(:hygienic-scope, docstring, Docs, lno)), and lowering here knows a
-// module by its name. It changes e in place, a copy macro expansion made.
+// syntaxModules gives the module of each hygienic scope in an expression as
+// lowering names it, expr.Module: julia_to_scm carries a Module value into
+// the front end as it is (Docs.loaddocs evaluates Expr(:hygienic-scope,
+// docstring, Docs, lno)), and lowering here reads a scope's module by its
+// name (convert.go). A module anywhere else is a value lowering passes on
+// as it is, quoted data among them, and stays the runtime's. It changes e
+// in place, a copy macro expansion made.
 func syntaxModules(v any) any {
-	switch x := v.(type) {
-	case *Module:
-		return exprModule(x)
-	case *expr.Expr:
-		for i, a := range x.Args {
-			x.Args[i] = syntaxModules(a)
-		}
+	e, ok := v.(*expr.Expr)
+	if !ok {
+		return v
+	}
+	if m, ok := scopeModule(e); ok {
+		e.Args[1] = exprModule(m)
+	}
+	for i, a := range e.Args {
+		e.Args[i] = syntaxModules(a)
 	}
 	return v
+}
+
+// scopeModule is the module of (hygienic-scope body module ...) when it is
+// a module value.
+func scopeModule(e *expr.Expr) (*Module, bool) {
+	if e.Head != "hygienic-scope" || len(e.Args) < 2 {
+		return nil, false
+	}
+	m, ok := e.Args[1].(*Module)
+	return m, ok
 }
 
 // runtimeModules is syntaxModules undone, for an expression handed back to
