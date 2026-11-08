@@ -2,6 +2,7 @@ package interp
 
 import (
 	"sync"
+	"sync/atomic"
 	"weak"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -70,6 +71,8 @@ type Module struct {
 	istopmod bool
 	// uuid is the module's package UUID (jl_module_t.uuid), zero for none.
 	uuid [2]uint64
+	// buildID is jl_module_t.build_id, high half first (newModule).
+	buildID [2]uint64
 	// opts are the module's compiler options (modopts.go)
 	opts moduleOpts
 }
@@ -133,8 +136,16 @@ func (b *Binding) resolve() *Binding {
 }
 
 func newModule(name expr.Symbol, parent *Module) *Module {
-	return &Module{Name: name, Parent: parent, bindings: map[expr.Symbol]*Binding{}, opts: newModuleOpts()}
+	return &Module{Name: name, Parent: parent, bindings: map[expr.Symbol]*Binding{}, opts: newModuleOpts(),
+		buildID: [2]uint64{^uint64(0), moduleCounter.Add(1)}}
 }
+
+// moduleCounter numbers the modules made (module.c:510, mcounter): a
+// module's build id is ~0 and its number, unique and never 0 as julia's;
+// julia also mixes in the time and a random number (module.c:512), which
+// only Base's comparisons of ids for identity read, and which would make
+// two runs differ.
+var moduleCounter atomic.Uint64
 
 // own returns the binding m itself holds for name, nil when it has none.
 func (m *Module) own(name expr.Symbol) *Binding {

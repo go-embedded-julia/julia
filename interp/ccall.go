@@ -82,6 +82,15 @@ func (vm *VM) bootShims() {
 			}
 			return vm.newTuple([]any{m.uuid[0], m.uuid[1]}), nil
 		},
+		// jl_module_build_id (module.c:2037), Base.module_build_id
+		// (loading.jl:2532-2535): the id newModule gave the module
+		"jl_module_build_id": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Module)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
+			}
+			return vm.newTuple([]any{m.buildID[0], m.buildID[1]}), nil
+		},
 		// jl_field_index (datatype.c:1781-1806), fieldindex: the 0-based
 		// index of a field by name, -1 or a FieldError when there is none
 		"jl_field_index": func(vm *VM, a []any) (any, error) {

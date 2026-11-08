@@ -37,6 +37,23 @@ func TestModuleUUID(t *testing.T) {
 	check(t, "jl_module_uuid of Core", v, err, "(0x0000000000000000, 0x0000000000000000)")
 	_, err = get(vm, []any{int64(1)})
 	check(t, "jl_module_uuid of 1", nil, err, "!TypeError(:ccall")
+	// jl_module_build_id: ~0 high, a low half unique per module and never
+	// 0 (module.c:512-515)
+	bid := vm.shims["jl_module_build_id"]
+	ids := map[uint64]bool{}
+	for _, m := range []*Module{vm.Core, vm.Main, vm.Base, newModule("X", nil)} {
+		v, err := bid(vm, []any{m})
+		if err != nil {
+			t.Fatal(err)
+		}
+		hi, lo := v.(*Tuple).Elems[0].(uint64), v.(*Tuple).Elems[1].(uint64)
+		if hi != ^uint64(0) || lo == 0 || ids[lo] {
+			t.Errorf("build id of %s: %x %x", m.Name, hi, lo)
+		}
+		ids[lo] = true
+	}
+	_, err = bid(vm, []any{int64(1)})
+	check(t, "jl_module_build_id of 1", nil, err, "!TypeError(:ccall")
 
 	// jl_field_index, as fieldindex calls it (runtime_internals.jl:1096-1102)
 	vm.Boot()
