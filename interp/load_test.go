@@ -64,8 +64,11 @@ func TestCompilerDependencies(t *testing.T) {
 		"julia/Compiler/src/Compiler.jl": {Data: []byte("123456789")},
 		"julia/Compiler/src/sub.jl":      {Data: []byte("")},
 		"other.jl":                       {Data: []byte("x")},
-		"loop.jl": {Data: []byte("for i = 1:length(_included_files)\n" +
-			"    _include_dependency!(_compiler_require_dependencies, true, i)\nend\n")},
+		// as Base.jl:324-425: the loop inside `if is_primary_base_module`
+		"loop.jl": {Data: []byte("if true\n" +
+			"for i = 1:length(_included_files)\n" +
+			"    _include_dependency!(_compiler_require_dependencies, true, i)\nend\n" +
+			"end\n")},
 	}
 	base := newModule("Base", vm.Main)
 	base.usings = []*Module{vm.Core}
@@ -110,8 +113,14 @@ func TestCompilerDependencies(t *testing.T) {
 	if err := vm.recordCompilerDependencies(newModule("Bare", vm.Main)); err == nil {
 		t.Error("a Base without _included_files")
 	}
-	if isCompilerDependencyLoop(expr.New("for", expr.Symbol("other"))) || isCompilerDependencyLoop(int64(1)) {
-		t.Error("another loop taken for Base.jl:410's")
+	// Base.jl:418's loop over the dependencies, in the let after it,
+	// rewrites their paths: it is not the one replaced
+	relpathLoop := expr.New("for", expr.New("=", expr.Symbol("i"), expr.Symbol("_compiler_require_dependencies")),
+		expr.New("call", expr.Symbol("relpath"), expr.Symbol("i")))
+	for _, form := range []any{expr.New("for", expr.Symbol("other")), int64(1), relpathLoop} {
+		if isCompilerDependencyLoop(form) {
+			t.Errorf("%s taken for Base.jl:410's loop", showValue(form))
+		}
 	}
 }
 

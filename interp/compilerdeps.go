@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
 
@@ -19,10 +20,32 @@ import (
 // size and CRC-32C, never reaching a file system.
 
 // isCompilerDependencyLoop reports Base.jl:410's for loop over
-// _included_files that fills _compiler_require_dependencies.
+// _included_files that fills _compiler_require_dependencies through
+// _include_dependency! (not the let's loop after it, Base.jl:418, which
+// only rewrites the paths).
 func isCompilerDependencyLoop(form any) bool {
 	e, ok := form.(*expr.Expr)
-	return ok && e.Head == "for" && mentions(e, "_compiler_require_dependencies")
+	return ok && e.Head == "for" && mentions(e, "_include_dependency!") && mentions(e, "_compiler_require_dependencies")
+}
+
+// replaceCompilerDependencyLoop gives form, a top-level form of Base.jl, with
+// the loop, wherever it sits (Base.jl:324's `if is_primary_base_module`
+// holds it), a call of a function of the VM that does it.
+func (vm *VM) replaceCompilerDependencyLoop(form any, base *Module) any {
+	e, ok := form.(*expr.Expr)
+	if !ok {
+		return form
+	}
+	if isCompilerDependencyLoop(e) {
+		fn := vm.newFunction(base, "#record_compiler_dependencies")
+		m := must(fn.Table.Define(core.EmptyTupleType, vm.newWorld(), nil))
+		m.Def = goMethod(func(vm *VM, args []any) (any, error) { return nil, vm.recordCompilerDependencies(base) })
+		return expr.New("call", fn)
+	}
+	for i, a := range e.Args {
+		e.Args[i] = vm.replaceCompilerDependencyLoop(a, base)
+	}
+	return e
 }
 
 // mentions reports that the expression holds the symbol.
