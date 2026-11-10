@@ -429,3 +429,26 @@ func TestPutBytesAndRoom(t *testing.T) {
 		t.Error("room past the end of a String")
 	}
 }
+
+// memmove of the bytes a Ref of an integer holds, as unsafe_write(io, Ref(x),
+// sizeof(x)) copies them into an IOBuffer's data.
+func TestMemmoveRef(t *testing.T) {
+	f := newPCREFixture(t)
+	f.s.Eval("mutable struct RefU128m; x::UInt128; end")
+	ref, _ := f.ref("RefU128m", UInt128{0, 0x0102})
+	src := &Pointer{Type: f.vm.ptrType(core.NothingType), Target: ref.Target}
+	dst, m := f.buf(20, 0)
+	dst.Off = 1
+	v, err := f.sh("memmove", dst, src, uint64(16))
+	if err != nil || v != any(dst) || memBytes(m)[1] != 2 || memBytes(m)[2] != 1 || memBytes(m)[3] != 0 || memBytes(m)[0] != 0 {
+		t.Errorf("memmove of a Ref: %v %v", v, err)
+	}
+	for _, n := range []uint64{17, 0} {
+		if _, err := f.sh("memmove", dst, src, n); (err == nil) == (n == 17) {
+			t.Errorf("memmove of %d bytes of a Ref: %v", n, err)
+		}
+	}
+	if _, err := f.sh("memmove", f.str("lit"), src, uint64(2)); err == nil {
+		t.Error("memmove of a Ref into a String")
+	}
+}

@@ -2,6 +2,7 @@ package interp
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"runtime"
@@ -181,8 +182,32 @@ func (vm *VM) memmove(a []any) (any, error) {
 				return dp, nil
 			}
 		}
+		// the bytes of the value a Ref holds (unsafe_write of Ref(x), x an
+		// integer: io.jl), the low n of its little-endian bytes
+		if b, ok := refBytes(sp, n); ok && dstMem {
+			if err := vm.writeBytes(dp, b); err != nil {
+				return nil, err
+			}
+			return dp, nil
+		}
 	}
 	return nil, fmt.Errorf("%w: memmove of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+}
+
+// refBytes is the first n little-endian bytes of the primitive value a Ref
+// holds, p the pointer to it (refvalue.jl:38-54).
+func refBytes(p *Pointer, n uint64) ([]byte, bool) {
+	st, ok := p.Target.(*Struct)
+	if !ok || p.Off != 0 || len(st.Fields) != 1 || n > 16 {
+		return nil, false
+	}
+	bits, w, ok := primBits(st.Fields[0])
+	if !ok || uint64(w/8) < n {
+		return nil, false
+	}
+	b := binary.LittleEndian.AppendUint64(nil, bits.lo)
+	b = binary.LittleEndian.AppendUint64(b, bits.hi)
+	return b[:n], true
 }
 
 // memcmp is memcmp(p, q, n) (cmem.jl:54-57): the sign of the first

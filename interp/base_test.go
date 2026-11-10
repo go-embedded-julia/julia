@@ -22,6 +22,10 @@ func probeStdlibs(t *testing.T, vm *VM) {
 		`Base.parsed_toml(joinpath(Sys.STDLIB, "SHA", "Project.toml"))["uuid"]`,
 		`Base.identify_package(Base, "SHA")`,
 		`Base.locate_package(Base.identify_package(Base, "SHA"))`,
+		`Base.get_pkgversion_from_path(joinpath(Sys.STDLIB, "SHA"))`,
+		`Base.find_all_in_cache_path(Base.identify_package(Base, "SHA"))`,
+		`Base._require_search_from_serialized(Base.identify_package(Base, "SHA"), joinpath(Sys.STDLIB, "SHA", "src", "SHA.jl"), UInt128(0), true)`,
+		`let io = IOBuffer(); write(io, UInt128(5)); take!(io) end`,
 	}
 	for _, name := range []string{"FileWatching", "Libdl", "Artifacts", "SHA", "Sockets", "LinearAlgebra", "Random"} {
 		steps = append(steps, "Base.require(Base, :"+name+")")
