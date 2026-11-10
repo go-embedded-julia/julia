@@ -2,13 +2,18 @@ package interp
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
 
 // TestBaseProgress includes Base_compiler.jl in Main after Boot, as julia's
-// build does, and reports where it stops.
+// build does, and reports where it stops. It runs for more than half an
+// hour, so only when JLGO_BASE=1 asks for it.
 func TestBaseProgress(t *testing.T) {
+	if os.Getenv("JLGO_BASE") != "1" {
+		t.Skip("set JLGO_BASE=1 to load julia's Base (over 30 minutes)")
+	}
 	vm := New()
 	vm.Args = []string{"Base_compiler.jl"}
 	if err := vm.Boot(); err != nil {
