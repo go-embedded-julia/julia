@@ -195,8 +195,9 @@ func (vm *VM) bootFileShims() {
 	}
 	// getattrlist(path, attrlist, buf, size, options) as isfile_casesensitive
 	// asks it (loading.jl:46-74): ATTR_CMN_NAME of path into buf as a u32 total
-	// length, an attrreference_t (offset from itself, length with the NUL) and
-	// the name stored in the directory, truncated to the room there is
+	// length (aligned to 4), an attrreference_t (offset from itself, length
+	// with the NUL) and the name stored in the directory, truncated to the
+	// room there is
 	vm.shims["getattrlist"] = func(vm *VM, a []any) (any, error) {
 		p, err := vm.cpath("getattrlist", a[0])
 		if err != nil {
@@ -210,16 +211,21 @@ func (vm *VM) bootFileShims() {
 			vm.errno = -code
 			return int32(-1), nil
 		}
+		// darwin answers ERANGE below the 4 bytes of the length and truncates
+		// the rest to the room there is (as julia 1.12.6's own call answered
+		// on darwin)
 		const header = 12
-		if size < header {
+		if size < 4 {
 			vm.errno = -uvERANGE
 			return int32(-1), nil
 		}
 		name := append([]byte(vm.fsys().caseName(p)), 0)
-		b := binary.LittleEndian.AppendUint32(nil, uint32(header+len(name)))
+		total := (header + len(name) + 3) &^ 3 // aligned to 4 bytes
+		b := binary.LittleEndian.AppendUint32(nil, uint32(total))
 		b = binary.LittleEndian.AppendUint32(b, header-4) // from the attrreference_t at 4
 		b = binary.LittleEndian.AppendUint32(b, uint32(len(name)))
 		b = append(b, name...)
+		b = append(b, make([]byte, total-len(b))...)
 		if uint64(len(b)) > size {
 			b = b[:size]
 		}

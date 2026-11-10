@@ -7,6 +7,35 @@ import (
 	"testing"
 )
 
+// probeStdlibs runs, after sysimg.jl stopped, what Base.require of a stdlib
+// does one step at a time, each in its own evaluation, so that one run of the
+// 27-minute load reports every step that stops and not only the first.
+func probeStdlibs(t *testing.T, vm *VM) {
+	steps := []string{
+		`Base.stat(joinpath(Sys.STDLIB, "SHA", "Project.toml")).size`,
+		`(isdir(Sys.STDLIB), isfile(joinpath(Sys.STDLIB, "SHA", "Project.toml")), ispath(joinpath(Sys.STDLIB, "Nope")))`,
+		`readdir(Sys.STDLIB)`,
+		`realpath(joinpath(Sys.STDLIB, "SHA"))`,
+		`Base.isfile_casesensitive(joinpath(Sys.STDLIB, "SHA", "Project.toml"))`,
+		`sizeof(read(joinpath(Sys.STDLIB, "SHA", "Project.toml"), String))`,
+		`open(Base._crc32c, joinpath(Sys.STDLIB, "SHA", "Project.toml"), "r")`,
+		`Base.parsed_toml(joinpath(Sys.STDLIB, "SHA", "Project.toml"))["uuid"]`,
+		`Base.identify_package(Base, "SHA")`,
+		`Base.locate_package(Base.identify_package(Base, "SHA"))`,
+	}
+	for _, name := range []string{"FileWatching", "Libdl", "Artifacts", "SHA", "Sockets", "LinearAlgebra", "Random"} {
+		steps = append(steps, "Base.require(Base, :"+name+")")
+	}
+	for _, src := range steps {
+		v, err := vm.sessionFor(vm.Main).Eval(src)
+		t.Logf("probe %s\n  => %s %v", src, showValue(v), err)
+		var th *Thrown
+		if errors.As(err, &th) {
+			t.Logf("  unwound:\n%s", strings.Join(th.Trace, "\n"))
+		}
+	}
+}
+
 // TestBaseProgress includes Base_compiler.jl in Main after Boot, as julia's
 // build does, and reports where it stops. It runs for more than half an
 // hour, so only when JLGO_BASE=1 asks for it.
@@ -45,6 +74,7 @@ func TestBaseProgress(t *testing.T) {
 		t.Logf("unwound:\n%s", strings.Join(th.Trace, "\n"))
 	}
 	if err != nil {
+		probeStdlibs(t, vm)
 		return
 	}
 	// julia starting from its image: the modules' __init__, in order

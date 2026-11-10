@@ -167,7 +167,7 @@ func (f *vfile) close() error {
 
 // vfs is a VM's filesystem.
 type vfs struct {
-	host    bool
+	host    func() bool
 	workdir func() string
 	mounts  []mount
 	files   map[int32]*vfile
@@ -185,7 +185,7 @@ func (vm *VM) fsys() *vfs {
 	if vm.Stdlib != nil {
 		stdlib = vm.Stdlib
 	}
-	v := &vfs{host: vm.Host, workdir: vm.workDir, files: map[int32]*vfile{}, mounts: []mount{
+	v := &vfs{host: func() bool { return vm.Host }, workdir: vm.workDir, files: map[int32]*vfile{}, mounts: []mount{
 		{at("base"), vm.Sources},
 		{at("stdlib/v1.12"), stdlib},
 	}}
@@ -268,7 +268,7 @@ func (v *vfs) route(name string) (treeName, osName string, inTree bool) {
 	if rel == "" {
 		rel = "."
 	}
-	if !v.host {
+	if !v.host() {
 		return rel, "", true
 	}
 	for _, m := range v.mounts {

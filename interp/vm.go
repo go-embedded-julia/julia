@@ -96,7 +96,8 @@ type VM struct {
 	// only julia's own tree exists and no path leaves it; true, the host,
 	// where that tree stays mounted at its paths and every other path is the
 	// real filesystem. Stdlib is the tree of the stdlibs mounted at Sys.STDLIB,
-	// julia's own by default. Both are read when the first file is touched.
+	// julia's own by default. Stdlib and BinDir (where the tree is mounted)
+	// are read when the first file is touched; Host and WorkDir at each use.
 	Host   bool
 	Stdlib fs.FS
 	// vfs is the filesystem the file shims share; ios the IOStreams open
