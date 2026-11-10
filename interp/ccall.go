@@ -522,14 +522,14 @@ func (vm *VM) bootShims() {
 		"jl_ir_slotflag":                 func(vm *VM, a []any) (any, error) { return vm.irSlotflag(a) },
 		"jl_scan_method_source_now":      func(vm *VM, a []any) (any, error) { return vm.scanMethodSourceNow(a) },
 		// the code cache (codeinst.go)
-		"jl_new_codeinst":          func(vm *VM, a []any) (any, error) { return vm.newCodeinst(a) },
-		"jl_mi_cache_insert":       func(vm *VM, a []any) (any, error) { return vm.miCacheInsert(a) },
-		"jl_rettype_inferred":      func(vm *VM, a []any) (any, error) { return vm.rettypeInferred(a) },
-		"jl_engine_reserve":        func(vm *VM, a []any) (any, error) { return vm.engineReserve(a) },
-		"jl_engine_fulfill":        func(vm *VM, a []any) (any, error) { return vm.engineFulfill(a) },
-		"jl_promote_ci_to_current": func(vm *VM, a []any) (any, error) { return vm.promoteCIToCurrent(a) },
+		"jl_new_codeinst":           func(vm *VM, a []any) (any, error) { return vm.newCodeinst(a) },
+		"jl_mi_cache_insert":        func(vm *VM, a []any) (any, error) { return vm.miCacheInsert(a) },
+		"jl_rettype_inferred":       func(vm *VM, a []any) (any, error) { return vm.rettypeInferred(a) },
+		"jl_engine_reserve":         func(vm *VM, a []any) (any, error) { return vm.engineReserve(a) },
+		"jl_engine_fulfill":         func(vm *VM, a []any) (any, error) { return vm.engineFulfill(a) },
+		"jl_promote_ci_to_current":  func(vm *VM, a []any) (any, error) { return vm.promoteCIToCurrent(a) },
 		"jl_promote_cis_to_current": func(vm *VM, a []any) (any, error) { return vm.promoteCIsToCurrent(a) },
-		"jl_invoke_api":            func(vm *VM, a []any) (any, error) { return vm.invokeAPI(a) },
+		"jl_invoke_api":             func(vm *VM, a []any) (any, error) { return vm.invokeAPI(a) },
 		"jl_maybe_add_binding_backedge": func(vm *VM, a []any) (any, error) {
 			return vm.maybeAddBindingBackedge(a)
 		},
