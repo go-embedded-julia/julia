@@ -264,7 +264,22 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 	if !ok {
 		return nil, vm.typeError("module", "", core.SymbolType, e.Args[1])
 	}
-	newm := vm.addModule(name, parent)
+	// a module defined in Base.__toplevel__ (what require includes a
+	// package into) has no parent and is registered as a root module by
+	// Base.register_root_module (toplevel.c:107-111, 136, 182-183)
+	isTop := false
+	if vm.baseModule != nil {
+		if tb := vm.baseModule.lookup("__toplevel__", vm.taskWorld); tb != nil && tb.Value == any(parent) {
+			isTop = true
+		}
+	}
+	owner := parent
+	if isTop {
+		owner = nil
+	}
+	newm := vm.addModule(name, owner)
+	// the package's UUID is its parent's (toplevel.c:143)
+	newm.uuid = parent.uuid
 	// Core stays used with the standard imports, which julia gets through
 	// Base's exports
 	vm.addDefaultNames(newm, true, true)
@@ -294,8 +309,18 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 		vm.baseModule = newm
 		vm.replaceBase(newm)
 	}
-	b := parent.declare(name, vm.newWorld())
-	b.Value, b.Const = newm, true
+	if isTop {
+		reg := vm.baseModule.lookup("register_root_module", vm.taskWorld)
+		if reg == nil || reg.Value == undef {
+			return nil, vm.errorf("Base.register_root_module is not defined")
+		}
+		if _, err := vm.apply(reg.Value, []any{newm}); err != nil {
+			return nil, err
+		}
+	} else {
+		b := parent.declare(name, vm.newWorld())
+		b.Value, b.Const = newm, true
+	}
 	s := vm.sessionFor(newm)
 	bootstrapBase := parent == vm.Main && name == "Base" && newm == vm.baseModule
 	// open while its forms run (jl_current_modules, toplevel.c:182-205)
@@ -470,15 +495,25 @@ func (vm *VM) importPath(m *Module, v any, verb string) (*Module, error) {
 				cur = vm.baseModule
 				continue
 			}
-			if mod := vm.modules[name]; mod != nil && mod.Parent == nil {
+			// once Base defines require, a package is what it finds and loads
+			// (call_require, toplevel.c:475-501, 531-533)
+			var req *Binding
+			if vm.baseModule != nil {
+				req = vm.baseModule.lookup("require", vm.taskWorld)
+			}
+			if req != nil && req.Value != undef {
+				var err error
+				if v, err = vm.apply(req.Value, []any{m, name}); err != nil {
+					return nil, err
+				}
+			} else if mod := vm.modules[name]; mod != nil && mod.Parent == nil {
 				cur = mod
 				continue
-			}
-			b := m.lookup(name, vm.taskWorld)
-			if b == nil {
+			} else if b := m.lookup(name, vm.taskWorld); b != nil {
+				v = b.Value
+			} else {
 				return nil, fmt.Errorf("%w: loading the package %s", ErrUnsupported, name)
 			}
-			v = b.Value
 		} else {
 			// jl_eval_global_var (toplevel.c:562): through usings too
 			b := cur.lookup(name, vm.taskWorld)

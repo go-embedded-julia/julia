@@ -589,6 +589,9 @@ func (vm *VM) bootShims() {
 	// jl_threadid (threading.c): the current thread's 0-based id, an Int16;
 	// julia code runs on one thread here
 	vm.shims["jl_threadid"] = func(vm *VM, a []any) (any, error) { return int16(0), nil }
+	// jl_cpu_wake (threading.c) wakes a thread waiting on a spin lock; there
+	// is one thread here, and it is the caller
+	vm.shims["jl_cpu_wake"] = func(vm *VM, a []any) (any, error) { return nil, nil }
 	// strlen(s): the bytes before the NUL a Cstring ends with
 	vm.shims["strlen"] = func(vm *VM, a []any) (any, error) {
 		s, ok := vm.cstringArg(a[0])
