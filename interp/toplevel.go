@@ -202,6 +202,49 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 	return nil, fmt.Errorf("%w: the top-level form %s", ErrUnsupported, e.Head)
 }
 
+// addDefaultNames is jl_add_default_names (module.c:535-548): m uses Core,
+// and holds its own name, exported so that `using M` shows M.
+func (vm *VM) addDefaultNames(m *Module, usingCore, selfName bool) {
+	if usingCore {
+		m.usings = append(m.usings, vm.Core)
+	}
+	if selfName {
+		self := m.declare(m.Name, 0)
+		self.Value, self.Const, self.Exports = m, true, true
+	}
+}
+
+// addStandardImports is jl_add_standard_imports (toplevel.c:39-46): m uses
+// the top module above it, Base (Core before Base exists), and names Core
+// and that module.
+func (vm *VM) addStandardImports(m *Module) *Module {
+	base := vm.baseRelativeTo(m)
+	m.usings = append(m.usings, base)
+	for _, std := range []*Module{vm.Core, base} {
+		b := m.declare(std.Name, 0)
+		b.Value, b.Const = std, true
+	}
+	return base
+}
+
+// newModuleShim is jl_f_new_module (module.c:662-673), Core.Module(name,
+// std_imports, default_names): a module whose parent is Main, bound in no
+// module.
+func (vm *VM) newModuleShim(a []any) (any, error) {
+	name, ok := a[0].(expr.Symbol)
+	if !ok {
+		return nil, vm.typeError("ccall", "", core.SymbolType, a[0])
+	}
+	std, _ := a[1].(bool)
+	names, _ := a[2].(bool)
+	m := vm.addModule(name, vm.Main)
+	vm.addDefaultNames(m, names, names)
+	if std {
+		vm.addStandardImports(m)
+	}
+	return m, nil
+}
+
 // evalModule is jl_eval_module_expr (toplevel.c:114-198) for
 // (module std_imports name (block forms…)): a submodule of parent bound in
 // it as a constant, whose forms are expanded and evaluated in order. Every
@@ -222,20 +265,11 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 		return nil, vm.typeError("module", "", core.SymbolType, e.Args[1])
 	}
 	newm := vm.addModule(name, parent)
-	newm.usings = []*Module{vm.Core}
-	// its own name, exported (jl_add_default_names, module.c:535-548)
-	self := newm.declare(name, 0)
-	self.Value, self.Const, self.Exports = newm, true, true
-	// standard imports once a Base exists: using the top module above it
-	// (jl_add_standard_imports, toplevel.c:39-46); Core stays used, which
-	// julia gets through Base's exports
+	// Core stays used with the standard imports, which julia gets through
+	// Base's exports
+	vm.addDefaultNames(newm, true, true)
 	if e.Args[0] == true && vm.baseModule != nil {
-		base := vm.baseRelativeTo(newm)
-		newm.usings = append(newm.usings, base)
-		for _, std := range []*Module{vm.Core, base} {
-			b := newm.declare(std.Name, 0)
-			b.Value, b.Const = std, true
-		}
+		base := vm.addStandardImports(newm)
 		// its own include and eval, Base.IncludeInto and Core.EvalInto of
 		// it, once they exist (toplevel.c:163-172)
 		for _, d := range []struct {

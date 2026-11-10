@@ -73,6 +73,7 @@ func (vm *VM) bootShims() {
 			m.uuid = [2]uint64{hi, lo}
 			return nil, nil
 		},
+		"jl_f_new_module": func(vm *VM, a []any) (any, error) { return vm.newModuleShim(a) },
 		// jl_module_uuid (module.c:2038), the same two halves, (0, 0) for a
 		// module of no package (pkgid.jl:13)
 		"jl_module_uuid": func(vm *VM, a []any) (any, error) {
