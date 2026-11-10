@@ -120,6 +120,8 @@ Not yet: Base (a program that calls `+`, `println` or `a.b` reaches a Base funct
 
 Untrusted cells: `VM.MaxSteps` bounds the statements a VM runs (`while true end` is valid Julia), `VM.MaxDepth` bounds call and try-block nesting with a `StackOverflowError`, and `Session.Eval` reports a broken invariant as `interp.ErrInternal` instead of panicking. `include` reads only `VM.Sources` (julia's own embedded sources unless the embedder supplies others), and an include that nests without end raises `StackOverflowError` like a call. `VM.MaxMemoryElems` (16 Mi elements by default) bounds one `memorynew`: a larger allocation stops with `interp.ErrMemoryLimit` instead of exhausting the host. The total a VM allocates is not bounded yet ([#24](https://github.com/go-embedded-julia/julia/issues/24)).
 
+The VM's file system has two modes (`interp/vfs.go`), one layer under every file call Base makes (`jl_stat` and its buffer, `ios_*` of an `IOStream`, libuv's `uv_fs_*`, `jl_fs_access`, `getattrlist`). In the sandbox, the default, only julia's own tree exists: the Base sources and the stdlibs (`FileWatching`, `Libdl`, `Artifacts`, `SHA`, `Sockets`, `LinearAlgebra`, `Random` and the JLLs `LinearAlgebra` depends on, embedded unmodified, `interp/stdlib.md`), mounted where `Sys.BINDIR`, `Sys.STDLIB` and `include` look for them (`<BinDir>/../share/julia`); the tree is read-only, and no path leaves it (`..`, an absolute path outside the mount, a link: the embedded tree holds none). With `VM.Host` set the tree stays mounted at its paths and every other path is the real file system, through package `os`. Reading is ported; writing a file is refused in the sandbox (`EROFS`) and not ported on the host yet.
+
 ## Use
 
 ```go
