@@ -296,9 +296,11 @@ func (vm *VM) bootShims() {
 		"jl_ver_patch":      func(vm *VM, a []any) (any, error) { return int32(6), nil },
 		"jl_ver_is_release": func(vm *VM, a []any) (any, error) { return int32(1), nil },
 		// jl_generating_output (precompile.c:19-22): whether an output
-		// file is set in jl_options; the VM's are all NULL (defaultOptions),
-		// it writes no image
-		"jl_generating_output": func(vm *VM, a []any) (any, error) { return int32(0), nil },
+		// file is set in jl_options: the VM's are all NULL (defaultOptions),
+		// but while it builds Base as julia builds its image (GeneratingOutput)
+		// it answers as julia does there, so that require loads a stdlib's
+		// source instead of precompiling it (loading.jl:2652-2653)
+		"jl_generating_output": func(vm *VM, a []any) (any, error) { return cbool(vm.GeneratingOutput), nil },
 		// jl_set_precompile_field_replace (staticdata.c:2925-2928) does
 		// nothing when no output is generated
 		"jl_set_precompile_field_replace": func(vm *VM, a []any) (any, error) { return nil, nil },
@@ -555,6 +557,8 @@ func (vm *VM) bootShims() {
 	vm.bootMPFR()
 	vm.bootUtf8proc()
 	vm.bootEnvShims()
+	vm.bootFileShims()
+	vm.bootIOS()
 	// the parser's character classes (flisp/julia_extensions.c:127-170),
 	// unitab's tables being Base.is_id_start_char's and is_id_char's
 	for name, q := range map[expr.Symbol]func(uint32) bool{

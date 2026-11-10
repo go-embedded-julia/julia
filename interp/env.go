@@ -85,19 +85,9 @@ func (vm *VM) bootEnvShims() {
 		}
 		return vm.uvPathOut("uv_os_homedir", home, a)
 	}
-	// uv_cwd(buf, &size) (libuv): VM.WorkDir, the same way (path.jl's pwd)
-	vm.shims["uv_cwd"] = func(vm *VM, a []any) (any, error) { return vm.uvPathOut("uv_cwd", vm.WorkDir, a) }
-	// the host's filesystem is out of reach: every path is absent, UV_ENOENT
-	// (-2), which stat.jl's checkstat accepts (stat.jl:186-204); the stat
-	// buffer is the official darwin/arm64 build's size
-	vm.shims["jl_sizeof_stat"] = func(vm *VM, a []any) (any, error) { return int32(160), nil }
-	noPath := func(vm *VM, a []any) (any, error) {
-		if _, ok := vm.cstringArg(a[0]); !ok {
-			return nil, fmt.Errorf("%w: stat of %s", ErrUnsupported, showValue(a[0]))
-		}
-		return int32(-2), nil
-	}
-	vm.shims["jl_stat"], vm.shims["jl_lstat"] = noPath, noPath
+	// uv_cwd(buf, &size) (libuv): VM.WorkDir, the same way (path.jl's pwd);
+	// the host's own directory when it has none
+	vm.shims["uv_cwd"] = func(vm *VM, a []any) (any, error) { return vm.uvPathOut("uv_cwd", vm.workDir(), a) }
 	// jl_environ(i) (sys.c): the i-th "name=value", nothing past the last
 	vm.shims["jl_environ"] = func(vm *VM, a []any) (any, error) {
 		i, ok := a[0].(int32)

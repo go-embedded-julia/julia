@@ -92,6 +92,21 @@ type VM struct {
 	// by default, rooted as julia's base/ is.
 	Sources fs.FS
 
+	// Host selects the filesystem mode (vfs.go): false, the sandbox, where
+	// only julia's own tree exists and no path leaves it; true, the host,
+	// where that tree stays mounted at its paths and every other path is the
+	// real filesystem. Stdlib is the tree of the stdlibs mounted at Sys.STDLIB,
+	// julia's own by default. Both are read when the first file is touched.
+	Host   bool
+	Stdlib fs.FS
+	// vfs is the filesystem the file shims share; ios the IOStreams open
+	// (fsshims.go, by the memory of the ios_t Base allocates), reqs the libuv
+	// requests live (by the memory of the uv_fs_t), errno the C errno.
+	vfs   *vfs
+	ios   map[*Memory]*iosState
+	reqs  map[*Memory]*uvReq
+	errno int32
+
 	// Env is the environment julia code sees (Base's ENV): empty unless the
 	// embedder fills it; the host's is never read.
 	Env map[string]string
