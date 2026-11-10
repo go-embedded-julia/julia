@@ -59,6 +59,41 @@ func TestIsdefinedVararg(t *testing.T) {
 	}
 }
 
+// jl_array_ptr_1d_push on a Vector{Any} that is empty, as MethodInstance
+// backedges start: its memory is the type's shared zero-length instance, so
+// the push must go to a new memory. Grown in place, it made the memory of
+// every later empty Vector{Any} (Compiler's `types = Any[]`, aliasing an
+// inference frame's `edges`) one of 37 slots holding backedges.
+func TestVectorPushLeavesSharedEmptyMemory(t *testing.T) {
+	vm := New()
+	shared := vm.newVector(core.AnyType, nil).Fields[0].(*MemoryRef).Mem
+	vm.emptyMemory[shared.Type] = shared
+	empty := func() *Struct {
+		v := vm.newVector(core.AnyType, nil)
+		v.Fields[0].(*MemoryRef).Mem = shared
+		return v
+	}
+	a, b := empty(), empty()
+	for i := int64(1); i <= 9; i++ {
+		vm.vectorPush(a, i)
+		_, _, elems, _ := arrayOf(a)
+		if int64(len(elems)) != i || elems[i-1] != any(i) {
+			t.Fatalf("after %d pushes: %v", i, elems)
+		}
+		if len(shared.Elems) != 0 {
+			t.Fatalf("the shared empty memory holds %d slots after %d pushes", len(shared.Elems), i)
+		}
+	}
+	if _, _, elems, _ := arrayOf(b); len(elems) != 0 || b.Fields[0].(*MemoryRef).Mem != shared {
+		t.Errorf("another empty vector: %v", elems)
+	}
+	// a spare slot is filled in place, the rest of the memory stays undef
+	ref := a.Fields[0].(*MemoryRef)
+	if len(ref.Mem.Elems) != 16 || ref.Mem.Elems[9] != undef || ref.Mem.Elems[15] != undef {
+		t.Errorf("grown memory: %d slots, %v", len(ref.Mem.Elems), ref.Mem.Elems[9:])
+	}
+}
+
 // jl_promote_cis_to_current (gf.c:1790-1804): each CodeInstance of the
 // Ptr{CodeInstance} array validated in the current world, with its edges.
 func TestPromoteCIsToCurrent(t *testing.T) {

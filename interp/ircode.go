@@ -155,11 +155,25 @@ func (vm *VM) coreType(name string) any { return vm.Core.own(expr.Symbol(name)).
 func typeNameOf(t any) *core.TypeName { return core.UnwrapUnionAll(t).(*core.DataType).Name }
 
 // vectorPush is jl_array_ptr_1d_push: v appended to a Vector{Any} of this
-// VM, its memory grown in place.
+// VM, as jl_array_grow_end does: into a spare slot of its memory, else into
+// a new, larger memory. A Memory's length is fixed, and an empty Vector's
+// memory is the type's one shared zero-length instance, which growing in
+// place would make every other empty Vector's memory.
 func (vm *VM) vectorPush(vec *Struct, v any) {
 	ref := vec.Fields[0].(*MemoryRef)
 	n := vec.Fields[1].(*Tuple).Elems[0].(int64)
-	ref.Mem.Elems = append(ref.Mem.Elems[:ref.Off+int(n)], v)
+	at := ref.Off + int(n)
+	if at < len(ref.Mem.Elems) {
+		ref.Mem.Elems[at] = v
+	} else {
+		elems := make([]any, max(2*len(ref.Mem.Elems), at+1, 4))
+		copy(elems, ref.Mem.Elems)
+		for i := len(ref.Mem.Elems); i < len(elems); i++ {
+			elems[i] = undef
+		}
+		elems[at] = v
+		vec.Fields[0] = &MemoryRef{Type: ref.Type, Mem: &Memory{Type: ref.Mem.Type, Elems: elems}, Off: ref.Off}
+	}
 	vec.Fields[1] = vm.newTuple([]any{n + 1})
 }
 
