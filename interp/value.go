@@ -140,6 +140,12 @@ func newModule(name expr.Symbol, parent *Module) *Module {
 		buildID: [2]uint64{^uint64(0), moduleCounter.Add(1)}}
 }
 
+// ModuleName makes a module a core.ModuleValue, which core takes as a type
+// parameter (jl_valid_type_param accepts a module: Artifacts.jl:776's
+// Base.Val{Artifacts}), shown by its full name as julia shows
+// V{Main.Outer.Inner}.
+func (m *Module) ModuleName() string { return showValue(m) }
+
 // moduleCounter numbers the modules made (module.c:510, mcounter): a
 // module's build id is ~0 and its number, unique and never 0 as julia's;
 // julia also mixes in the time and a random number (module.c:512), which

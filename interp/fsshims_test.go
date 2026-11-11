@@ -33,6 +33,9 @@ func TestStatShims(t *testing.T) {
 	f := newPCREFixture(t)
 	v, err := f.sh("jl_sizeof_stat")
 	check(t, "jl_sizeof_stat", v, err, "160")
+	// julia 1.12.6 on darwin/arm64: ccall(:jl_uv_sizeof_interface_address, Int32, ()) == 96
+	v, err = f.sh("jl_uv_sizeof_interface_address")
+	check(t, "jl_uv_sizeof_interface_address", v, err, "96")
 	for _, name := range []string{"jl_stat", "jl_lstat"} {
 		buf, m := f.buf(160, 0xaa)
 		v, err = f.sh(name, f.str(shaToml), buf)

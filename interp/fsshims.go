@@ -119,6 +119,10 @@ func (vm *VM) statInto(st uvStat, code int32, buf any) (any, error) {
 
 func (vm *VM) bootFileShims() {
 	vm.shims["jl_sizeof_stat"] = func(vm *VM, a []any) (any, error) { return int32(uvStatSize), nil }
+	// jl_uv_sizeof_interface_address (jl_uv.c:939-942), sizeof
+	// uv_interface_address_t: 96 in julia 1.12.6's darwin/arm64 build, which
+	// Sockets reads as it loads (addrinfo.jl:256)
+	vm.shims["jl_uv_sizeof_interface_address"] = func(vm *VM, a []any) (any, error) { return int32(96), nil }
 	// jl_stat and jl_lstat (sys.c:111-135) name a path, jl_fstat (137-147) a
 	// descriptor
 	for name, follow := range map[expr.Symbol]bool{"jl_stat": true, "jl_lstat": false} {
