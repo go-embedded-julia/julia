@@ -74,6 +74,17 @@ func (vm *VM) bootShims() {
 			return nil, nil
 		},
 		"jl_f_new_module": func(vm *VM, a []any) (any, error) { return vm.newModuleShim(a) },
+		// jl_clear_implicit_imports (module.c:2059-2073), which sysimg.jl:135
+		// calls on Main: julia drops the partitions of the bindings it
+		// resolved through a using, so they resolve again. Module.lookupFrom
+		// resolves them through the usings at every read and keeps nothing,
+		// so there is nothing to drop.
+		"jl_clear_implicit_imports": func(vm *VM, a []any) (any, error) {
+			if _, ok := a[0].(*Module); !ok {
+				return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
+			}
+			return nil, nil
+		},
 		// jl_module_uuid (module.c:2038), the same two halves, (0, 0) for a
 		// module of no package (pkgid.jl:13)
 		"jl_module_uuid": func(vm *VM, a []any) (any, error) {
