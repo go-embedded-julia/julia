@@ -64,6 +64,9 @@ type Table struct {
 	// with the world range ml_matches found it valid in
 	leaf    map[*core.DataType][]leafEntry
 	changes uint64 // counts the calls of changed
+	// clips[i] is the oldest world of the changes i, i+1, …: an entry cached
+	// after i changes holds up to clips[i]-1 at most
+	clips []uint64
 
 	// the typemap, built by replaying the insertions and disables in order
 	// when a query first needs it
@@ -77,35 +80,43 @@ type Table struct {
 // the table change there.
 var raceHook = func() {}
 
-// leafEntry is a cached Lookup: the method and static parameters, and the
-// worlds minWorld to maxWorld it is the answer in.
+// leafEntry is a cached Lookup: the method and static parameters, the
+// worlds minWorld to maxWorld it was found valid in, and gen, the number of
+// changes of the table when it was cached.
 type leafEntry struct {
 	minWorld, maxWorld uint64
 	m                  *Method
 	env                []any
+	gen                uint64
 }
 
-// changed records a change of the visible methods from world w on: no
-// cached answer holds from w on any more (julia's invalidation of the
-// method cache ends the entries' worlds the same way); an entry that only
-// held from w on goes.
+// changed records a change of the visible methods from world w on (w ≥ 1):
+// no cached answer holds from w on any more, as julia's invalidation of the
+// leaf cache ends its entries' worlds (gf.c:2982-2999). The entries are not
+// visited: last gives each its end when it is read. A table defining
+// thousands of methods (LinearAlgebra) spent 44% of a Base load rewriting
+// every entry on each definition.
 func (t *Table) changed(w uint64) {
 	t.changes++
-	for tt, es := range t.leaf {
-		kept := es[:0]
-		for _, e := range es {
-			if e.minWorld >= w {
-				continue
-			}
-			e.maxWorld = min(e.maxWorld, w-1)
-			kept = append(kept, e)
-		}
-		if len(kept) == 0 {
-			delete(t.leaf, tt)
-		} else {
-			t.leaf[tt] = kept
-		}
+	t.clips = append(t.clips, w)
+	for i := len(t.clips) - 2; i >= 0 && t.clips[i] > w; i-- {
+		t.clips[i] = w
 	}
+}
+
+// last is the newest world e still answers in: its own maxWorld, ended
+// before the oldest change made after it was cached. An entry whose range
+// is empty answers in no world.
+func (t *Table) last(e leafEntry) uint64 {
+	if e.gen < uint64(len(t.clips)) {
+		return min(e.maxWorld, t.clips[e.gen]-1)
+	}
+	return e.maxWorld
+}
+
+// answers reports whether e is the cached answer in world w.
+func (t *Table) answers(e leafEntry, w uint64) bool {
+	return e.minWorld <= w && w <= t.last(e)
 }
 
 // tmEvent is a change of the table the typemap has yet to follow.
@@ -237,7 +248,7 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 	t.mu.RLock()
 	gen := t.changes
 	for _, e := range t.leaf[leaf] {
-		if e.minWorld <= w && w <= e.maxWorld {
+		if t.answers(e, w) {
 			t.mu.RUnlock()
 			return e.m, append([]any(nil), e.env...), nil
 		}
@@ -253,7 +264,14 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 		// unless the table changed while ml_matches ran: its range may
 		// reach past that change
 		if t.changes == gen {
-			t.leaf[leaf] = append(t.leaf[leaf], leafEntry{minW, maxW, m, append([]any(nil), env...)})
+			// the entries no world is left to are dropped here
+			kept := t.leaf[leaf][:0]
+			for _, e := range t.leaf[leaf] {
+				if e.minWorld <= t.last(e) {
+					kept = append(kept, e)
+				}
+			}
+			t.leaf[leaf] = append(kept, leafEntry{minW, maxW, m, append([]any(nil), env...), gen})
 		}
 		t.mu.Unlock()
 	}

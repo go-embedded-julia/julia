@@ -84,11 +84,47 @@ func TestLeafCacheDropsAnAnswerFromTheChangedWorld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := tab.leaf[call]; ok {
-		t.Fatal("the answer of worlds 6 on stayed")
+	for _, e := range tab.leaf[call] {
+		if e.minWorld <= tab.last(e) {
+			t.Fatalf("the answer of worlds 6 on still answers up to %d", tab.last(e))
+		}
 	}
 	if m, _, err := tab.Lookup(call, 10); err != nil || m != m2 {
 		t.Fatalf("%v, %v", m, err)
+	}
+	// caching m2 dropped the entry no world was left to
+	if es := tab.leaf[call]; len(es) != 1 || es[0].m != m2 {
+		t.Fatalf("cached %+v", es)
+	}
+}
+
+// A change at an older world than an earlier one still ends the entries
+// cached before both at the older world, as visiting them at each change
+// did: each entry ends before the oldest change made after it.
+func TestLeafCacheEndsAtTheOldestLaterChange(t *testing.T) {
+	tab := &Table{Name: "f"}
+	anyT := mustApply(t, core.AnyTupleType, core.AnyType)
+	intT := mustApply(t, core.AnyTupleType, core.Int64Type)
+	call := intT.(*core.DataType)
+	m0, _ := tab.Add(anyT)
+	if m, _, err := tab.Lookup(call, 1); err != nil || m != m0 {
+		t.Fatalf("%v, %v", m, err)
+	}
+	if _, err := tab.Define(intT, 10, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !tab.Disable(m0, 3) {
+		t.Fatal("disable")
+	}
+	es := tab.leaf[call]
+	if len(es) != 1 || tab.last(es[0]) != 3 {
+		t.Fatalf("cached %+v, last %d", es, tab.last(es[0]))
+	}
+	if m, _, err := tab.Lookup(call, 3); err != nil || m != m0 {
+		t.Fatalf("world 3: %v, %v", m, err)
+	}
+	if _, _, err := tab.Lookup(call, 5); err == nil {
+		t.Fatal("world 5: m0 is disabled and the Int64 method comes at 10")
 	}
 }
 
