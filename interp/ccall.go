@@ -555,6 +555,7 @@ func (vm *VM) bootShims() {
 	vm.bootPCRE()
 	vm.bootGMP()
 	vm.bootMPFR()
+	vm.bootDSFMT()
 	vm.bootUtf8proc()
 	vm.bootEnvShims()
 	vm.bootFileShims()
