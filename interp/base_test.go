@@ -182,12 +182,21 @@ func readTasksBaseGolden(t testing.TB) []evalCase {
 func probeBaseTasks(t *testing.T, vm *VM) {
 	defer vm.Close()
 	s := vm.NewSession()
+	// the answers are julia's text/plain display, which Base's repr with
+	// that MIME gives
+	show, err := s.Eval(`v -> repr(MIME("text/plain"), v)`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i, c := range readTasksBaseGolden(t) {
 		start := time.Now()
 		v, err := s.Eval(c.Src)
-		got := "<error> " + fmt.Sprint(err)
 		if err == nil {
-			got = Repr(v)
+			v, err = vm.apply(show, []any{v})
+		}
+		got := "<error> " + fmt.Sprint(err)
+		if str, ok := v.(string); err == nil && ok {
+			got = str
 		}
 		verdict := "ok"
 		if got != c.Want {

@@ -206,11 +206,10 @@ func (vm *VM) bootIntrinsics() {
 	add("bitcast", 2, biBitcast)
 	add("cglobal", 2, biCglobal)
 	vm.bootAtomics(add)
-	// no runtime function: jl_f_intrinsic_call refuses it (builtins.c:
-	// 2371-2373), before counting the arguments
-	vm.newIntrinsic("llvmcall", 0, nil).Fn = func(vm *VM, args []any) (any, error) {
-		return nil, vm.errorf("`llvmcall` requires the compiler")
-	}
+	// no runtime function in julia's interpreter (builtins.c:2371-2373);
+	// here the IR templates of atomics.jl run (llvmcall.go), anything else
+	// is refused as julia refuses it
+	vm.newIntrinsic("llvmcall", 0, nil).Fn = func(vm *VM, args []any) (any, error) { return vm.llvmcall(args) }
 	llvmcall := im.declare("llvmcall", 0)
 	llvmcall.Value, llvmcall.Const, llvmcall.Exports = vm.intrinsics[intrinsicIDs["llvmcall"]], true, true
 	add("pointerref", 3, biPointerref)
