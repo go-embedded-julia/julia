@@ -36,6 +36,7 @@ func TestTaskShimArguments(t *testing.T) {
 		{"jl_set_task_threadpoolid", []any{task, int64(0)}},
 		{"jl_threadpoolid", []any{int64(0)}},
 		{"jl_set_ptls_rng", []any{int64(0)}},
+		{"jl_set_peek_cond", []any{int64(0)}},
 		// a Task that jl_new_task did not make has no record
 		{"jl_is_task_started", []any{&Struct{Type: vm.tTask, Fields: newTaskFields(nil, nil, nil, [5]uint64{})}}},
 	} {
@@ -85,10 +86,26 @@ perpool(i) = Core.Intrinsics.pointerref(Core.Intrinsics.pointerref(Core.Intrinsi
             (r, ccall(:jl_get_task_threadpoolid, Int8, (Any,), t)) end`, "((0, 1, 1, 1, 0, 0), 1)"},
 		{`(ccall(:jl_set_ptls_rng, Cvoid, (UInt64,), Core.Intrinsics.bitcast(UInt64, 5)), ccall(:jl_get_ptls_rng, UInt64, ()))`, "(nothing, 0x0000000000000005)"},
 		{`ccall(:jl_gc_safepoint, Cvoid, ())`, "nothing"},
+		{`ccall(:jl_cpu_suspend, Cvoid, ())`, "nothing"},
+		{`ccall(:jl_set_peek_cond, Cvoid, (Ptr{Cvoid},), ccall(:malloc, Ptr{Cvoid}, (UInt,), Core.Intrinsics.bitcast(UInt64, 8)))`, "nothing"},
 		{`ccall(:jl_wakeup_thread, Cvoid, (Int16,), Core.Intrinsics.trunc_int(Int16, 0))`, "nothing"},
 	} {
 		v, err := s.Eval(c.src)
 		check(t, c.src, v, err, c.want)
+	}
+}
+
+// Sys.__init__'s questions, answered as julia 1.12.6 does on darwin/arm64.
+func TestSysinfoShims(t *testing.T) {
+	vm := New()
+	for name, want := range map[string]any{"jl_SC_CLK_TCK": int64(100), "jl_get_cpu_name": "apple-m1",
+		"jl_get_JIT": "ORCJIT", "jl_getpagesize": int64(16384)} {
+		if got, err := shim1(vm, name); err != nil || got != want {
+			t.Errorf("%s: %v %v, want %v", name, got, err, want)
+		}
+	}
+	if got, err := shim1(vm, "jl_cpu_threads"); err != nil || got.(int32) < 1 {
+		t.Errorf("jl_cpu_threads: %v %v", got, err)
 	}
 }
 

@@ -590,8 +590,20 @@ func (vm *VM) bootTaskShims() {
 		vm.ptlsRng = seed
 		return nil, nil
 	})
-	// jl_gc_safepoint: there is no collector to stop for
+	// jl_gc_safepoint and jl_cpu_suspend (locks-mt.jl:46-48): there is no
+	// collector to stop for, and the one thread is the one that spins
 	ret("jl_gc_safepoint", func(vm *VM, a []any) (any, error) { return nil, nil })
+	ret("jl_cpu_suspend", func(vm *VM, a []any) (any, error) { return nil, nil })
+	// jl_set_peek_cond (signals-unix.c): the async handle a SIGINFO or SIGUSR1
+	// would send on, which Base.start_profile_listener registers; there is
+	// no signal here, so the handle is only kept
+	ret("jl_set_peek_cond", func(vm *VM, a []any) (any, error) {
+		if _, ok := a[0].(*Pointer); !ok {
+			return nil, vm.typeError("ccall", "", vm.ptrType(core.NothingType), a[0])
+		}
+		vm.peekCond = a[0]
+		return nil, nil
+	})
 	// the thread counts Base reads with cglobal (threadingconstructs.jl:47-124)
 	perPool := &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), core.Int32Type, core.CPU)).(*core.DataType),
 		Elems: []any{threadsPerPool[0], threadsPerPool[1]}}

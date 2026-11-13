@@ -164,6 +164,7 @@ type VM struct {
 	wakeup                bool
 	threaded              int
 	ptlsRng               uint64
+	peekCond              any // the handle jl_set_peek_cond was given
 	// MaxHandles bounds the libuv handles; past it a handle is refused with
 	// ErrHandleLimit. Zero means DefaultMaxHandles. loop is the event loop
 	// (uvloop.go), made on first use.

@@ -604,6 +604,7 @@ func (vm *VM) bootShims() {
 	vm.bootTaskShims()
 	vm.bootTaskGetNext()
 	vm.bootUVLoop()
+	vm.bootSysinfo()
 	// strlen(s): the bytes before the NUL a Cstring ends with
 	vm.shims["strlen"] = func(vm *VM, a []any) (any, error) {
 		s, ok := vm.cstringArg(a[0])
