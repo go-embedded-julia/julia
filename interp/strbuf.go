@@ -106,18 +106,6 @@ func (vm *VM) pcharToString(a []any) (any, error) {
 	if s, ok := stringBytes(a[0], a[1]); ok {
 		return s, nil
 	}
-	p, ok := a[0].(*Pointer)
-	n, ok2 := a[1].(int64)
-	if ok && ok2 && n >= 0 {
-		if m, isMem := p.Target.(*Memory); isMem && m.Type == memUInt8Type && p.Off >= 0 && p.Off+n <= int64(len(m.Elems)) {
-			b := make([]byte, n)
-			for i := range b {
-				c, _ := m.Elems[p.Off+int64(i)].(uint8)
-				b[i] = c
-			}
-			return string(b), nil
-		}
-	}
 	return nil, fmt.Errorf("%w: jl_pchar_to_string of %s", ErrUnsupported, showValue(vm.newTuple(a)))
 }
 
@@ -255,22 +243,9 @@ func (vm *VM) bytesAt(p *Pointer, n uint64) ([]byte, bool) {
 		return []byte(s), true
 	}
 	m, ok := p.Target.(*Memory)
-	if !ok || n > uint64(vm.MaxMemoryElems) {
+	if !ok || n > uint64(vm.MaxMemoryElems) || m.Type == memUInt8Type {
+		// stringBytes read a memory of bytes already: these are not there
 		return nil, false
-	}
-	if m.Type == memUInt8Type {
-		if p.Off < 0 || p.Off > int64(len(m.Elems)) || n > uint64(int64(len(m.Elems))-p.Off) {
-			return nil, false
-		}
-		b := make([]byte, n)
-		for i := range b {
-			c, ok := m.Elems[p.Off+int64(i)].(uint8)
-			if !ok {
-				return nil, false
-			}
-			b[i] = c
-		}
-		return b, true
 	}
 	// a memory of other primitive values, read as its bytes
 	if et, ok := m.Type.Parameters[1].(*core.DataType); !ok || et.Name.Bits == 0 {

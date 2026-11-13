@@ -7,20 +7,39 @@ import (
 	"github.com/go-embedded-julia/julia/expr"
 )
 
-// stringBytes is total over any offset and count a program can give it.
+// stringBytes is total over any offset and count a program can give it,
+// into a String or a Memory{UInt8} of the same bytes.
 func FuzzStringBytes(f *testing.F) {
-	f.Add("abc", int64(0), int64(3), uint64(0), false)
-	f.Add("", int64(-1), int64(1)<<62, uint64(1)<<63, true)
-	f.Fuzz(func(t *testing.T, s string, off, n int64, un uint64, unsigned bool) {
+	f.Add("abc", int64(0), int64(3), uint64(0), false, false)
+	f.Add("", int64(-1), int64(1)<<62, uint64(1)<<63, true, false)
+	f.Add("hello", int64(1), int64(3), uint64(0), false, true)
+	f.Add("ab", int64(0), int64(0), uint64(3), true, true)
+	f.Fuzz(func(t *testing.T, s string, off, n int64, un uint64, unsigned, mem bool) {
 		var count any = n
 		if unsigned {
 			count = un
 		}
-		got, ok := stringBytes(&Pointer{Target: s, Off: off}, count)
+		var target any = s
+		if mem {
+			m := &Memory{Type: memUInt8Type, Elems: make([]any, len(s))}
+			for i := range len(s) {
+				m.Elems[i] = s[i]
+			}
+			target = m
+		}
+		got, ok := stringBytes(&Pointer{Target: target, Off: off}, count)
 		if ok && (off < 0 || int(off)+len(got) > len(s) || s[off:int(off)+len(got)] != got) {
-			t.Errorf("stringBytes(%q, %d, %v) = %q", s, off, count, got)
+			t.Errorf("stringBytes(%q, %d, %v, memory %v) = %q", s, off, count, mem, got)
 		}
 	})
+}
+
+// A Memory of another element type than UInt8 is no byte buffer.
+func TestStringBytesOfAMemoryOfInt32(t *testing.T) {
+	m := &Memory{Type: memType(core.Int32Type), Elems: []any{int32(1)}}
+	if _, ok := stringBytes(&Pointer{Target: m}, int64(1)); ok {
+		t.Error("a Memory{Int32} read as bytes")
+	}
 }
 
 // NamedTuple types and values, each want julia 1.12.6's repr of the same

@@ -294,16 +294,26 @@ func (vm *VM) cstrToString(a []any) (any, error) {
 	return nil, fmt.Errorf("%w: jl_cstr_to_string of %s", ErrUnsupported, showValue(a[0]))
 }
 
-// stringBytes is the n bytes a pointer into a String points at, false for
-// any other pointer, a count that is not an integer or a range past the
-// string.
+// stringBytes is the n bytes a pointer into a String or a Memory{UInt8}
+// points at (C reads both alike: an IOBuffer's data is a Memory{UInt8}, and
+// print of a String through stdout's buffer, sysimg.jl:142, writes from it);
+// false for any other pointer, a count that is not an integer or a range
+// past the end.
 func stringBytes(ptr, count any) (string, bool) {
 	p, ok := ptr.(*Pointer)
 	if !ok {
 		return "", false
 	}
-	str, ok := p.Target.(string)
-	if !ok {
+	var size int64
+	switch t := p.Target.(type) {
+	case string:
+		size = int64(len(t))
+	case *Memory:
+		if t.Type.Parameters[1] != any(core.UInt8Type) {
+			return "", false
+		}
+		size = int64(len(t.Elems))
+	default:
 		return "", false
 	}
 	var n int64
@@ -311,17 +321,29 @@ func stringBytes(ptr, count any) (string, bool) {
 	case int64:
 		n = x
 	case uint64:
-		if x > uint64(len(str)) {
+		if x > uint64(size) {
 			return "", false
 		}
 		n = int64(x)
 	default:
 		return "", false
 	}
-	if n < 0 || p.Off < 0 || p.Off > int64(len(str)) || n > int64(len(str))-p.Off {
+	if n < 0 || p.Off < 0 || p.Off > size || n > size-p.Off {
 		return "", false
 	}
-	return str[p.Off : p.Off+n], true
+	if str, isStr := p.Target.(string); isStr {
+		return str[p.Off : p.Off+n], true
+	}
+	// only the bytes asked for are copied; an undefined one cannot be read
+	b := make([]byte, n)
+	for i, e := range p.Target.(*Memory).Elems[p.Off : p.Off+n] {
+		c, isByte := e.(uint8)
+		if !isByte {
+			return "", false
+		}
+		b[i] = c
+	}
+	return string(b), true
 }
 
 // symbolN is jl_symbol_n(str, len) (symbol.c:113-118).
