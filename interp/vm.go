@@ -174,8 +174,11 @@ type VM struct {
 	irTags *irTables
 
 	// Stdout and Stderr receive what Julia code prints (Core.println,
-	// print): io.Discard unless the embedder sets them. cglobals are the C
-	// globals cglobal can name (vptr.go).
+	// print): io.Discard unless the embedder sets them. Stdin is what julia
+	// reads from standard input, nil meaning an empty input. All three are
+	// descriptors 0, 1 and 2 of the VM's filesystem (vfs.go). cglobals are
+	// the C globals cglobal can name (vptr.go).
+	Stdin          io.Reader
 	Stdout, Stderr io.Writer
 	cglobals       map[expr.Symbol]*ptrSlot
 	addrs          addrSpace

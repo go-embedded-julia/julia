@@ -132,16 +132,54 @@ type vfile struct {
 	f    fs.File
 	h    *os.File
 	path string // the cleaned absolute path, for fstat of a file of the tree
+	// std is a descriptor 0, 1 or 2: the reader or writer of the embedder
+	// (VM.Stdin, VM.Stdout, VM.Stderr), fetched at each call so that one set
+	// after the table was made counts
+	rd func() io.Reader
+	wr func() io.Writer
 }
 
 func (f *vfile) read(p []byte) (int, error) {
+	if f.rd != nil {
+		r := f.rd()
+		if r == nil {
+			return 0, io.EOF
+		}
+		return r.Read(p)
+	}
+	if f.wr != nil {
+		return 0, syscall.EBADF // a descriptor open for writing only
+	}
 	if f.h != nil {
 		return f.h.Read(p)
 	}
 	return f.f.Read(p)
 }
 
+// write is write(2): the bytes go to the embedder's writer, and a file of
+// the tree or the host (opened read-only here) refuses them.
+func (f *vfile) write(p []byte) (int, error) {
+	if f.wr == nil {
+		return 0, syscall.EBADF
+	}
+	w := f.wr()
+	if w == nil {
+		return len(p), nil
+	}
+	return w.Write(p)
+}
+
+// stdInfo is what fstat answers of descriptors 0, 1 and 2, which julia sees
+// as files: a regular file of mode 0644 and no size.
+type stdInfo struct{ synthInfo }
+
+func (stdInfo) Mode() fs.FileMode { return 0o644 }
+func (stdInfo) IsDir() bool       { return false }
+
 func (f *vfile) seek(off int64, whence int) (int64, error) {
+	if f.rd != nil || f.wr != nil {
+		return 0, syscall.ESPIPE
+	}
 	if f.h != nil {
 		return f.h.Seek(off, whence)
 	}
@@ -152,6 +190,9 @@ func (f *vfile) seek(off int64, whence int) (int64, error) {
 }
 
 func (f *vfile) stat() (fs.FileInfo, error) {
+	if f.rd != nil || f.wr != nil {
+		return stdInfo{synthInfo{path.Base(f.path)}}, nil
+	}
 	if f.h != nil {
 		return f.h.Stat()
 	}
@@ -159,6 +200,9 @@ func (f *vfile) stat() (fs.FileInfo, error) {
 }
 
 func (f *vfile) close() error {
+	if f.rd != nil || f.wr != nil {
+		return nil // the embedder's own stream is not ours to close
+	}
 	if f.h != nil {
 		return f.h.Close()
 	}
@@ -192,6 +236,11 @@ func (vm *VM) fsys() *vfs {
 	if bin := strings.TrimPrefix(path.Clean("/"+vm.BinDir), "/"); bin != "" {
 		v.mounts = append(v.mounts, mount{bin, emptyFS{}})
 	}
+	// standard input, output and error, in both modes: the host's own are
+	// never touched
+	v.files[0] = &vfile{path: "stdin", rd: func() io.Reader { return vm.Stdin }}
+	v.files[1] = &vfile{path: "stdout", wr: func() io.Writer { return vm.Stdout }}
+	v.files[2] = &vfile{path: "stderr", wr: func() io.Writer { return vm.Stderr }}
 	vm.vfs = v
 	return v
 }
@@ -529,6 +578,24 @@ func (v *vfs) read(fd int32, n int) ([]byte, int32) {
 		return nil, uvErr(err)
 	}
 	return b[:got], 0
+}
+
+// write is write(2): the bytes written, or a libuv error. A writer that
+// takes fewer bytes than it was given owes an error, which comes with them.
+func (v *vfs) write(fd int32, b []byte) (int, int32) {
+	f := v.files[fd]
+	if f == nil {
+		return 0, uvEBADF
+	}
+	n, err := f.write(b)
+	n = max(0, min(n, len(b)))
+	if err != nil {
+		return n, uvErr(err)
+	}
+	if n == 0 && len(b) > 0 {
+		return 0, uvEIO // no byte and no error: a writer that cannot be waited on
+	}
+	return n, 0
 }
 
 // seek is lseek(2).

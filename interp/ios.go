@@ -1,7 +1,9 @@
 package interp
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -12,21 +14,40 @@ import (
 // the pointer to ios_file; the C struct's bytes are never read by Julia code,
 // so the state lives here, keyed by that memory, and follows ios.c's: a
 // buffer of IOS_BUFSIZE bytes refilled from the descriptor, a position in it,
-// the end-of-file flag and the descriptor's position. Writing a stream
-// (ios_write, ios_putc, ios_trunc, a file opened for writing) is not ported.
+// the end-of-file flag and the descriptor's position. The write side
+// (ios_fd, ios_write, ios_putc, ios_flush) follows it for the streams of
+// descriptors: its buffer holds the bytes written and not yet flushed
+// (ndirty), flushed when it is full, at a newline for a line-buffered stream
+// (descriptor 1), at once for an unbuffered one (descriptor 2) and on close.
+// A file opened for writing (ios_file), ios_trunc and the in-memory streams
+// (ios_mem) are not ported.
 
 const iosBufSize = 32768 // IOS_BUFSIZE (ios.h:23)
 
-// iosState is the part of an ios_t a reading stream uses (ios.h:60-90).
+// bufMode is bufmode_t (ios.h:29-33), without bm_mem.
+type bufMode int
+
+const (
+	bmBlock bufMode = iota
+	bmLine
+	bmNone
+)
+
+// iosState is the part of an ios_t a stream uses (ios.h:60-90). buf holds
+// the stream's size bytes.
 type iosState struct {
 	fd      int32 // the descriptor in the VM's table, -1 when closed
 	rd, wr  bool  // readable, writable
 	buf     []byte
 	bpos    int   // the next unread byte of buf
 	reading bool  // state == bst_rd
+	writing bool  // state == bst_wr
 	eof     bool  // _eof
 	fpos    int64 // the descriptor's position, -1 when unknown
 	maxsize int   // the buffer's capacity
+	ndirty  int   // the bytes of buf to write
+	bm      bufMode
+	ownfd   bool // closing the stream closes the descriptor
 }
 
 // mostOf is MOST_OF (ios.c): what "fits comfortably" in the buffer.
@@ -56,8 +77,12 @@ func (vm *VM) iosOf(fname string, v any) (*iosState, error) {
 // grown, as no caller asks for more than it holds (the data moves back when
 // n bytes would pass its end).
 func (vm *VM) iosReadprep(s *iosState, n int) int {
+	if s.writing {
+		vm.iosFlush(s)
+		s.buf, s.bpos = s.buf[:0], 0
+	}
 	space := len(s.buf) - s.bpos
-	s.reading = true
+	s.reading, s.writing = true, false
 	if space >= n || s.fd == -1 {
 		return space
 	}
@@ -94,7 +119,10 @@ func (vm *VM) iosDirect(s *iosState, n int, all bool) []byte {
 // until the end of the file) when all.
 func (vm *VM) iosRead(s *iosState, n int, all bool) []byte {
 	var out []byte
-	s.reading = true
+	if s.writing {
+		vm.iosSeek(s, vm.iosPos(s))
+	}
+	s.reading, s.writing = true, false
 	didread := false
 	for n > 0 {
 		avail := len(s.buf) - s.bpos
@@ -148,6 +176,174 @@ func (vm *VM) iosLseek(s *iosState, off int64, whence int32) (int64, bool) {
 	return pos, true
 }
 
+// uvFile is UV_FILE: the handle types of uv_constants.jl:5-9 number from 0
+// (UV_UNKNOWN_HANDLE, then uv_handle_types in order), and UV_FILE is the
+// seventeenth of them.
+const uvFile int32 = 17
+
+// stdHandle is the uv handle of descriptor fd (0, 1 or 2): a jl_uv_file_t.
+type stdHandle struct{ fd int32 }
+
+// stdHandleOf is the standard-stream handle a Ptr{Cvoid} points at.
+func (vm *VM) stdHandleOf(fname string, v any) (*stdHandle, error) {
+	if p, ok := v.(*Pointer); ok {
+		if h, ok := p.Target.(*stdHandle); ok && p.Off == 0 {
+			return h, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: %s of the handle %s", ErrUnsupported, fname, showValue(v))
+}
+
+// iosPos is ios_pos (ios.c:534-552): where the next byte is read or written,
+// -1 with errno set when the descriptor cannot say.
+func (vm *VM) iosPos(s *iosState) int64 {
+	fdpos := s.fpos
+	if fdpos == -1 {
+		var ok bool
+		if fdpos, ok = vm.iosLseek(s, 0, 1); !ok {
+			return -1
+		}
+		s.fpos = fdpos
+	}
+	if s.writing {
+		fdpos += int64(s.bpos)
+	} else if s.reading {
+		fdpos -= int64(len(s.buf) - s.bpos)
+	}
+	return fdpos
+}
+
+// iosSeek is ios_seek (ios.c:457-474): the buffer flushed, the descriptor
+// moved to pos; false with errno set when it cannot.
+func (vm *VM) iosSeek(s *iosState, pos int64) bool {
+	s.eof = false
+	vm.iosFlush(s)
+	fdpos, ok := vm.iosLseek(s, pos, 0)
+	if !ok {
+		return false
+	}
+	s.fpos, s.buf, s.bpos = fdpos, s.buf[:0], 0
+	return true
+}
+
+// iosWriteAll is _os_write_all (ios.c:164-179): every byte of p to the
+// descriptor, or up to the first error, with the libuv error (0 for none).
+func (vm *VM) iosWriteAll(fd int32, p []byte) (int, int32) {
+	done := 0
+	for done < len(p) {
+		n, code := vm.fsys().write(fd, p[done:])
+		done += n
+		if code != 0 {
+			return done, code
+		}
+	}
+	return done, 0
+}
+
+// iosFlush is ios_flush (ios.c:640-683): the dirty bytes written to the
+// descriptor. 0, or -1 when the stream has no descriptor or took fewer bytes
+// than it had, or the libuv error that stopped the write.
+func (vm *VM) iosFlush(s *iosState) int32 {
+	if s.ndirty == 0 {
+		return 0
+	}
+	if s.fd == -1 {
+		return -1
+	}
+	// (the bst_rd branches, ios.c:647-650 and 657-660, serve dirty bytes in
+	// a reading stream, which no call here leaves: reading flushes first)
+	ntowrite := s.ndirty
+	s.fpos = -1
+	nw, code := vm.iosWriteAll(s.fd, s.buf[:ntowrite])
+	if s.bpos != nw {
+		vm.iosLseek(s, int64(s.bpos-nw), 1)
+	}
+	// the data to write begins at the beginning of the buffer again
+	s.buf = append(s.buf[:0], s.buf[ntowrite:]...)
+	s.bpos = 0
+	s.ndirty = 0
+	// (a short write without an error, ios.c:680-681, cannot happen: iosWriteAll
+	// goes on until every byte is written or an error stops it)
+	return code
+}
+
+// put copies data into the buffer at bpos, growing the stream's size to
+// hold it: _write_update_pos (ios.c:386-390) follows.
+func (s *iosState) put(data []byte) {
+	if end := s.bpos + len(data); end > len(s.buf) {
+		s.buf = append(s.buf, make([]byte, end-len(s.buf))...)
+	}
+	copy(s.buf[s.bpos:], data)
+	s.bpos += len(data)
+	s.ndirty = max(s.ndirty, s.bpos)
+}
+
+// iosWrite is ios_write (ios.c:403-452): the bytes written, which is all of
+// them unless the descriptor refused some.
+func (vm *VM) iosWrite(s *iosState, data []byte) int {
+	if !s.wr || len(data) == 0 {
+		return 0
+	}
+	if s.reading {
+		vm.iosSeek(s, vm.iosPos(s))
+	}
+	s.reading, s.writing = false, true
+	space := s.maxsize - s.bpos
+	switch {
+	case s.bm == bmNone:
+		s.fpos = -1
+		n, _ := vm.iosWriteAll(s.fd, data)
+		return n
+	case len(data) <= space:
+		wrote := 0
+		if s.bm == bmLine {
+			if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+				// everything up to the last newline goes out now
+				s.bm = bmBlock
+				wrote += vm.iosWrite(s, data[:i+1])
+				vm.iosFlush(s)
+				s.bm = bmLine
+				data = data[i+1:]
+			}
+		}
+		s.put(data)
+		return wrote + len(data)
+	}
+	vm.iosFlush(s)
+	if len(data) > mostOf(s.maxsize) {
+		s.fpos = -1
+		n, _ := vm.iosWriteAll(s.fd, data)
+		return n
+	}
+	return vm.iosWrite(s, data)
+}
+
+// iosPutc is ios_putc (ios.c:1081-1093).
+func (vm *VM) iosPutc(s *iosState, c byte) int {
+	if s.writing && s.bpos < s.maxsize && s.bm != bmNone {
+		s.put([]byte{c})
+		if s.bm == bmLine && c == '\n' {
+			vm.iosFlush(s)
+		}
+		return 1
+	}
+	return vm.iosWrite(s, []byte{c})
+}
+
+// iosFd is ios_fd (ios.c:1047-1059) for the descriptor fd: a stream open for
+// reading and writing, block buffered, line buffered for standard output and
+// unbuffered for standard error.
+func iosFd(fd int32, own bool) iosState {
+	s := iosState{fd: fd, rd: true, wr: true, fpos: -1, maxsize: iosBufSize, ownfd: own}
+	switch fd {
+	case 1:
+		s.bm = bmLine
+	case 2:
+		s.bm = bmNone
+	}
+	return s
+}
+
 func (vm *VM) bootIOS() {
 	voidPtr := func(vm *VM, v any) *Pointer {
 		p, _ := v.(*Pointer)
@@ -199,7 +395,7 @@ func (vm *VM) bootIOS() {
 			vm.errno = -code
 			return &Pointer{Type: vm.ptrType(core.NothingType)}, nil
 		}
-		*s = iosState{fd: fd, rd: rd, wr: wr, fpos: 0, maxsize: iosBufSize}
+		*s = iosState{fd: fd, rd: rd, wr: wr, fpos: 0, maxsize: iosBufSize, ownfd: true}
 		return voidPtr(vm, a[0]), nil
 	}
 	// ios_close(s) (ios.c:685-700): the descriptor closed, the buffer gone
@@ -208,12 +404,81 @@ func (vm *VM) bootIOS() {
 		if err != nil {
 			return nil, err
 		}
-		rc := int32(0)
-		if s.fd != -1 {
-			rc = cbool(vm.fsys().close(s.fd) != 0)
+		rc := cbool(vm.iosFlush(s) != 0)
+		if s.fd != -1 && s.ownfd && vm.fsys().close(s.fd) != 0 {
+			rc = 1
 		}
 		s.fd, s.buf, s.bpos, s.maxsize = -1, nil, 0, 0
 		return rc, nil
+	}
+	// jl_stdin_stream, jl_stdout_stream and jl_stderr_stream (sys.c:543-545)
+	// answer a handle for descriptor 0, 1 or 2, which jl_uv_handle_type
+	// (jl_uv.c:1153-1160, handle->type) says is a file and jl_uv_file_handle
+	// (jl_uv.c:343, f->file) names: julia started with its three streams
+	// redirected to files, as init_stdio (stream.jl:290-316) then builds
+	// fdio(fd), an IOStream. A terminal or a pipe is not modelled.
+	for fd, name := range []expr.Symbol{"jl_stdin_stream", "jl_stdout_stream", "jl_stderr_stream"} {
+		h := vm.voidPtr(&stdHandle{int32(fd)})
+		vm.shims[name] = func(vm *VM, a []any) (any, error) { return h, nil }
+	}
+	vm.shims["jl_uv_handle_type"] = func(vm *VM, a []any) (any, error) {
+		if _, err := vm.stdHandleOf("jl_uv_handle_type", a[0]); err != nil {
+			return nil, err
+		}
+		return uvFile, nil
+	}
+	vm.shims["jl_uv_file_handle"] = func(vm *VM, a []any) (any, error) {
+		h, err := vm.stdHandleOf("jl_uv_file_handle", a[0])
+		if err != nil {
+			return nil, err
+		}
+		return h.fd, nil
+	}
+	// ios_fd(s, fd, isfile, own) (ios.c:1047-1059): s, a stream of the
+	// descriptor fd of the VM's table
+	vm.shims["ios_fd"] = func(vm *VM, a []any) (any, error) {
+		s, err := vm.iosOf("ios_fd", a[0])
+		if err != nil {
+			return nil, err
+		}
+		fd, ok := intArg(a[1])
+		own, ok2 := intArg(a[3])
+		if !ok || !ok2 || fd < 0 || fd > math.MaxInt32 {
+			return nil, fmt.Errorf("%w: ios_fd of %s", ErrUnsupported, showValue(a[1]))
+		}
+		*s = iosFd(int32(fd), own != 0)
+		return voidPtr(vm, a[0]), nil
+	}
+	// ios_flush(s) (ios.c:640-683)
+	vm.shims["ios_flush"] = func(vm *VM, a []any) (any, error) {
+		s, err := vm.iosOf("ios_flush", a[0])
+		if err != nil {
+			return nil, err
+		}
+		return vm.iosFlush(s), nil
+	}
+	// ios_write(s, data, n) (ios.c:403-452) and ios_putc(c, s) (1081-1093)
+	vm.shims["ios_write"] = func(vm *VM, a []any) (any, error) {
+		s, err := vm.iosOf("ios_write", a[0])
+		if err != nil {
+			return nil, err
+		}
+		data, ok := stringBytes(a[1], a[2])
+		if !ok {
+			return nil, fmt.Errorf("%w: ios_write of %s bytes at %s", ErrUnsupported, showValue(a[2]), showValue(a[1]))
+		}
+		return uint64(vm.iosWrite(s, []byte(data))), nil
+	}
+	vm.shims["ios_putc"] = func(vm *VM, a []any) (any, error) {
+		s, err := vm.iosOf("ios_putc", a[1])
+		if err != nil {
+			return nil, err
+		}
+		c, ok := intArg(a[0])
+		if !ok {
+			return nil, fmt.Errorf("%w: ios_putc of %s", ErrUnsupported, showValue(a[0]))
+		}
+		return int32(vm.iosPutc(s, byte(c))), nil
 	}
 	// the stream's flags and descriptor
 	for name, get := range map[expr.Symbol]func(*iosState) any{
@@ -318,12 +583,9 @@ func (vm *VM) bootIOS() {
 		if !ok {
 			return nil, fmt.Errorf("%w: ios_seek of %s", ErrUnsupported, showValue(a[1]))
 		}
-		s.eof = false
-		fdpos, ok := vm.iosLseek(s, pos, 0)
-		if !ok {
+		if !vm.iosSeek(s, pos) {
 			return int64(-1), nil
 		}
-		s.fpos, s.buf, s.bpos = fdpos, s.buf[:0], 0
 		return int64(0), nil
 	}
 	vm.shims["ios_seek_end"] = func(vm *VM, a []any) (any, error) {
@@ -332,6 +594,7 @@ func (vm *VM) bootIOS() {
 			return nil, err
 		}
 		s.eof = true
+		vm.iosFlush(s)
 		fdpos, ok := vm.iosLseek(s, 0, 2)
 		if !ok {
 			return int64(-1), nil
@@ -361,7 +624,10 @@ func (vm *VM) bootIOS() {
 			s.eof = false
 			return int64(0), nil
 		}
-		if s.reading {
+		vm.iosFlush(s)
+		if s.writing {
+			offs += int64(s.bpos)
+		} else if s.reading {
 			offs -= int64(len(s.buf) - s.bpos)
 		}
 		fdpos, ok := vm.iosLseek(s, offs, 1)
@@ -377,18 +643,7 @@ func (vm *VM) bootIOS() {
 		if err != nil {
 			return nil, err
 		}
-		fdpos := s.fpos
-		if fdpos == -1 {
-			var ok bool
-			if fdpos, ok = vm.iosLseek(s, 0, 1); !ok {
-				return int64(-1), nil
-			}
-			s.fpos = fdpos
-		}
-		if s.reading {
-			fdpos -= int64(len(s.buf) - s.bpos)
-		}
-		return fdpos, nil
+		return vm.iosPos(s), nil
 	}
 	// ios_filesize(s) (ios.c:554-566)
 	vm.shims["ios_filesize"] = func(vm *VM, a []any) (any, error) {
