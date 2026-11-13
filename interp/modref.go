@@ -82,6 +82,11 @@ func (vm *VM) bindRefs(ctx *Module, v any) any {
 		if x.Obj == nil && vm.modules[x.Mod] == nil {
 			return vm.bindRef(ctx, x)
 		}
+	case expr.Module:
+		// a module value in lowered code is the Module, as julia's lowered
+		// code holds it: Base's compiler reads the code as data, where
+		// evaluation alone would convert it (constValue)
+		return vm.constValue(x)
 	case *expr.Expr:
 		vm.bindAll(ctx, x.Args)
 	case expr.Vector:

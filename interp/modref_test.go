@@ -143,4 +143,14 @@ func TestModuleReferences(t *testing.T) {
 	if g := e.Args[1].(expr.GlobalRef); g.Obj != nil {
 		t.Errorf("a root module's name was bound: %#v", g)
 	}
+	// a module value becomes the Module, which Base's compiler reads as data
+	// (typeof of an expr.Module has no answer); one that names nothing stays
+	mv := expr.New("call", expr.Module{Path: []expr.Symbol{"Main", "A", "Dup"}}, expr.Module{Path: []expr.Symbol{"Nope"}})
+	vm.bindRefs(dupA, mv)
+	if mv.Args[0] != any(dupA) {
+		t.Errorf("bindRefs of a module value: %v", mv.Args[0])
+	}
+	if _, ok := mv.Args[1].(expr.Module); !ok {
+		t.Errorf("bindRefs of a module value that names nothing: %v", mv.Args[1])
+	}
 }

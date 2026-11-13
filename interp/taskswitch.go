@@ -44,6 +44,12 @@ import (
 //     (ccall.go:356-367). A new task's is empty (task.c:1120).
 //   - typeinfTiming, ct->reentrant_timing bit 0 (vm.go:143-144;
 //     ccall.go:402-413). A new task's is 0 (task.c:1127).
+//   - deferSignal, ptls->defer_signal, the sigatomic nesting
+//     (jl_sigatomic_begin/end, jlapi.c:516-533). jl_switch keeps it on the
+//     switching stack (task.c:685, 711-712), a task starts at 0
+//     (task.c:1247-1248), jl_finish_task raises it (task.c:311), and leaving
+//     a try block by any way puts back its value at the :enter
+//     (rtutils.c:271, 308, 341).
 //   - finalizersInhibited, ptls->finalizers_inhibited (vm.go:149-150;
 //     ccall.go:271-272). jl_switch stores it on the switching stack, zeroes
 //     it for the next task and puts it back when the task resumes
@@ -100,18 +106,20 @@ type taskState struct {
 	excStack            []any
 	typeinfTiming       bool
 	finalizersInhibited int
+	deferSignal         int
 }
 
 // saveTaskState is the state of the task that is running now.
 func (vm *VM) saveTaskState() taskState {
 	return taskState{world: vm.taskWorld, depth: vm.depth, excStack: vm.excStack,
-		typeinfTiming: vm.typeinfTiming, finalizersInhibited: vm.finalizersInhibited}
+		typeinfTiming: vm.typeinfTiming, finalizersInhibited: vm.finalizersInhibited, deferSignal: vm.deferSignal}
 }
 
 // loadTaskState makes s the state of the task that runs.
 func (vm *VM) loadTaskState(s taskState) {
 	vm.taskWorld, vm.depth, vm.excStack = s.world, s.depth, s.excStack
 	vm.typeinfTiming, vm.finalizersInhibited = s.typeinfTiming, s.finalizersInhibited
+	vm.deferSignal = s.deferSignal
 }
 
 // A task is a goroutine, and one runs at a time. The evaluator is recursive
@@ -421,6 +429,9 @@ func (vm *VM) finishTask(t *Struct) error {
 		t.Fields[7] = taskStateDone
 	}
 	vm.taskWorld = vm.World()
+	// JL_SIGATOMIC_BEGIN (task.c:311), which task_done_hook ends before it
+	// waits (task.jl:866)
+	vm.deferSignal++
 	hook := vm.taskDoneHook()
 	if hook == nil {
 		return fmt.Errorf("interp: a task finished and Base.task_done_hook is not defined, so nothing can run next")

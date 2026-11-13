@@ -80,6 +80,8 @@ type VM struct {
 	dynLibs map[string]*Pointer
 	// lbt is libblastrampoline's state (lbt.go)
 	lbt lbtState
+	// deferSignal is the thread's defer_signal count (jl_sigatomic_begin)
+	deferSignal int
 	// finalizerRNG is the GC's finalizer random state (taskswitch.go)
 	finalizerRNG [5]uint64
 	sessions     map[*Module]*Session

@@ -270,6 +270,20 @@ func (vm *VM) bootShims() {
 		// release builds keep it; this VM runs no Julia finalizers
 		"jl_gc_disable_finalizers_internal": func(vm *VM, a []any) (any, error) { vm.finalizersInhibited++; return nil, nil },
 		"jl_gc_enable_finalizers_internal":  func(vm *VM, a []any) (any, error) { vm.finalizersInhibited--; return nil, nil },
+		// jl_gc_is_in_finalizer (gc-common.c:384-387): ptls->in_finalizer,
+		// never set, as no julia finalizer runs here
+		"jl_gc_is_in_finalizer": func(vm *VM, a []any) (any, error) { return int8(0), nil },
+		// jl_sigatomic_begin and _end (jlapi.c:516-533): the thread's
+		// defer_signal count; no signal is ever deferred here, so ending the
+		// region has nothing to deliver
+		"jl_sigatomic_begin": func(vm *VM, a []any) (any, error) { vm.deferSignal++; return nil, nil },
+		"jl_sigatomic_end": func(vm *VM, a []any) (any, error) {
+			if vm.deferSignal == 0 {
+				return nil, vm.errorf("sigatomic_end called in non-sigatomic region")
+			}
+			vm.deferSignal--
+			return nil, nil
+		},
 		// jl_get_current_task (task.c:1149): the task that runs
 		"jl_get_current_task":        func(vm *VM, a []any) (any, error) { return vm.currentTask(), nil },
 		"memchr":                     func(vm *VM, a []any) (any, error) { return vm.memchr(a, false) },

@@ -96,9 +96,11 @@ func (f *frame) evalBody(ip int) (any, error) {
 				return nil, vm.exception(vm.tStackOverflow)
 			}
 			vm.depth++
+			deferSignal := vm.deferSignal
 			v, err := f.evalBody(next)
 			vm.depth--
 			task.Fields[5] = oldScope
+			vm.deferSignal = deferSignal
 			var leave *leaveSignal
 			switch {
 			case err == nil:
