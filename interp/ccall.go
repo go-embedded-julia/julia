@@ -567,7 +567,9 @@ func (vm *VM) bootShims() {
 	vm.bootGMP()
 	vm.bootMPFR()
 	vm.bootDSFMT()
+	vm.bootLBT()
 	vm.bootDynLibs()
+	vm.shims["jl_ptr_to_array_1d"] = func(vm *VM, a []any) (any, error) { return vm.ptrToArray1d(a) }
 	vm.bootUtf8proc()
 	vm.bootEnvShims()
 	vm.bootFileShims()
@@ -872,6 +874,10 @@ func intLowBit(v any) (bool, bool) {
 // type's value of the same bits, as the C ABI passes it.
 func (vm *VM) foreignResult(rt any, sh shim, args []any) (any, error) {
 	v, err := sh(vm, args)
+	if o, ok := v.(cOut); ok && err == nil {
+		// a C value returned through a pointer, of the type ccall names
+		return vm.cValue(rt, o.v)
+	}
 	if rt == any(core.BoolType) && err == nil {
 		// ccall(…, Bool, …) of a C function returning uint8_t or int: the
 		// result truncated to its low bit (ccall.cpp, Bool results), as
