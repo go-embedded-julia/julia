@@ -27,7 +27,7 @@ func (vm *VM) taskGetNext(a []any) (any, error) {
 			continue
 		}
 		vm.wakeup = false
-		alive, err := vm.uvRun(uvRunOnce)
+		alive, err := vm.uvRun()
 		if err != nil && !errors.Is(err, errLoopForever) {
 			return nil, err
 		}

@@ -43,9 +43,6 @@ func (vm *VM) bootTaskType() {
 // random seed (jl_init_root_task); here it is fixed, so that a program's
 // default RNG stream is the same from run to run.
 func (vm *VM) rootTask() *Struct {
-	if vm.task != nil {
-		return vm.task
-	}
 	f := newTaskFields(nil, nil, nil,
 		[5]uint64{0x7e1df2e2a3e6c1d5, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1, 0x510e527fade682d1, 0x9b05688c2b3e6c1f})
 	vm.task = &Struct{Type: vm.tTask, Fields: f}

@@ -1,10 +1,16 @@
 package interp
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-embedded-julia/julia/internal/oracle"
 )
 
 // probeStdlibs runs, after sysimg.jl stopped, what Base.require of a stdlib
@@ -88,5 +94,106 @@ func TestBaseProgress(t *testing.T) {
 	t.Logf("module initializers: %v\nprinted:\n%s", err, out.String())
 	if errors.As(err, &th) {
 		t.Logf("unwound:\n%s", strings.Join(th.Trace, "\n"))
+	}
+	if err == nil {
+		probeBaseTasks(t, vm)
+	}
+}
+
+const (
+	tasksBasePath   = "testdata/tasks_base.jl"
+	tasksBaseGolden = "testdata/tasks_base.golden"
+)
+
+func loadTasksBase(t testing.TB) []string {
+	t.Helper()
+	b, err := os.ReadFile(tasksBasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(string(b), "#---\n")[1:]
+}
+
+// TestTasksBaseGolden has julia 1.12.6 answer the programs of
+// testdata/tasks_base.jl (JLGO_ORACLE=1 JLGO_UPDATE_TASKS=1) and checks that
+// every program has its answer; probeBaseTasks runs them on the VM that
+// loaded Base.
+func TestTasksBaseGolden(t *testing.T) {
+	progs := loadTasksBase(t)
+	if os.Getenv("JLGO_ORACLE") != "" && os.Getenv("JLGO_UPDATE_TASKS") != "" {
+		p, err := oracle.Start()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer p.Close()
+		out, err := os.Create(tasksBaseGolden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer out.Close()
+		enc := json.NewEncoder(out)
+		enc.SetEscapeHTML(false)
+		for i, src := range progs {
+			ans, err := p.Call("eval", src)
+			if err != nil {
+				t.Fatalf("julia rejects program %d:\n%s\n%v", i+1, src, err)
+			}
+			_, shown, ok := strings.Cut(ans, "\n=> ")
+			if !ok {
+				t.Fatalf("program %d: julia answered %q", i+1, ans)
+			}
+			if err := enc.Encode(evalCase{Src: src, Want: shown}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if got := len(readTasksBaseGolden(t)); got != len(progs) {
+		t.Fatalf("%d golden answers for %d programs: regenerate with JLGO_ORACLE=1 JLGO_UPDATE_TASKS=1", got, len(progs))
+	}
+}
+
+func readTasksBaseGolden(t testing.TB) []evalCase {
+	t.Helper()
+	f, err := os.Open(tasksBaseGolden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var cases []evalCase
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		var c evalCase
+		if err := json.Unmarshal(sc.Bytes(), &c); err != nil {
+			t.Fatal(err)
+		}
+		cases = append(cases, c)
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return cases
+}
+
+// probeBaseTasks runs julia's own Base through tasks, the scheduler and the
+// event loop: each program of tasks_base.jl must give julia's answer. A
+// program that waits for ever is refused with ErrDeadlock, which is reported
+// (julia would hang).
+func probeBaseTasks(t *testing.T, vm *VM) {
+	defer vm.Close()
+	s := vm.NewSession()
+	for i, c := range readTasksBaseGolden(t) {
+		start := time.Now()
+		v, err := s.Eval(c.Src)
+		got := "<error> " + fmt.Sprint(err)
+		if err == nil {
+			got = Repr(v)
+		}
+		verdict := "ok"
+		if got != c.Want {
+			verdict = "DIFFERS"
+			t.Errorf("tasks program %d:\n%s\nGo:    %s\njulia: %s", i+1, c.Src, got, c.Want)
+		}
+		t.Logf("tasks program %d: %s in %v", i+1, verdict, time.Since(start))
 	}
 }

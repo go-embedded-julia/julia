@@ -603,6 +603,7 @@ func (vm *VM) bootShims() {
 	vm.shims["jl_cpu_wake"] = func(vm *VM, a []any) (any, error) { return nil, nil }
 	vm.bootTaskShims()
 	vm.bootTaskGetNext()
+	vm.bootUVLoop()
 	// strlen(s): the bytes before the NUL a Cstring ends with
 	vm.shims["strlen"] = func(vm *VM, a []any) (any, error) {
 		s, ok := vm.cstringArg(a[0])

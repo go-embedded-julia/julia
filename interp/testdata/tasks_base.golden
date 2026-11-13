@@ -1,0 +1,16 @@
+{"src":"let t = Task(() -> 42)\n    schedule(t)\n    wait(t)\n    (istaskstarted(t), istaskdone(t), istaskfailed(t), fetch(t))\nend\n","want":"(true, true, false, 42)"}
+{"src":"fetch(@async 1 + 1)\n","want":"2"}
+{"src":"let log = []\n    t = @async (push!(log, :a); yield(); push!(log, :c))\n    yield()\n    push!(log, :b)\n    wait(t)\n    log\nend\n","want":"3-element Vector{Any}:\n :a\n :b\n :c"}
+{"src":"let c = Condition(), r = []\n    t = @async (wait(c); push!(r, :woke))\n    yield()\n    notify(c)\n    wait(t)\n    r\nend\n","want":"1-element Vector{Any}:\n :woke"}
+{"src":"let t = @async error(\"boom\")\n    r = try\n        wait(t)\n    catch e\n        (e isa TaskFailedException, e.task === t, e.task.result)\n    end\n    (r, istaskfailed(t), istaskdone(t))\nend\n","want":"((true, true, ErrorException(\"boom\")), true, true)"}
+{"src":"let ch = Channel(2)\n    @async (for i in 1:5; put!(ch, i); end; close(ch))\n    collect(ch)\nend\n","want":"5-element Vector{Any}:\n 1\n 2\n 3\n 4\n 5"}
+{"src":"let t = Timer(0.01)\n    wait(t)\n    isopen(t)\nend\n","want":"false"}
+{"src":"(sleep(0.01); :slept)\n","want":":slept"}
+{"src":"let n = Ref(0), t = Timer(_ -> n[] += 1, 0.01, interval = 0.01)\n    sleep(0.2)\n    close(t)\n    n[] > 2\nend\n","want":"true"}
+{"src":"fetch(Threads.@spawn 1 + 1)\n","want":"2"}
+{"src":"let l = ReentrantLock()\n    lock(l)\n    t = @async (lock(l); :got)\n    yield()\n    unlock(l)\n    fetch(t)\nend\n","want":":got"}
+{"src":"let ScopedValues = Base.ScopedValues, sv = ScopedValues.ScopedValue(1)\n    ScopedValues.with(sv => 2) do\n        (sv[], fetch(@async sv[]))\n    end\nend\n","want":"(2, 2)"}
+{"src":"let t = @async current_task()\n    fetch(t) === t\nend\n","want":"true"}
+{"src":"let c = Channel{Int}(1)\n    t = @async take!(c)\n    yield()\n    put!(c, 7)\n    fetch(t)\nend\n","want":"7"}
+{"src":"let ev = Base.Event()\n    t = @async (wait(ev); :done)\n    yield()\n    notify(ev)\n    fetch(t)\nend\n","want":":done"}
+{"src":"let ts = [@async i^2 for i in 1:4]\n    map(fetch, ts)\nend\n","want":"4-element Vector{Int64}:\n  1\n  4\n  9\n 16"}

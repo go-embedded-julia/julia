@@ -148,7 +148,7 @@ func TestIR(t *testing.T) {
 		{"method declaration in an unknown module", []any{expr.New("method", gr("Nope", "f"))}, nil, false, "!method: invalid declaration"},
 		{"foreigncall malformed", []any{expr.New("foreigncall", expr.Symbol("f"))}, nil, false, "!Invalid IR: malformed :foreigncall"},
 		{"foreigncall of an unknown function", []any{expr.New("foreigncall", expr.QuoteNode{Value: expr.Symbol("jl_nope")}, gr("Core", "Any"), call(gr("Core", "svec")), int64(0), expr.QuoteNode{Value: expr.Symbol("ccall")}), ret(expr.SSAValue(1))}, nil, false, "!not ported yet: ccall(:jl_nope)"},
-		{"cfunction", []any{expr.New("cfunction")}, nil, false, "!`cfunction` requires the compiler"},
+		{"cfunction", []any{expr.New("cfunction")}, nil, false, "!Invalid IR: malformed :cfunction"},
 		{"invoke", []any{expr.New("invoke")}, nil, false, "!not ported"},
 		{"unknown head", []any{expr.New("frobnicate")}, nil, false, "!unsupported or misplaced expression frobnicate"},
 		{"global of an unknown module", []any{gr("Nope", "x")}, nil, false, "!not ported"},

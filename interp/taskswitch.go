@@ -86,7 +86,7 @@ import (
 //     global tables.
 //   - task, the root task (vm.go:147-148; task.go:46): the one object that
 //     is not made by jl_new_task. The current task is a VM field of its own,
-//     cur, and rootTask answers the root.
+//     cur, which currentTask makes the root task on first use (rootTask).
 //
 // The rest of this file is the part of the inventory that moves, and the
 // switch.

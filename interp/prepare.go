@@ -373,7 +373,7 @@ func (c *code) prepExpr(x *expr.Expr) op {
 	case "foreigncall":
 		return c.prepForeign(x)
 	case "cfunction":
-		return oRaise{"`cfunction` requires the compiler"}
+		return c.prepCfunction(x)
 	case "invoke", "new_opaque_closure":
 		return oUnsupported{":" + string(x.Head)}
 	}

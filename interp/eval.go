@@ -297,6 +297,8 @@ func (f *frame) evalValue(o op) (any, error) {
 		return vm.declareFunction(m, name)
 	case oForeign:
 		return f.evalForeign(x)
+	case oCfunction:
+		return f.evalCfunction(x)
 	case oRaise:
 		return nil, vm.errorf("%s", x.msg)
 	case oUnsupported:

@@ -256,6 +256,7 @@ func (vm *VM) bootFileShims() {
 		if p, ok := a[0].(*Pointer); ok {
 			if m, isMem := p.Target.(*Memory); isMem {
 				delete(vm.reqs, m)
+				vm.uvForget(m)
 			}
 		}
 		return nil, nil

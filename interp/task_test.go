@@ -54,6 +54,12 @@ end
 `
 
 const taskPrelude = `
+# @cfunction (c.jl:64-79) for one argument type, which is all a libuv callback
+# has; the Base one splats the argument types, which needs Base.iterate
+macro cfunction(f, rt, at)
+    first = Core.memoryrefget(getfield(getfield(at, :args), :ref), :not_atomic, false)
+    Expr(:escape, Expr(:cfunction, Ptr{Cvoid}, QuoteNode(f), rt, Expr(:call, GlobalRef(Core, :svec), first), QuoteNode(:ccall)))
+end
 mutable struct TQ; t::Any; end
 const QUEUE = TQ(nothing)
 schedule(t) = (setfield!(QUEUE, :t, t); t)

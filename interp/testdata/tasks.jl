@@ -128,3 +128,91 @@ trypop(q) = (setfield!(q, :n, Core.Intrinsics.add_int(getfield(q, :n), 1)); getf
 notempty() = false
 got = ccall(:jl_task_get_next, Ref{Core.Task}, (Any, Any, Any), trypop, q, notempty)
 (got === t, getfield(q, :n), tid(t))
+#---
+# a timer: its callback runs in the loop that jl_task_get_next runs while no task
+# is runnable, a one-shot timer stops, and the loop goes on until a task is
+mutable struct Flag; v::Bool; end
+const FLAG = Flag(false)
+t = newtask(() -> 1)
+function tick(h::Ptr{Cvoid})
+    note(:tick)
+    setfield!(FLAG, :v, true)
+    nothing
+end
+h = ccall(:malloc, Ptr{Cvoid}, (UInt,), u64(512))
+ccall(:jl_uv_disassociate_julia_struct, Cvoid, (Ptr{Cvoid},), h)
+loop = ccall(:jl_global_event_loop, Ptr{Cvoid}, ())
+a = ccall(:uv_timer_init, Int32, (Ptr{Cvoid}, Ptr{Cvoid}), loop, h)
+ccall(:uv_update_time, Cvoid, (Ptr{Cvoid},), loop)
+b = ccall(:uv_timer_start, Int32, (Ptr{Cvoid}, Ptr{Cvoid}, UInt64, UInt64), h, Base.@cfunction(tick, Cvoid, (Ptr{Cvoid},)), u64(5), u64(0))
+c = ccall(:uv_is_active, Int32, (Ptr{Cvoid},), h)
+trypop(q) = getfield(FLAG, :v) ? t : nothing
+got = ccall(:jl_task_get_next, Ref{Core.Task}, (Any, Any, Any), trypop, nothing, () -> true)
+(a, b, c, got === t, getfield(LOG, :v), ccall(:uv_is_active, Int32, (Ptr{Cvoid},), h), ccall(:uv_timer_get_repeat, UInt64, (Ptr{Cvoid},), h))
+#---
+# a repeating timer runs until its callback stops it
+mutable struct Count; n::Int; end
+const COUNT = Count(0)
+t = newtask(() -> 1)
+function tick(h::Ptr{Cvoid})
+    setfield!(COUNT, :n, Core.Intrinsics.add_int(getfield(COUNT, :n), 1))
+    note(getfield(COUNT, :n))
+    getfield(COUNT, :n) === 3 && ccall(:uv_timer_stop, Int32, (Ptr{Cvoid},), h)
+    nothing
+end
+h = ccall(:malloc, Ptr{Cvoid}, (UInt,), u64(512))
+ccall(:jl_uv_disassociate_julia_struct, Cvoid, (Ptr{Cvoid},), h)
+loop = ccall(:jl_global_event_loop, Ptr{Cvoid}, ())
+ccall(:uv_timer_init, Int32, (Ptr{Cvoid}, Ptr{Cvoid}), loop, h)
+ccall(:uv_timer_start, Int32, (Ptr{Cvoid}, Ptr{Cvoid}, UInt64, UInt64), h, Base.@cfunction(tick, Cvoid, (Ptr{Cvoid},)), u64(3), u64(3))
+r = ccall(:uv_timer_get_repeat, UInt64, (Ptr{Cvoid},), h)
+trypop(q) = getfield(COUNT, :n) === 3 ? t : nothing
+got = ccall(:jl_task_get_next, Ref{Core.Task}, (Any, Any, Any), trypop, nothing, () -> true)
+(r, got === t, getfield(LOG, :v), ccall(:uv_is_active, Int32, (Ptr{Cvoid},), h))
+#---
+# an async handle: a send runs its callback in the next pass of the loop
+t = newtask(() -> 1)
+function woke(h::Ptr{Cvoid})
+    note(:async)
+    nothing
+end
+h = ccall(:malloc, Ptr{Cvoid}, (UInt,), u64(512))
+ccall(:jl_uv_disassociate_julia_struct, Cvoid, (Ptr{Cvoid},), h)
+loop = ccall(:jl_global_event_loop, Ptr{Cvoid}, ())
+a = ccall(:uv_async_init, Int32, (Ptr{Cvoid}, Ptr{Cvoid}, Ptr{Cvoid}), loop, h, Base.@cfunction(woke, Cvoid, (Ptr{Cvoid},)))
+s = ccall(:uv_async_send, Int32, (Ptr{Cvoid},), h)
+trypop(q) = getfield(LOG, :v) === () ? nothing : t
+got = ccall(:jl_task_get_next, Ref{Core.Task}, (Any, Any, Any), trypop, nothing, () -> true)
+(a, s, got === t, getfield(LOG, :v), ccall(:uv_is_active, Int32, (Ptr{Cvoid},), h))
+#---
+# jl_process_events runs what is due without waiting, and answers 1
+mutable struct Count; n::Int; end
+const COUNT = Count(0)
+function tick(h::Ptr{Cvoid})
+    setfield!(COUNT, :n, Core.Intrinsics.add_int(getfield(COUNT, :n), 1))
+    nothing
+end
+h = ccall(:malloc, Ptr{Cvoid}, (UInt,), u64(512))
+ccall(:jl_uv_disassociate_julia_struct, Cvoid, (Ptr{Cvoid},), h)
+loop = ccall(:jl_global_event_loop, Ptr{Cvoid}, ())
+ccall(:uv_timer_init, Int32, (Ptr{Cvoid}, Ptr{Cvoid}), loop, h)
+ccall(:uv_timer_start, Int32, (Ptr{Cvoid}, Ptr{Cvoid}, UInt64, UInt64), h, Base.@cfunction(tick, Cvoid, (Ptr{Cvoid},)), u64(0), u64(0))
+a = ccall(:jl_process_events, Int32, ())
+(a, getfield(COUNT, :n), ccall(:jl_process_events, Int32, ()), getfield(COUNT, :n))
+#---
+# a handle that is closed stops, and nothing runs for it
+mutable struct Count; n::Int; end
+const COUNT = Count(0)
+function tick(h::Ptr{Cvoid})
+    setfield!(COUNT, :n, Core.Intrinsics.add_int(getfield(COUNT, :n), 1))
+    nothing
+end
+h = ccall(:malloc, Ptr{Cvoid}, (UInt,), u64(512))
+ccall(:jl_uv_disassociate_julia_struct, Cvoid, (Ptr{Cvoid},), h)
+loop = ccall(:jl_global_event_loop, Ptr{Cvoid}, ())
+ccall(:uv_timer_init, Int32, (Ptr{Cvoid}, Ptr{Cvoid}), loop, h)
+ccall(:uv_timer_start, Int32, (Ptr{Cvoid}, Ptr{Cvoid}, UInt64, UInt64), h, Base.@cfunction(tick, Cvoid, (Ptr{Cvoid},)), u64(1), u64(0))
+ccall(:jl_close_uv, Cvoid, (Ptr{Cvoid},), h)
+ccall(:jl_process_events, Int32, ())
+ccall(:jl_process_events, Int32, ())
+getfield(COUNT, :n)

@@ -164,6 +164,11 @@ type VM struct {
 	wakeup                bool
 	threaded              int
 	ptlsRng               uint64
+	// MaxHandles bounds the libuv handles; past it a handle is refused with
+	// ErrHandleLimit. Zero means DefaultMaxHandles. loop is the event loop
+	// (uvloop.go), made on first use.
+	MaxHandles int
+	loop       *uvLoop
 	// taskRecs holds each task's record, weakly: a task nothing refers to
 	// goes with its record. A cleanup runs on another goroutine, so
 	// taskMu guards the map.
