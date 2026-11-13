@@ -241,6 +241,14 @@ func rngSplit(src []any) [5]uint64 {
 	return dst
 }
 
+// gcInitFinalizerRNG is jl_gc_init_finalizer_rng_state (gc-common.c:282-
+// 285), which Random.__init__ calls: the state finalizers would draw from,
+// split from the current task's, whose counter it advances as julia's
+// does. The VM runs no julia finalizer, so nothing draws from it.
+func (vm *VM) gcInitFinalizerRNG() {
+	vm.finalizerRNG = rngSplit(vm.currentTask().Fields[14:19])
+}
+
 // jlNewTask is jl_new_task (task.c:1074-1146): a runnable task for start,
 // sticky, not yet started, in no thread, with the creator's scope, world and
 // threadpool and a random state split from the creator's. The stack size is

@@ -79,8 +79,10 @@ type VM struct {
 	// (dlload.go)
 	dynLibs map[string]*Pointer
 	// lbt is libblastrampoline's state (lbt.go)
-	lbt      lbtState
-	sessions map[*Module]*Session
+	lbt lbtState
+	// finalizerRNG is the GC's finalizer random state (taskswitch.go)
+	finalizerRNG [5]uint64
+	sessions     map[*Module]*Session
 	// GeneratingOutput is jl_generating_output(): set while the VM builds
 	// Base as julia builds its system image, module initializers wait
 	// (modinit.go, RunModuleInitializers).
