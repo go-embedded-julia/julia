@@ -146,6 +146,29 @@ type VM struct {
 	// tTask is Core.Task, task the root task (task.go)
 	tTask *core.DataType
 	task  *Struct
+
+	// MaxTasks bounds the tasks that are started and have not finished, each
+	// of which holds a goroutine; past it a switch to a new task stops with
+	// ErrTaskLimit. Zero means DefaultMaxTasks.
+	MaxTasks int
+	// the tasks (taskswitch.go): cur is the task that runs and curRec its
+	// record, rootRec the root task's, nextTask is ptls->next_task, exitTo
+	// the task a finished task hands over to, running the records of the
+	// started tasks that have not ended, wakeup whether jl_wakeup_thread was
+	// called, threaded the depth of jl_enter_threaded_region, ptlsRng
+	// ptls->rngseed
+	cur, nextTask, exitTo *Struct
+	curRec, rootRec       *taskRec
+	running               map[*taskRec]struct{}
+	liveTasks, taskSeq    int
+	wakeup                bool
+	threaded              int
+	ptlsRng               uint64
+	// taskRecs holds each task's record, weakly: a task nothing refers to
+	// goes with its record. A cleanup runs on another goroutine, so
+	// taskMu guards the map.
+	taskMu   sync.Mutex
+	taskRecs map[weak.Pointer[Struct]]*taskRec
 	// finalizersInhibited is ptls->finalizers_inhibited
 	finalizersInhibited int
 	// mtBackedges is jl_method_table->backedges (mtbackedge.go)

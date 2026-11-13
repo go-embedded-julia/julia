@@ -178,12 +178,12 @@ func biThrowMethoderror(vm *VM, args []any) (any, error) {
 }
 
 // biCurrentScope is jl_f_current_scope (builtins.c:619-623): the task's
-// scope, which no ScopedValue sets here.
+// scope, which :enter sets (eval.go) and a new task copies.
 func biCurrentScope(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("current_scope", args, 0, 0); err != nil {
 		return nil, err
 	}
-	return nil, nil
+	return vm.currentTask().Fields[5], nil
 }
 
 // biFinalizer is jl_f_finalizer (builtins.c:2078-2085). The interpreter's

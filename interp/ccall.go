@@ -270,8 +270,8 @@ func (vm *VM) bootShims() {
 		// release builds keep it; this VM runs no Julia finalizers
 		"jl_gc_disable_finalizers_internal": func(vm *VM, a []any) (any, error) { vm.finalizersInhibited++; return nil, nil },
 		"jl_gc_enable_finalizers_internal":  func(vm *VM, a []any) (any, error) { vm.finalizersInhibited--; return nil, nil },
-		// jl_get_current_task (task.c): the root task, the only one
-		"jl_get_current_task":        func(vm *VM, a []any) (any, error) { return vm.rootTask(), nil },
+		// jl_get_current_task (task.c:1149): the task that runs
+		"jl_get_current_task":        func(vm *VM, a []any) (any, error) { return vm.currentTask(), nil },
 		"memchr":                     func(vm *VM, a []any) (any, error) { return vm.memchr(a, false) },
 		"memrchr":                    func(vm *VM, a []any) (any, error) { return vm.memchr(a, true) },
 		"jl_instantiate_type_in_env": func(vm *VM, a []any) (any, error) { return vm.instantiateTypeInEnv(a) },
@@ -598,12 +598,10 @@ func (vm *VM) bootShims() {
 	// julia's stock build's answer (gc-stock.c:4091-4093), so that Base
 	// takes the branches it takes in julia (Base.USING_STOCK_GC)
 	vm.shims["jl_gc_active_impl"] = func(vm *VM, a []any) (any, error) { return vm.stringPtrOf("Built with stock GC"), nil }
-	// jl_threadid (threading.c): the current thread's 0-based id, an Int16;
-	// julia code runs on one thread here
-	vm.shims["jl_threadid"] = func(vm *VM, a []any) (any, error) { return int16(0), nil }
 	// jl_cpu_wake (threading.c) wakes a thread waiting on a spin lock; there
 	// is one thread here, and it is the caller
 	vm.shims["jl_cpu_wake"] = func(vm *VM, a []any) (any, error) { return nil, nil }
+	vm.bootTaskShims()
 	// strlen(s): the bytes before the NUL a Cstring ends with
 	vm.shims["strlen"] = func(vm *VM, a []any) (any, error) {
 		s, ok := vm.cstringArg(a[0])

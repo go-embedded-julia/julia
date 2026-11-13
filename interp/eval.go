@@ -77,20 +77,28 @@ func (f *frame) evalBody(ip int) (any, error) {
 			// the exception-stack depth is the statement's value, consumed
 			// by :pop_exception (interpreter.c:540)
 			f.locals[f.c.nslots+ip] = uint64(len(vm.excStack))
+			// a scope becomes the task's until the try block is left, by
+			// any way (interpreter.c:541-547, jl_eh_restore_state)
+			task := vm.currentTask()
+			oldScope := task.Fields[5]
 			if s.hasScope {
-				if _, err := f.evalValue(s.scope); err != nil {
+				scope, err := f.evalValue(s.scope)
+				if err != nil {
 					return nil, err
 				}
+				task.Fields[5] = scope
 			}
 			// a try block is a nested evalBody, as in julia (a setjmp per
 			// handler): IR that jumps back to an EnterNode without leaving
 			// it nests without bound, so the nesting counts as depth
 			if vm.depth >= vm.MaxDepth {
+				task.Fields[5] = oldScope
 				return nil, vm.exception(vm.tStackOverflow)
 			}
 			vm.depth++
 			v, err := f.evalBody(next)
 			vm.depth--
+			task.Fields[5] = oldScope
 			var leave *leaveSignal
 			switch {
 			case err == nil:
