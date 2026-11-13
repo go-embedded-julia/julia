@@ -118,3 +118,13 @@ r0 = (getfield(root, :rngState4), getfield(root, :rngState0))
 t = newtask(() -> 1)
 r1 = (getfield(root, :rngState4), getfield(root, :rngState0))
 (r0 === r1, getfield(t, :rngState4) === getfield(root, :rngState4), getfield(t, :rngState0) === getfield(root, :rngState0))
+#---
+# jl_task_get_next asks trypoptask for a task, asks checkempty when none comes,
+# asks again while the queue does not look empty, and makes the task its own
+mutable struct Q; t::Any; n::Int; end
+q = Q(nothing, 0)
+t = newtask(() -> 1)
+trypop(q) = (setfield!(q, :n, Core.Intrinsics.add_int(getfield(q, :n), 1)); getfield(q, :n) === 2 ? t : nothing)
+notempty() = false
+got = ccall(:jl_task_get_next, Ref{Core.Task}, (Any, Any, Any), trypop, q, notempty)
+(got === t, getfield(q, :n), tid(t))
