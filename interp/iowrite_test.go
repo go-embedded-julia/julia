@@ -315,6 +315,18 @@ func TestStdHandles(t *testing.T) {
 	}
 }
 
+// the libuv lock is recursive and unlocking one not held is an error
+func TestIolock(t *testing.T) {
+	f := newPCREFixture(t)
+	f.i("jl_iolock_begin")
+	f.i("jl_iolock_begin")
+	f.i("jl_iolock_end")
+	f.i("jl_iolock_end")
+	if _, err := f.sh("jl_iolock_end"); err == nil {
+		t.Error("jl_iolock_end of a lock not held")
+	}
+}
+
 // the VM's descriptors 0, 1 and 2
 func TestVFSStdio(t *testing.T) {
 	vm := New()

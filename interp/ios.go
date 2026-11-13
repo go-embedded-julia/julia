@@ -421,6 +421,20 @@ func (vm *VM) bootIOS() {
 		h := vm.voidPtr(&stdHandle{int32(fd)})
 		vm.shims[name] = func(vm *VM, a []any) (any, error) { return h, nil }
 	}
+	// jl_iolock_begin and jl_iolock_end (jl_uv.c:145-156): the libuv lock, a
+	// recursive mutex; the VM has one thread, so it only counts, and an end
+	// without a begin is the unlock of a mutex not held
+	vm.shims["jl_iolock_begin"] = func(vm *VM, a []any) (any, error) {
+		vm.iolock++
+		return nil, nil
+	}
+	vm.shims["jl_iolock_end"] = func(vm *VM, a []any) (any, error) {
+		if vm.iolock == 0 {
+			return nil, vm.errorf("jl_iolock_end: the libuv lock is not held")
+		}
+		vm.iolock--
+		return nil, nil
+	}
 	vm.shims["jl_uv_handle_type"] = func(vm *VM, a []any) (any, error) {
 		if _, err := vm.stdHandleOf("jl_uv_handle_type", a[0]); err != nil {
 			return nil, err

@@ -103,10 +103,12 @@ type VM struct {
 	// vfs is the filesystem the file shims share; ios the IOStreams open
 	// (fsshims.go, by the memory of the ios_t Base allocates), reqs the libuv
 	// requests live (by the memory of the uv_fs_t), errno the C errno.
-	vfs   *vfs
-	ios   map[*Memory]*iosState
-	reqs  map[*Memory]*uvReq
-	errno int32
+	vfs *vfs
+	ios map[*Memory]*iosState
+	// iolock is how many times the (recursive) libuv lock is held
+	iolock int
+	reqs   map[*Memory]*uvReq
+	errno  int32
 
 	// Env is the environment julia code sees (Base's ENV): empty unless the
 	// embedder fills it; the host's is never read.
