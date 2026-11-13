@@ -13,7 +13,7 @@ import (
 func TestTypedGlobals(t *testing.T) {
 	vm := New()
 	m := vm.NewModule("G")
-	ref := func(n string) expr.GlobalRef { return expr.GlobalRef{Mod: "G", Name: expr.Symbol(n)} }
+	ref := func(n string) expr.GlobalRef { return gref(m, expr.Symbol(n)) }
 	if err := vm.declareGlobal(ref("i"), core.Int64Type); err != nil {
 		t.Fatal(err)
 	}

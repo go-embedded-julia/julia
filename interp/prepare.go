@@ -86,6 +86,7 @@ type (
 	oGlobal struct {
 		mod  expr.Symbol
 		name expr.Symbol
+		obj  any // the module object, when the reference is bound to one
 	}
 	oSymbol          struct{ name expr.Symbol } // a bare global of the frame's module
 	oCall            struct{ args []op }
@@ -102,6 +103,7 @@ type (
 	oCopyast      struct{ v op }
 	oMethodDecl   struct {
 		mod  expr.Symbol // "" for the frame's module
+		obj  any         // the module object, when the reference is bound to one
 		name any
 	}
 	oRaise       struct{ msg string }  // jl_error when evaluated
@@ -277,7 +279,7 @@ func (c *code) prepValue(v any) op {
 	case expr.QuoteNode:
 		return oConst{x.Value}
 	case expr.GlobalRef:
-		return oGlobal{x.Mod, x.Name}
+		return oGlobal{x.Mod, x.Name, x.Obj}
 	case expr.Symbol:
 		return oSymbol{x}
 	case *expr.Expr:
@@ -365,9 +367,9 @@ func (c *code) prepExpr(x *expr.Expr) op {
 		if len(x.Args) == 1 {
 			switch f := x.Args[0].(type) {
 			case expr.GlobalRef:
-				return oMethodDecl{f.Mod, f.Name}
+				return oMethodDecl{f.Mod, f.Obj, f.Name}
 			default:
-				return oMethodDecl{"", f}
+				return oMethodDecl{"", nil, f}
 			}
 		}
 	case "foreigncall":

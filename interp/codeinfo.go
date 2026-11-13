@@ -225,7 +225,8 @@ func (vm *VM) scanMethodSourceNow(a []any) (any, error) {
 	flags |= 1
 	_, _, code, _ := arrayOf(src.Fields[0])
 	for _, st := range code {
-		if gr, ok := st.(expr.GlobalRef); ok && vm.modules[gr.Mod] == m.Fields[1] {
+		own, _ := m.Fields[1].(*Module)
+		if gr, ok := st.(expr.GlobalRef); ok && own != nil && vm.refModule(own, gr) == own {
 			flags |= 2
 		}
 	}

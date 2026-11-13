@@ -75,7 +75,7 @@ func (s *Session) evalForm(form any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.VM.toplevelEval(s.Mod, lowered)
+	return s.VM.toplevelEval(s.Mod, s.VM.bindRefs(s.Mod, lowered))
 }
 
 // syntaxError is the :error / :incomplete branch of jl_toplevel_eval_flex
@@ -99,7 +99,7 @@ func (vm *VM) toplevelEval(m *Module, e any) (any, error) {
 	vm.taskWorld = vm.World()
 	switch x := e.(type) {
 	case expr.GlobalRef:
-		mod := vm.modules[x.Mod]
+		mod := vm.refModule(m, x)
 		if mod == nil {
 			return nil, fmt.Errorf("%w: a GlobalRef to the unknown module %s", ErrUnsupported, x.Mod)
 		}
@@ -171,7 +171,7 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 					m.declare(x, vm.newWorld())
 				}
 			case expr.GlobalRef:
-				if err := vm.declareGlobal(x, core.AnyType); err != nil {
+				if err := vm.declareGlobal(vm.bindRef(m, x), core.AnyType); err != nil {
 					return nil, err
 				}
 			default:

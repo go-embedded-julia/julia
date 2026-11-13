@@ -56,7 +56,7 @@ func (vm *VM) bindingField(b *Binding, arg any) (any, error) {
 	}
 	switch i {
 	case 0:
-		return expr.GlobalRef{Mod: b.Mod.Name, Name: b.Name}, nil
+		return gref(b.Mod, b.Name), nil
 	case 1:
 		if b.Value == undef {
 			return nil, vm.exception(vm.tUndefRef)

@@ -273,7 +273,9 @@ func New() *VM {
 
 func (vm *VM) addModule(name expr.Symbol, parent *Module) *Module {
 	m := newModule(name, parent)
-	vm.modules[name] = m
+	if parent == nil {
+		vm.modules[name] = m // the root modules only: see modref.go
+	}
 	return m
 }
 

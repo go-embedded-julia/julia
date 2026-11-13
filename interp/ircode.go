@@ -461,7 +461,7 @@ func (s *irEncoder) encode(v any, lit bool) error {
 		}
 		return s.encodeAll(x)
 	case expr.GlobalRef:
-		m := vm.modules[x.Mod]
+		m := vm.refModule(s.mod, x)
 		if m == nil {
 			return fmt.Errorf("%w: jl_compress_ir of a GlobalRef into %s, a module this VM does not name", ErrUnsupported, x.Mod)
 		}
@@ -1186,7 +1186,7 @@ func (d *irDecoder) decode() (any, error) {
 		if !ok || d.mod == nil {
 			return nil, errMalformedIR
 		}
-		return expr.GlobalRef{Mod: d.mod.Name, Name: sym}, nil
+		return gref(d.mod, sym), nil
 	case irNearbyModule:
 		if d.mod == nil {
 			return nil, errMalformedIR
@@ -1202,7 +1202,7 @@ func (d *irDecoder) decode() (any, error) {
 		if !ok1 || !ok2 {
 			return nil, errMalformedIR
 		}
-		return expr.GlobalRef{Mod: m.Name, Name: sym}, nil
+		return gref(m, sym), nil
 	case irSingleton:
 		v, err := d.decode()
 		if err != nil {

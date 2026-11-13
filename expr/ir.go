@@ -71,6 +71,9 @@ type EnterNode struct {
 // Module is a module value, named by its fullname (e.g. Main, L).
 type Module struct {
 	Path []Symbol
+	// Obj, when set, is the runtime's module object (opaque here): the path
+	// alone does not tell two modules of one name apart.
+	Obj any
 }
 
 // Tagged is a scalar of a Julia type that has no Go counterpart here, kept

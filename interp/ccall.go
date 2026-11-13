@@ -151,7 +151,7 @@ func (vm *VM) bootShims() {
 			if !ok || !ok2 {
 				return nil, vm.typeError("GlobalRef", "", core.ModuleType, a[0])
 			}
-			return expr.GlobalRef{Mod: m.Name, Name: s}, nil
+			return gref(m, s), nil
 		},
 		// jl_sizeof_jl_options (jloptions.c): the size of the C struct that
 		// Base.JLOptions mirrors; there is no C struct here, so the size of
@@ -695,6 +695,13 @@ type oForeign struct {
 	args   []op
 }
 
+// isCoreTuple is whether a is the reference Core.tuple, bound to its module or
+// not.
+func isCoreTuple(a any) bool {
+	g, ok := a.(expr.GlobalRef)
+	return ok && g.Mod == "Core" && g.Name == "tuple"
+}
+
 func (c *code) prepForeign(x *expr.Expr) op {
 	// (foreigncall name rettype argtypes nreq cc args… roots…)
 	if len(x.Args) < 5 {
@@ -704,7 +711,7 @@ func (c *code) prepForeign(x *expr.Expr) op {
 	// a literal name, or (name, lib) as lowering leaves ccall((:f, LIB), …):
 	// a call of Core.tuple on the quoted name and the library's value
 	callee := x.Args[0]
-	if t, ok := callee.(*expr.Expr); ok && t.Head == "call" && len(t.Args) == 3 && t.Args[0] == any(expr.GlobalRef{Mod: "Core", Name: "tuple"}) {
+	if t, ok := callee.(*expr.Expr); ok && t.Head == "call" && len(t.Args) == 3 && isCoreTuple(t.Args[0]) {
 		callee, f.lib = t.Args[1], c.prepValue(t.Args[2])
 	}
 	// a literal String names the function as its Symbol does

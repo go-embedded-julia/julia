@@ -386,7 +386,7 @@ func (vm *VM) astField(v, arg any) (any, error) {
 		// mod and binding as jl_module_globalref makes them (module.c)
 		names = []expr.Symbol{"mod", "name", "binding"}
 		get = func(i int) (any, bool) {
-			m := vm.modules[x.Mod]
+			m := vm.refModule(nil, x)
 			switch {
 			case i == 1:
 				return x.Name, true
@@ -472,10 +472,7 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 				return expr.Symbol(x.Name), true
 			case 1:
 				// the defining module; core's own types name Core
-				if m, ok := x.ModuleRef.(*Module); ok {
-					return m, true
-				}
-				m := vm.modules[expr.Symbol(x.Module)]
+				m := vm.typeNameModule(x)
 				return m, m != nil
 			case 2:
 				return expr.Symbol(demangleTypename(string(x.Name))), true

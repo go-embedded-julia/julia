@@ -149,7 +149,7 @@ abstract type A1 end`); err != nil {
 		"Core.EnterNode(5, 1)":                expr.EnterNode{Catch: 5, Scope: int64(1), HasScope: true},
 		"LineNumberNode(3, :f)":               expr.LineNumberNode{Line: 3, File: expr.Symbol("f")},
 		"QuoteNode(:x)":                       expr.QuoteNode{Value: expr.Symbol("x")},
-		"GlobalRef(Core, :Int)":               expr.GlobalRef{Mod: "Core", Name: "Int"},
+		"GlobalRef(Core, :Int)":               gref(vm.Core, "Int"), // the module object, as GlobalRef.mod is
 	} {
 		v, err := s.Eval(src)
 		if err != nil || v != want {

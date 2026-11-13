@@ -299,5 +299,5 @@ func exprModule(m *Module) expr.Module {
 	for x := m; x != nil; x = x.Parent {
 		path = append([]expr.Symbol{x.Name}, path...)
 	}
-	return expr.Module{Path: path}
+	return expr.Module{Path: path, Obj: m}
 }

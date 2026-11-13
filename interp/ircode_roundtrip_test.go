@@ -46,7 +46,7 @@ f1(x) = x
 f2(x, y) = tuple(x, y)`); err != nil {
 		t.Fatal(err)
 	}
-	f := &irFixture{t: t, vm: vm, s: s, b: vm.modules["B"], args: map[string]any{}}
+	f := &irFixture{t: t, vm: vm, s: s, b: modNamed(vm, "B"), args: map[string]any{}}
 	tt, err := s.Eval("Tuple{typeof(f1), Int}")
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func (f *irFixture) kindsCode() *Struct {
 		core.Int64Type, core.AnyType, vecInt, f.typ("Ptr{Int}"), f.typ("Vector{Vector{Int}}"),
 		SVec{}, SVec{int64(1), expr.Symbol("q")}, vm.newTuple(nil),
 		vm.Core, f.b, f.s.Mod, "a string", expr.Symbol("not common"), expr.Symbol("getproperty"),
-		expr.GlobalRef{Mod: "Core", Name: "x"}, expr.GlobalRef{Mod: f.s.Mod.Name, Name: "y"}, expr.GlobalRef{Mod: "B", Name: "z"},
+		expr.GlobalRef{Mod: "Core", Name: "x"}, gref(f.s.Mod, "y"), gref(f.b, "z"),
 		&core.Union{A: core.Int64Type, B: core.Float64Type}, f.typ("Union{Int,Float64}"),
 		f.new(f.typ("Mut").(*core.DataType), int64(1)),
 		vm.newVector(core.AnyType, []any{int64(1), "a"}),

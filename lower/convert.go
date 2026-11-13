@@ -43,7 +43,7 @@ func toSx(v any) any {
 		if x.Mod == "Core" {
 			return list(sCore, x.Name)
 		}
-		return list(sym("globalref"), &jlValue{expr.Module{Path: []expr.Symbol{x.Mod}}}, x.Name)
+		return list(sym("globalref"), &jlValue{expr.Module{Path: []expr.Symbol{x.Mod}, Obj: x.Obj}}, x.Name)
 	case expr.SSAValue:
 		errorf("SSAValue objects should not occur in an AST")
 	case expr.SlotNumber:
@@ -150,7 +150,7 @@ func (c *converter) fromList(e []any) any {
 			}
 			c.notImage[m.Path[len(m.Path)-1]] = true
 		}
-		return expr.GlobalRef{Mod: m.Path[len(m.Path)-1], Name: c.fromSx(args[1]).(sym)}
+		return expr.GlobalRef{Mod: m.Path[len(m.Path)-1], Name: c.fromSx(args[1]).(sym), Obj: m.Obj}
 	case hd == sTop:
 		return expr.GlobalRef{Mod: c.top, Name: c.fromSx(args[0]).(sym)}
 	case hd == sCore:

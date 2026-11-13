@@ -553,3 +553,11 @@ SP{D}() where {D} = SP{D}(7)
 sp(::SP{D}) where {D} = D
 tag(::SP{D}, y::D) where {D} = (D, y)
 (SP{nothing}(), sp(SP{nothing}(1)), sp(SP{3}(1)), tag(SP{Nothing}(1), nothing))
+#---
+module A; module Dup; only_here = 41; later() = only_here; const k = 7; end; end
+module B; module Dup; end; end
+DA = getglobal(A, :Dup)
+DB = getglobal(B, :Dup)
+idg = getfield(Core, :isdefinedglobal)
+(getglobal(DA, :later)(), getglobal(DA, :k), idg(DB, :later), idg(DB, :k), DA === DB,
+ getglobal(DA, :only_here), idg(DB, :only_here))

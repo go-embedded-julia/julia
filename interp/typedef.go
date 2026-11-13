@@ -567,7 +567,7 @@ func biDefaultctors(vm *VM, args []any) (any, error) {
 	low := lower.NewState()
 	fields := dt.Name.Fields
 	tab := vm.ctorTable(dt)
-	mod := vm.modules[expr.Symbol(dt.Name.Module)]
+	mod := vm.typeNameModule(dt.Name)
 	var tvars []*core.TypeVar
 	for u, ok := ty.(*core.UnionAll); ok; u, ok = u.Body.(*core.UnionAll) {
 		tvars = append(tvars, u.Var)

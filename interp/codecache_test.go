@@ -22,7 +22,7 @@ func TestModuleOpts(t *testing.T) {
 	v, err = s.Eval("Core.eval(MO, Expr(:meta, :optlevel, 1)); Core.eval(MO, Expr(:meta, :compile, 0)); " +
 		"Core.eval(MO, Expr(:meta, :infer, 0)); Core.eval(MO, Expr(:meta, :max_methods, 2)); " + opts)
 	check(t, "set", v, err, "(1, 0, 0, 2)")
-	mo := vm.modules["MO"]
+	mo := modNamed(vm, "MO")
 	if mo.opts.nospecialize != -1 {
 		t.Errorf("infer off leaves nospecialize %d", mo.opts.nospecialize)
 	}
@@ -47,7 +47,7 @@ func TestModuleOpts(t *testing.T) {
 		t.Errorf("a meta julia ignores changed the optlevel")
 	}
 	// Base stops the walk: its submodules inherit nothing above it
-	inner, base := vm.modules["Inner"], vm.baseModule
+	inner, base := modNamed(vm, "Inner"), vm.baseModule
 	vm.baseModule = inner
 	if vm.moduleOpt(inner, optMaxMethods) != -1 {
 		t.Error("Base inherits its parent's options")
@@ -384,7 +384,7 @@ func TestBindingPartitions(t *testing.T) {
 	if _, err := s.Eval("module B\nconst c = 1\ng = 2\nglobal d\nglobal t::Int = 3\nusing Core: tuple\nimport Core: svec\nexport e\nend"); err != nil {
 		t.Fatal(err)
 	}
-	bm := vm.modules["B"]
+	bm := modNamed(vm, "B")
 	get := vm.shims["jl_get_module_binding"]
 	part := vm.shims["jl_get_binding_partition"]
 	kind := vm.shims["jl_bpart_get_kind"]
@@ -439,15 +439,15 @@ func TestBindingPartitions(t *testing.T) {
 	if _, err := s.Eval("module C\nexport k, gl\nconst k = 1\nglobal gl = 2\nend\nmodule D\nusing ..C\nend"); err != nil {
 		t.Fatal(err)
 	}
-	cb := vm.modules["C"].own("k")
+	cb := modNamed(vm, "C").own("k")
 	if _, k := vm.bindingKind(cb); k != bkConst {
 		t.Errorf("k: %d", k)
 	}
 	if vm.bindingPartition(cb, vm.World()).Fields[4] != uint64(bkConst|bkFlagExported) {
 		t.Error("an exported binding has no exported flag")
 	}
-	gd, _ := get(vm, []any{vm.modules["D"], expr.Symbol("gl"), int32(1)})
-	if r, k := vm.bindingKind(gd.(*Binding)); k != bkImplicitGlobal || r != any(vm.modules["C"].own("gl")) {
+	gd, _ := get(vm, []any{modNamed(vm, "D"), expr.Symbol("gl"), int32(1)})
+	if r, k := vm.bindingKind(gd.(*Binding)); k != bkImplicitGlobal || r != any(modNamed(vm, "C").own("gl")) {
 		t.Errorf("an implicit global: %d %v", k, r)
 	}
 	cb.Value = undef
@@ -468,8 +468,8 @@ func TestBindingPartitions(t *testing.T) {
 		v, err := biGetfield(vm, []any{bb, c.f})
 		check(t, "Binding."+Repr(c.f), v, err, c.want)
 	}
-	if gref, _ := biGetfield(vm, []any{bb, expr.Symbol("globalref")}); gref != any(expr.GlobalRef{Mod: "B", Name: "g"}) {
-		t.Errorf("globalref: %s", Repr(gref))
+	if got, _ := biGetfield(vm, []any{bb, expr.Symbol("globalref")}); got != any(gref(modNamed(vm, "B"), "g")) {
+		t.Errorf("globalref: %s", Repr(got))
 	}
 	if p, err := biGetfield(vm, []any{bb, expr.Symbol("partitions")}); err != nil || p.(*Struct).Type != vm.tBindingPartition {
 		t.Errorf("partitions: %v", err)

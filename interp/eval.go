@@ -160,7 +160,7 @@ func (f *frame) evalBody(ip int) (any, error) {
 				}
 				setType = v
 			}
-			if err := vm.declareGlobal(s.ref, setType); err != nil {
+			if err := vm.declareGlobal(vm.bindRef(f.mod, s.ref), setType); err != nil {
 				return nil, err
 			}
 			f.locals[f.c.nslots+ip] = nil
@@ -169,7 +169,7 @@ func (f *frame) evalBody(ip int) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			if err := vm.declareConst(s.ref, v); err != nil {
+			if err := vm.declareConst(vm.bindRef(f.mod, s.ref), v); err != nil {
 				return nil, err
 			}
 			f.locals[f.c.nslots+ip] = nil
@@ -206,7 +206,7 @@ func (f *frame) evalValue(o op) (any, error) {
 	case oConst:
 		return vm.constValue(x.v), nil
 	case oGlobal:
-		m := vm.modules[x.mod]
+		m := vm.refModule(f.mod, expr.GlobalRef{Mod: x.mod, Obj: x.obj})
 		if m == nil {
 			return nil, fmt.Errorf("%w: a GlobalRef to the unknown module %s", ErrUnsupported, x.mod)
 		}
@@ -288,7 +288,7 @@ func (f *frame) evalValue(o op) (any, error) {
 	case oMethodDecl:
 		m := f.mod
 		if x.mod != "" {
-			m = vm.modules[x.mod]
+			m = vm.refModule(f.mod, expr.GlobalRef{Mod: x.mod, Obj: x.obj})
 		}
 		name, ok := x.name.(expr.Symbol)
 		if m == nil || !ok {
@@ -310,9 +310,14 @@ func (f *frame) evalValue(o op) (any, error) {
 // constValue maps the Go values of package expr that name runtime objects
 // to those objects: a module value to the module.
 func (vm *VM) constValue(v any) any {
-	if m, ok := v.(expr.Module); ok && len(m.Path) > 0 {
-		if mod := vm.modules[m.Path[len(m.Path)-1]]; mod != nil {
+	if m, ok := v.(expr.Module); ok {
+		if mod, ok := m.Obj.(*Module); ok {
 			return mod
+		}
+		if len(m.Path) > 0 {
+			if mod := vm.modulePath(m.Path); mod != nil {
+				return mod
+			}
 		}
 	}
 	return v
@@ -386,7 +391,7 @@ func (vm *VM) writableGlobal(m *Module, name expr.Symbol) (*Binding, error) {
 // otherwise.
 func (vm *VM) checkGlobalValue(fname expr.Symbol, m *Module, name expr.Symbol, b *Binding, v any) error {
 	if b.Type != nil && !vm.isa(v, b.Type) {
-		return vm.exception(vm.tTypeError, fname, expr.GlobalRef{Mod: m.Name, Name: name}, b.Type, v)
+		return vm.exception(vm.tTypeError, fname, gref(m, name), b.Type, v)
 	}
 	return nil
 }
@@ -396,7 +401,7 @@ func (vm *VM) checkGlobalValue(fname expr.Symbol, m *Module, name expr.Symbol, b
 // have one, with T as its type. A type is refused for a constant or an
 // import, and for a global that has a value or another type.
 func (vm *VM) declareGlobal(ref expr.GlobalRef, setType any) error {
-	m := vm.modules[ref.Mod]
+	m := vm.refModule(nil, ref)
 	if m == nil {
 		return fmt.Errorf("%w: a global of the unknown module %s", ErrUnsupported, ref.Mod)
 	}
@@ -426,7 +431,7 @@ func (vm *VM) declareGlobal(ref expr.GlobalRef, setType any) error {
 // binding partition, so older worlds keep the old value; this version keeps
 // one value per binding.
 func (vm *VM) declareConst(ref expr.GlobalRef, val any) error {
-	m := vm.modules[ref.Mod]
+	m := vm.refModule(nil, ref)
 	if m == nil {
 		return fmt.Errorf("%w: a constant of the unknown module %s", ErrUnsupported, ref.Mod)
 	}
@@ -515,9 +520,9 @@ func (vm *VM) resolveDefinitionEffects(st any, m *Module, sparams []any, binding
 			var ref expr.GlobalRef
 			switch x := a.(type) {
 			case expr.Symbol:
-				ref = expr.GlobalRef{Mod: m.Name, Name: x}
+				ref = gref(m, x)
 			case expr.GlobalRef:
-				ref = x
+				ref = vm.bindRef(m, x)
 			default:
 				return nil, false, vm.errorf("syntax: malformed \"%s\" statement", e.Head)
 			}
@@ -559,7 +564,7 @@ func (vm *VM) resolveDefinitionEffects(st any, m *Module, sparams []any, binding
 		// Core.tuple of quoted values, as the ccall callee (name, lib)
 		// (method.c:218-244)
 		g, ok := e.Args[0].(expr.GlobalRef)
-		if !ok || !vm.isBuiltinTuple(g) {
+		if !ok || !vm.isBuiltinTuple(m, g) {
 			return st, false, nil
 		}
 		for _, a := range e.Args[1:] {
@@ -577,8 +582,8 @@ func (vm *VM) resolveDefinitionEffects(st any, m *Module, sparams []any, binding
 }
 
 // isBuiltinTuple is whether g names a constant binding holding Core.tuple.
-func (vm *VM) isBuiltinTuple(g expr.GlobalRef) bool {
-	mod := vm.modules[g.Mod]
+func (vm *VM) isBuiltinTuple(ctx *Module, g expr.GlobalRef) bool {
+	mod := vm.refModule(ctx, g)
 	if mod == nil {
 		return false
 	}
