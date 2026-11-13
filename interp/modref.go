@@ -13,8 +13,13 @@ import (
 // registry of the root modules only, which julia keys by name too
 // (Core, Base, Main).
 
-// gref is the GlobalRef of name in m.
+// gref is the GlobalRef of name in m. A root module stays a name, as bindRefs
+// leaves it, so that the reference the front end writes for Core.tuple and
+// GlobalRef(Core, :tuple) are one value to ===.
 func gref(m *Module, name expr.Symbol) expr.GlobalRef {
+	if m.Parent == nil {
+		return expr.GlobalRef{Mod: m.Name, Name: name}
+	}
 	return expr.GlobalRef{Mod: m.Name, Name: name, Obj: m}
 }
 

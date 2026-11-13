@@ -88,6 +88,11 @@ func TestModuleReferences(t *testing.T) {
 	if vm.modules["Dup"] != nil || vm.modules["A"] != nil {
 		t.Error("vm.modules holds a module that is not a root")
 	}
+	// Base's `e.args[1] === GlobalRef(Core, :tuple)` meets the reference the
+	// front end wrote
+	if gref(vm.Core, "tuple") != (expr.GlobalRef{Mod: "Core", Name: "tuple"}) || gref(dupA, "x").Obj != any(dupA) {
+		t.Error("gref")
+	}
 	if vm.refModule(nil, expr.GlobalRef{Mod: "Dup"}) != nil {
 		t.Error("a name alone found a module outside its context")
 	}
