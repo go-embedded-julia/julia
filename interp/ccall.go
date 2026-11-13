@@ -570,6 +570,7 @@ func (vm *VM) bootShims() {
 	vm.bootLBT()
 	vm.bootDynLibs()
 	vm.shims["jl_ptr_to_array_1d"] = func(vm *VM, a []any) (any, error) { return vm.ptrToArray1d(a) }
+	vm.shims["uv_random"] = func(vm *VM, a []any) (any, error) { return vm.uvRandom(a) }
 	vm.bootUtf8proc()
 	vm.bootEnvShims()
 	vm.bootFileShims()
