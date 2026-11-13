@@ -75,7 +75,10 @@ type VM struct {
 	// libCglobals are the C variables a library defines, by library
 	// (cglobal((:name, lib), T))
 	libCglobals map[string]map[expr.Symbol]*ptrSlot
-	sessions    map[*Module]*Session
+	// dynLibs are the libraries jl_load_dynamic_library opened, by name
+	// (dlload.go)
+	dynLibs  map[string]*Pointer
+	sessions map[*Module]*Session
 	// GeneratingOutput is jl_generating_output(): set while the VM builds
 	// Base as julia builds its system image, module initializers wait
 	// (modinit.go, RunModuleInitializers).

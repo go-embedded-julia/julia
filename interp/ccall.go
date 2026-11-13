@@ -567,6 +567,7 @@ func (vm *VM) bootShims() {
 	vm.bootGMP()
 	vm.bootMPFR()
 	vm.bootDSFMT()
+	vm.bootDynLibs()
 	vm.bootUtf8proc()
 	vm.bootEnvShims()
 	vm.bootFileShims()
@@ -797,6 +798,15 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		if p, isPtr := v.(*Pointer); isPtr {
+			// the address of a function dlsym found (dlload.go)
+			if fn, isFn := p.Target.(cFunc); isFn && p.Off == 0 {
+				if sh := vm.libShimsOf(fn.lib)[fn.name]; sh != nil {
+					return vm.foreignResult(rt, sh, args)
+				}
+			}
+			return nil, fmt.Errorf("%w: a ccall through %s", ErrUnsupported, showValue(v))
+		}
 		name, ok := v.(expr.Symbol)
 		if t, isTuple := v.(*Tuple); isTuple && len(t.Elems) == 2 {
 			// a (name, library) tuple spliced in whole, as gmp.jl's
@@ -822,7 +832,7 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 			// ccall((:mpfr_sinu, :libmpfr), …): a library named by a symbol
 			name = string(s)
 		}
-		if sh := vm.libShims[name][x.name]; sh != nil {
+		if sh := vm.libShimsOf(name)[x.name]; sh != nil {
 			return vm.foreignResult(rt, sh, args)
 		}
 		return nil, fmt.Errorf("%w: ccall((:%s, %s))", ErrUnsupported, x.name, showValue(lib))
