@@ -98,13 +98,18 @@ macro expansion runs user code and stays with the caller, as it does in
 julia. `Lower` refuses trees nested deeper than `lower.MaxDepth` (1000)
 with `lower.ErrLimit`; `FuzzLower` runs on every pull request.
 
+Speed: lowering the 53 997 corpus forms takes Go **0.56×** julia's time:
+34.2 s against 1 min 0.9 s for julia 1.12.6's `Meta.lower` on the same
+forms. Run with `JLGO_ORACLE=1 JLGO_BENCH=1 go test ./lower -run
+TestBenchLowering`, Apple M4 Max, 1-minute load 6.6, 2026-11-02.
+
 ### Types and subtyping (core)
 
 core — Julia's type objects, apply_type, subtyping and type intersection (a port of jltypes.c and subtype.c of 1.12.6): subtyping identical to julia on 20 000 random pairs and 4 902 cases from test/subtype.jl; intersection (`typeintersect`, `jl_type_intersection_with_env`, `jl_has_empty_intersection`) identical to julia on 20 000 other random pairs and 4 738 cases, most of them from test/subtype.jl's intersection tests; and method specificity (jl_type_morespecific), identical to Base.morespecific on the subtyping corpus.
 
 core/dispatch — method tables with world ages, and the method a call with concrete argument types runs (the most specific applicable one, or an ambiguity), with its static parameters: identical to julia's `which` and dispatch environment on 1 500 random method tables and 9 000 calls (4 675 method choices, 1 968 of them with static parameters, 87 ambiguities). Not yet ported: the interference sets julia 1.12 computes at method insertion, which need type intersection.
 
-Speed: subtyping is **1.37× slower** than julia's `jl_subtype` on one core (3.26 ms against 2.39 ms for the 20 000 pairs, best of 7 interleaved rounds, load 4.4–6.6, 2026-11-01), an open defect: [#20](https://github.com/go-embedded-julia/julia/issues/20). It was 1.43× before the query environments were pooled, which halved the allocations (−51%, −66% of bytes); the time gain of the pooling alone is not confirmed at low load.
+Speed: subtyping is **1.31× slower** than julia's `jl_subtype` on one core (3.19 ms against 2.43 ms for the 20 000 pairs, best of 7, load 3.3, 2026-11-02), an open defect: [#20](https://github.com/go-embedded-julia/julia/issues/20). It was 1.37× on 2026-11-01 and 1.43× before the query environments were pooled, which halved the allocations (−51%, −66% of bytes).
 
 ### Interpreter (interp)
 
