@@ -45,5 +45,5 @@ func (vm *VM) defineJuliaSyntax(base *Module) {
 	// no arguments: a function's table leaves its own type out of the
 	// signatures (dispatch.Table.Head)
 	m := must(enable.Table.Define(core.EmptyTupleType, vm.newWorld(), nil))
-	m.Def = goMethod(func(vm *VM, args []any) (any, error) { return nil, nil })
+	m.Def = mustGoBody("enable_in_core!", nil)
 }
