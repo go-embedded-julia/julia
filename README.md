@@ -18,8 +18,16 @@ expectations written by hand.
 | M0 oracle harness | `internal/oracle`, `cmd/jloracle`, golden files | **done** |
 | M1 parser | Go port of JuliaSyntax → `expr.Expr` | **done** — see parity below |
 | M2 lowering | port of `src/julia-syntax.scm` → `CodeInfo` | **done** — see lowering parity below |
-| M3 Core runtime | types, subtyping, method specificity, dispatch, builtins, intrinsics | **in progress** — types, subtyping and specificity done (`core`); dispatch of concrete calls done (`core/dispatch`); interpreter (`interp`): lowered code over Core, `struct` and `abstract type` definitions with their default constructors, methods with `where` clauses and static parameters, structs and abstract types with parameters, macro expansion, 30 builtins, the integer, float, conversion and shift intrinsics; julia's own `boot.jl` evaluates in Core (`VM.Boot`); `GenericMemory` and `Array` values with the memory builtins, shown as julia shows them; an `Expr`'s `args` as a `Vector{Any}`; Base next |
-| M4 – M7 | Base, numeric stdlib, notebook bridge, wasm playground | planned |
+| M3 Core runtime and Base | types, subtyping, dispatch, the interpreter, julia's real Base and seven stdlibs | **done** (v0.13.0): `sysimg.jl` builds the system image, `Base.__init__` and every stdlib's `__init__` run, and 16 Base-level task programs give julia's output; known limits below |
+| M4 prebuilt image | a system image a VM loads in seconds, a per-cell `Eval` for go-notebook ([#40](https://github.com/go-embedded-julia/julia/issues/40)) | planned |
+| M5 – M7 | stdlibs in Go ([#36](https://github.com/go-embedded-julia/julia/issues/36)), numerics through go-numerics ([#33](https://github.com/go-embedded-julia/julia/issues/33)), wasm playground | planned |
+
+Known limits of v0.13.0:
+- Each VM builds the system image when it boots, about 13 minutes (#40).
+- Task-heavy code is slow on a cold VM.
+- No BLAS kernel computes yet (#33).
+- Writing a file in host mode is not ported (#32).
+- Loading a C library is a stated divergence.
 
 ### Parser parity with julia 1.12.6
 
