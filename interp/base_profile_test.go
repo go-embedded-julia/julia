@@ -64,7 +64,13 @@ func TestBaseSnippets(t *testing.T) {
 			t.Fatal(err)
 		}
 		start := time.Now()
+		// a snippet that runs for minutes needs its profile before it ends:
+		// stop (and flush) it after JLGO_PROFILE_SECS (default 120)
+		secs := 120
+		fmt.Sscan(os.Getenv("JLGO_PROFILE_SECS"), &secs)
+		timer := time.AfterFunc(time.Duration(secs)*time.Second, pprof.StopCPUProfile)
 		v, err := s.Eval(src)
+		timer.Stop()
 		el := time.Since(start)
 		pprof.StopCPUProfile()
 		f.Close()
