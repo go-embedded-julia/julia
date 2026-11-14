@@ -5,6 +5,7 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -128,7 +129,14 @@ func TestAccessShim(t *testing.T) {
 
 // getattrlist's answers are julia 1.12.6's on darwin (a 4-byte floor,
 // truncated to the buffer, the length aligned to 4).
+//
+// julia reaches getattrlist only under Sys.isapple() (loading.jl:17-66);
+// Windows takes the GetLongPathName branch (loading.jl:11-16), so the call
+// is never made there and its answers have no Windows reference.
 func TestGetattrlist(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("julia calls getattrlist on darwin only; Windows uses longpath")
+	}
 	f := newPCREFixture(t)
 	dir := t.TempDir()
 	vm := f.vm

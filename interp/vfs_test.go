@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -524,7 +525,13 @@ func TestHostPaths(t *testing.T) {
 	if _, code = v.stat(filepath.Join(dir, "nope"), true); code != uvENOENT {
 		t.Errorf("stat of nothing: %d", code)
 	}
-	if _, code = v.stat(filepath.Join(dir, "Hello.txt", "x"), true); code != uvENOTDIR {
+	// below a file: ENOTDIR from POSIX; Windows answers ERROR_PATH_NOT_FOUND,
+	// which libuv translates to UV_ENOENT (src/win/error.c)
+	belowFile := uvENOTDIR
+	if runtime.GOOS == "windows" {
+		belowFile = uvENOENT
+	}
+	if _, code = v.stat(filepath.Join(dir, "Hello.txt", "x"), true); code != belowFile {
 		t.Errorf("below a file: %d", code)
 	}
 	// relative to the working directory

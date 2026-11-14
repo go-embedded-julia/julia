@@ -82,12 +82,12 @@ func halfLines() string {
 	// fptrunc's path: the value read as a double (runtime_intrinsics.c:1630)
 	s.section("f32tohalf", len(f32s))
 	for _, x := range f32s {
-		s.fold(uint64(doubleToHalf(float64(x))))
+		s.fold(uint64(doubleToHalf(widen32(x))))
 		s.next()
 	}
 	s.section("f32tobf16", len(f32s))
 	for _, x := range f32s {
-		s.fold(uint64(doubleToBfloat(float64(x))))
+		s.fold(uint64(doubleToBfloat(widen32(x))))
 		s.next()
 	}
 	var f64s []float64
@@ -138,7 +138,7 @@ func halfLines() string {
 		for _, x := range ints {
 			v := roundToDouble(x, 128, c.signed)
 			if c.f32 {
-				s.fold(uint64(math.Float32bits(float32(v))))
+				s.fold(uint64(math.Float32bits(narrow64(v))))
 			} else {
 				s.fold(math.Float64bits(v))
 			}

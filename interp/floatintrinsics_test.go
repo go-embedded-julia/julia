@@ -220,6 +220,31 @@ func TestFloatIntrinsics(t *testing.T) {
 	}
 }
 
+// A NaN crosses between Float32 and Float64 as arm64 and x86 carry it (sign,
+// upper payload, quiet bit), whatever the host's FPU does: RISC-V answers the
+// canonical NaN to Go's float64(x) and float32(x).
+func TestNaNConversions(t *testing.T) {
+	for _, c := range []struct {
+		f32 uint32
+		f64 uint64
+	}{
+		{0x7f800001, 0x7ff8000020000000}, {0xffbfffff, 0xffffffffe0000000},
+		{0x7fc00000, 0x7ff8000000000000}, {0x7f800000, 0x7ff0000000000000},
+		{0x3f800000, 0x3ff0000000000000},
+	} {
+		if got := math.Float64bits(widen32(math.Float32frombits(c.f32))); got != c.f64 {
+			t.Errorf("widen32(%#x) = %#x, want %#x", c.f32, got, c.f64)
+		}
+		want := c.f32
+		if want&0x7fffffff > 0x7f800000 {
+			want |= 1 << 22
+		}
+		if got := math.Float32bits(narrow64(math.Float64frombits(c.f64))); got != want {
+			t.Errorf("narrow64(%#x) = %#x, want %#x", c.f64, got, want)
+		}
+	}
+}
+
 // Any Float16 shown reads back as itself, and the search ends (it once
 // looped forever on a wrong table).
 func FuzzShowHalf(f *testing.F) {

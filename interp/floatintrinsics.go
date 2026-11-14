@@ -34,11 +34,11 @@ func floatOf(v any) (float64, fkind) {
 	case float64:
 		return x, f64
 	case float32:
-		return float64(x), f32
+		return widen32(x), f32
 	case Float16:
-		return float64(halfToFloat(uint16(x))), f16
+		return widen32(halfToFloat(uint16(x))), f16
 	case BFloat16:
-		return float64(bfloatToFloat(uint16(x))), bf16
+		return widen32(bfloatToFloat(uint16(x))), bf16
 	}
 	return 0, notFloat
 }
@@ -50,11 +50,11 @@ func (k fkind) value(r float64) any {
 	case f64:
 		return r
 	case f32:
-		return float32(r)
+		return narrow64(r)
 	case f16:
-		return Float16(floatToHalf(float32(r)))
+		return Float16(floatToHalf(narrow64(r)))
 	}
-	return BFloat16(floatToBfloat(float32(r)))
+	return BFloat16(floatToBfloat(narrow64(r)))
 }
 
 // isPrimitive is jl_is_primitivetype(jl_typeof(v)) for the values this VM
@@ -242,7 +242,7 @@ func (vm *VM) floatTernary(name expr.Symbol) func(*VM, []any) (any, error) {
 		if k == f64 {
 			return math.FMA(x, y, z), nil
 		}
-		return k.value(float64(fmaf(float32(x), float32(y), float32(z)))), nil
+		return k.value(widen32(fmaf(narrow64(x), narrow64(y), narrow64(z)))), nil
 	}
 }
 
@@ -293,7 +293,7 @@ func (vm *VM) fpResize(name expr.Symbol, ext bool) func(*VM, []any) (any, error)
 		case t == core.BFloat16Type && !ext:
 			return BFloat16(doubleToBfloat(x)), nil
 		case t == core.Float32Type && (ext || k == f64):
-			return float32(x), nil
+			return narrow64(x), nil
 		case t == core.Float64Type && ext:
 			return x, nil
 		}
@@ -318,11 +318,11 @@ func (vm *VM) intToFloat(name expr.Symbol, signed bool, msg string) func(*VM, []
 		val := roundToDouble(x, w, signed)
 		switch t {
 		case core.Float16Type:
-			return Float16(floatToHalf(float32(val))), nil
+			return Float16(floatToHalf(narrow64(val))), nil
 		case core.BFloat16Type:
-			return BFloat16(floatToBfloat(float32(val))), nil
+			return BFloat16(floatToBfloat(narrow64(val))), nil
 		case core.Float32Type:
-			return float32(val), nil
+			return narrow64(val), nil
 		case core.Float64Type:
 			return val, nil
 		}

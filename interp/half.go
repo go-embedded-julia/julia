@@ -15,6 +15,28 @@ type (
 	BFloat16 uint16
 )
 
+// widen32 is a float32 as a float64, a NaN done on its bits: arm64 and x86
+// (julia's FCVT and CVTSS2SD) keep its sign and upper payload bits and set
+// the quiet bit, where RISC-V's FCVT.D.S answers the canonical NaN, so the
+// float64(x) of Go would make a result depend on the host's FPU.
+func widen32(x float32) float64 {
+	b := math.Float32bits(x)
+	if b&0x7fffffff > 0x7f800000 {
+		return math.Float64frombits(uint64(b>>31)<<63 | 0x7ff<<52 | 1<<51 | uint64(b&0x3fffff)<<29)
+	}
+	return float64(x)
+}
+
+// narrow64 is a float64 as a float32, a NaN done on its bits as widen32's:
+// the sign, the upper 22 payload bits and the quiet bit.
+func narrow64(x float64) float32 {
+	b := math.Float64bits(x)
+	if b&^(1<<63) > 0x7ff<<52 {
+		return math.Float32frombits(uint32(b>>63)<<31 | 0x7f800000 | 1<<22 | uint32(b>>29)&0x3fffff)
+	}
+	return float32(x)
+}
+
 // halfToFloat is half_to_float (runtime_intrinsics.c:18-63).
 func halfToFloat(ival uint16) float32 {
 	sign := uint32(ival&0x8000) >> 15
@@ -91,7 +113,7 @@ func floatToHalf(param float32) uint16 {
 // doubleToHalf is double_to_half (runtime_intrinsics.c:190-215): a Float64
 // rounded once to a half, through a Float32 nudged off a tie.
 func doubleToHalf(param float64) uint16 {
-	temp := float32(param)
+	temp := narrow64(param)
 	tempi := math.Float32bits(temp)
 	if tempi&0x7fffffff < 0x38800000 {
 		if shift := 113 - (tempi&0x7f800000)>>23; shift < 23 {
@@ -101,7 +123,7 @@ func doubleToHalf(param float64) uint16 {
 	}
 	if tempi&0x1fff == 0x1000 {
 		tempi = math.Float32bits(temp)
-		tempi += nudge(float64(temp), param)
+		tempi += nudge(widen32(temp), param)
 		temp = math.Float32frombits(tempi)
 	}
 	return floatToHalf(temp)
@@ -132,10 +154,10 @@ func floatToBfloat(param float32) uint16 {
 
 // doubleToBfloat is double_to_bfloat (runtime_intrinsics.c:319-336).
 func doubleToBfloat(param float64) uint16 {
-	temp := float32(param)
+	temp := narrow64(param)
 	tempi := math.Float32bits(temp)
 	if tempi&0x1ff == 0x100 {
-		tempi += nudge(float64(temp), param)
+		tempi += nudge(widen32(temp), param)
 		temp = math.Float32frombits(tempi)
 	}
 	return floatToBfloat(temp)

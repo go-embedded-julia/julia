@@ -327,7 +327,8 @@ func (v *vfs) route(name string) (treeName, osName string, inTree bool) {
 	// the operating system resolves an absolute name itself (`..` after a
 	// link means what the kernel says); a relative one is made absolute
 	// against the working directory
-	if path.IsAbs(name) {
+	// (on Windows too: `C:\x` and `\\?\C:\x` are absolute, `/x` is not)
+	if path.IsAbs(name) || filepath.IsAbs(name) {
 		return "", filepath.FromSlash(name), false
 	}
 	return "", filepath.FromSlash(abs), false

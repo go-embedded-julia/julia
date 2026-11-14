@@ -151,9 +151,35 @@ func FuzzParse(f *testing.F) {
 	})
 }
 
+// calibrate is the best of five parses of a benign, linear file: how fast
+// this run's parser is on this machine (an emulated one is 20 times slower
+// than a native one, and a loaded runner twice).
+func calibrate() time.Duration {
+	src := []byte(strings.Repeat("x\n", 20000))
+	best := time.Duration(1 << 62)
+	for range 5 {
+		t0 := time.Now()
+		ParseAll(src, "calibration")
+		best = min(best, time.Since(t0))
+	}
+	return best
+}
+
+// calibrationRef is calibrate()'s answer on the machine the 5 s bound of
+// TestHostileInputs was chosen on, a native arm64 laptop.
+const calibrationRef = 10 * time.Millisecond
+
+// machineScale is how many times slower than that machine this one is, never
+// below 1: the bound is a time on the reference machine, not a wall clock
+// every runner and every emulator has to meet.
+func machineScale() float64 {
+	return max(1, float64(calibrate())/float64(calibrationRef))
+}
+
 // TestHostileInputs feeds inputs shaped to exhaust a naive parser and
 // requires each to finish quickly within the default limits.
 func TestHostileInputs(t *testing.T) {
+	scale := machineScale()
 	for name, src := range map[string]string{
 		"deep parens":     strings.Repeat("(", 100000),
 		"deep brackets":   strings.Repeat("[", 100000),
@@ -170,14 +196,14 @@ func TestHostileInputs(t *testing.T) {
 		"elseif chain":    "if a\n" + strings.Repeat("elseif a\n", 50000) + "end",
 		"ternary chain":   strings.Repeat("a ? b : ", 50000) + "c",
 	} {
-		bound := 5 * time.Second
+		bound := time.Duration(float64(5*time.Second) * scale)
 		if raceEnabled {
 			bound = 120 * time.Second
 		}
 		t0 := time.Now()
 		ex := ParseAll([]byte(src), "hostile")
 		if d := time.Since(t0); d > bound {
-			t.Errorf("%s: %v", name, d)
+			t.Errorf("%s: %v (bound %v, machine %.1fx the reference)", name, d, bound, scale)
 		}
 		if ex == nil {
 			t.Errorf("%s: nil", name)
