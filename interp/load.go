@@ -2,6 +2,7 @@ package interp
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -13,7 +14,7 @@ import (
 // at their paths under julia's base/: the directory julia builds its system
 // image from, so the names the include calls give resolve as they do there.
 //
-//go:embed boot/*.jl
+//go:embed boot
 var bootFiles embed.FS
 
 // baseSources is bootFiles rooted at boot/, as julia's base/ is.
@@ -56,14 +57,46 @@ func (vm *VM) jlLoad(a []any) (any, error) {
 			line = l.Line
 			continue
 		}
+		// JuliaSyntax, the parser Base includes from its Julia source
+		// (Base.jl:317), is package syntax here: Base gets a native module
+		// in its place (juliasyntax.go)
+		if m == vm.baseModule && isJuliaSyntaxInclude(form) {
+			vm.defineJuliaSyntax(m)
+			continue
+		}
+		// Base.jl:410-415 reads the Compiler's sources to record them as
+		// dependencies: done from the embedded ones (compilerdeps.go)
+		if m == vm.baseModule {
+			form = vm.replaceCompilerDependencyLoop(form, m)
+		}
 		if v, err = s.evalForm(form); err != nil {
 			// a Julia exception comes out as LoadError(file, line, error)
 			// once post_boot_hooks has found LoadError; before that, as is
 			if t, ok := err.(*Thrown); ok && vm.tLoadError != nil {
-				return nil, vm.exception(vm.tLoadError, name, int64(line), t.Value)
+				// the LoadError keeps the backtrace of what it wraps
+				return nil, &Thrown{Value: &Struct{Type: vm.tLoadError, Fields: []any{name, int64(line), t.Value}}, Trace: t.Trace}
 			}
-			return nil, err
+			if _, ok := err.(*Thrown); ok {
+				return nil, err
+			}
+			// a refusal of the VM's says where, as a LoadError would
+			return nil, fmt.Errorf("%s:%d: %w", name, line, err)
 		}
 	}
 	return v, nil
+}
+
+// isCompilerBootstrap reports the form Compiler.bootstrap!() (see
+// VM.RunCompilerBootstrap).
+func isCompilerBootstrap(form any) bool {
+	call, ok := form.(*expr.Expr)
+	if !ok || call.Head != "call" || len(call.Args) != 1 {
+		return false
+	}
+	dot, ok := call.Args[0].(*expr.Expr)
+	if !ok || dot.Head != "." || len(dot.Args) != 2 || dot.Args[0] != any(expr.Symbol("Compiler")) {
+		return false
+	}
+	q, ok := dot.Args[1].(expr.QuoteNode)
+	return ok && q.Value == any(expr.Symbol("bootstrap!"))
 }

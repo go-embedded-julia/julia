@@ -109,6 +109,42 @@ func maybeStripOpSuffix(op string) string {
 	return s
 }
 
+// precTable is prec-table: each binary operator's precedence, 1 for
+// assignment up to 17 for dot, a later list overriding (julia-parser.scm:
+// 86-94).
+var precTable = func() map[string]int {
+	t := map[string]int{}
+	for i, l := range [][]string{precAssignmentList, precPair, precConditional, precArrow, precLazyOr,
+		precLazyAnd, precComparison, precPipeLt, precPipeGt, precColon, precPlus, precTimes, precRational,
+		precBitshift, precPower, precDecl, precDot} {
+		for _, op := range l {
+			t[op] = i + 1
+		}
+	}
+	return t
+}()
+
+var (
+	unaryOpSet          = setOf(unaryOps)
+	unaryAndBinaryOpSet = setOf(fields(`$ & ~`), addDots(fields(`+ - ⋆ ± ∓`)))
+)
+
+// OperatorPrecedence is jl_operator_precedence, the parser's
+// operator-precedence: 0 for a name that is no binary operator
+// (julia-parser.scm:95-97).
+func OperatorPrecedence(name string) int { return precTable[maybeStripOpSuffix(name)] }
+
+// IsUnaryOperator is jl_is_unary_operator, unary-op? (julia-parser.scm:99-102).
+func IsUnaryOperator(name string) bool { return unaryOpSet[name] }
+
+// IsUnaryAndBinaryOperator is jl_is_unary_and_binary_operator,
+// unary-and-binary-op? (julia-parser.scm:107-110).
+func IsUnaryAndBinaryOperator(name string) bool { return unaryAndBinaryOpSet[name] }
+
+// IsSyntacticOperator is jl_is_syntactic_operator, syntactic-op?
+// (julia-parser.scm:113-118).
+func IsSyntacticOperator(name string) bool { return syntacticOperators[name] }
+
 func suffSet(set map[string]bool, x any) bool {
 	s, ok := x.(sym)
 	if !ok {

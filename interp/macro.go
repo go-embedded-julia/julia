@@ -39,6 +39,27 @@ func (s *Session) macroexpand(form any) (any, error) {
 	return s.expandMacros(copyAST(form), nil)
 }
 
+// jlMacroexpand is jl_macroexpand(x, m) (ast.c:1256-1265), Base's
+// macroexpand(m, x) (expr.jl:124-130): the macros of a copy of x expanded
+// in m, in the newest world, and the hygienic scopes they left resolved
+// (jl-expand-macroscope).
+func (vm *VM) jlMacroexpand(a []any) (any, error) {
+	m, ok := a[1].(*Module)
+	if !ok {
+		return nil, vm.typeError("ccall", "", core.ModuleType, a[1])
+	}
+	s := vm.sessionFor(m)
+	ex, err := s.macroexpand(a[0])
+	if err != nil {
+		return nil, err
+	}
+	out, err := s.low.ExpandMacroscope(syntaxModules(ex))
+	if err != nil {
+		return nil, err
+	}
+	return vm.runtimeModules(out), nil
+}
+
 // isSelfQuoting is is_self_quoting_expr (ast.c:1076-1086).
 func isSelfQuoting(e *expr.Expr) bool {
 	switch e.Head {
@@ -229,11 +250,54 @@ func (vm *VM) moduleOf(v any) (*Module, error) {
 	return nil, vm.typeError("hygienic-scope", "", core.ModuleType, v)
 }
 
+// syntaxModules gives the module of each hygienic scope in an expression as
+// lowering names it, expr.Module: julia_to_scm carries a Module value into
+// the front end as it is (Docs.loaddocs evaluates Expr(:hygienic-scope,
+// docstring, Docs, lno)), and lowering here reads a scope's module by its
+// name (convert.go). A module anywhere else is a value lowering passes on
+// as it is, quoted data among them, and stays the runtime's. It changes e
+// in place, a copy macro expansion made.
+func syntaxModules(v any) any {
+	e, ok := v.(*expr.Expr)
+	if !ok {
+		return v
+	}
+	if m, ok := scopeModule(e); ok {
+		e.Args[1] = exprModule(m)
+	}
+	for i, a := range e.Args {
+		e.Args[i] = syntaxModules(a)
+	}
+	return v
+}
+
+// scopeModule is the module of (hygienic-scope body module ...) when it is
+// a module value.
+func scopeModule(e *expr.Expr) (*Module, bool) {
+	if e.Head != "hygienic-scope" || len(e.Args) < 2 {
+		return nil, false
+	}
+	m, ok := e.Args[1].(*Module)
+	return m, ok
+}
+
+// runtimeModules is syntaxModules undone, for an expression handed back to
+// julia code (macroexpand's): each expr.Module the runtime's module.
+func (vm *VM) runtimeModules(v any) any {
+	if e, ok := v.(*expr.Expr); ok {
+		for i, a := range e.Args {
+			e.Args[i] = vm.runtimeModules(a)
+		}
+		return e
+	}
+	return vm.constValue(v)
+}
+
 // exprModule is the value of module m inside syntax: its full name.
 func exprModule(m *Module) expr.Module {
 	var path []expr.Symbol
 	for x := m; x != nil; x = x.Parent {
 		path = append([]expr.Symbol{x.Name}, path...)
 	}
-	return expr.Module{Path: path}
+	return expr.Module{Path: path, Obj: m}
 }

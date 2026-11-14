@@ -41,6 +41,36 @@ func TestLowerErrorKinds(t *testing.T) {
 	}
 }
 
+// ExpandMacroscope reports as Lower does (recoverLowering): a hygienic
+// scope resolved; a form the converter refuses internal; an expression too
+// deep a limit; with debugPanics, the panic.
+func TestExpandMacroscopeErrorKinds(t *testing.T) {
+	st := NewState()
+	// (hygienic-scope (= x 1) m): x is renamed, the scope is gone
+	scoped := expr.New("hygienic-scope", expr.New("=", expr.Symbol("x"), int64(1)), expr.Module{Path: []expr.Symbol{"Main", "M"}})
+	out, err := st.ExpandMacroscope(scoped)
+	if e, ok := out.(*expr.Expr); err != nil || !ok || e.Head != "=" {
+		t.Errorf("hygienic scope: %v %v", out, err)
+	}
+	// a lambda left by itself reaches the converter unexpanded, as in Lower
+	lam := expr.New("lambda", int64(1))
+	if _, err := st.ExpandMacroscope(lam); !errors.Is(err, ErrInternal) {
+		t.Errorf("malformed lambda: %v", err)
+	}
+	var deep any = int64(1)
+	for range MaxDepth + 2 {
+		deep = expr.New("block", deep)
+	}
+	if _, err := st.ExpandMacroscope(deep); !errors.Is(err, ErrLimit) {
+		t.Errorf("too deep: %v", err)
+	}
+	debugPanics = true
+	defer func() { debugPanics = false }()
+	if panicOf(func() { _, _ = st.ExpandMacroscope(lam) }) == nil {
+		t.Error("debugPanics: no panic")
+	}
+}
+
 func TestTypevarNamesUnsupported(t *testing.T) {
 	// typevar-names skips the names analyze-typevar rejects, but not a
 	// failure of the port to print the rejected one

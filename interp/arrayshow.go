@@ -83,7 +83,7 @@ func typeinfoPrefix(eltype, ctx any, empty bool) (string, bool) {
 	if name := showWrapperName(eltype); name != "" {
 		return name, false
 	}
-	var b strings.Builder
+	var b showBuf
 	writeType(&b, eltype)
 	return b.String(), false
 }
@@ -91,8 +91,9 @@ func typeinfoPrefix(eltype, ctx any, empty bool) (string, bool) {
 // writeArray writes an array of element type eltype and dimensions dims
 // whose elements are elems, as show(io, X::AbstractArray) does in a
 // context whose typeinfo is ctx; typ is the array's type, shown for an
-// empty one.
-func writeArray(b *strings.Builder, typ, eltype any, dims []int64, elems []any, ctx any) {
+// empty one; self is the array, which a vector of it shows as a circular
+// reference (show_delim_array, show.jl).
+func writeArray(b *showBuf, self, typ, eltype any, dims []int64, elems []any, ctx any) {
 	if len(dims) == 0 {
 		// show_zero_dim
 		if len(elems) == 1 && elems[0] != undef {
@@ -114,12 +115,18 @@ func writeArray(b *strings.Builder, typ, eltype any, dims []int64, elems []any, 
 	if len(dims) == 1 {
 		// show_vector
 		b.WriteString(prefix + "[")
+		if b.circular(self) {
+			b.WriteByte(']')
+			return
+		}
+		b.shown = append(b.shown, self)
 		for i, e := range elems {
 			if i > 0 {
 				b.WriteString(", ")
 			}
 			writeElem(b, e, elctx)
 		}
+		b.shown = b.shown[:len(b.shown)-1]
 		b.WriteByte(']')
 		return
 	}
@@ -141,7 +148,7 @@ func writeArray(b *strings.Builder, typ, eltype any, dims []int64, elems []any, 
 // writeSlices writes the contents of an array of two or more dimensions:
 // a matrix's rows separated by "; " and its columns by " ", each slice of a
 // higher dimension k separated by k semicolons (show_nd).
-func writeSlices(b *strings.Builder, dims []int64, elems []any, ctx any) {
+func writeSlices(b *showBuf, dims []int64, elems []any, ctx any) {
 	k := len(dims)
 	if k == 2 {
 		rows, cols := dims[0], dims[1]
@@ -167,7 +174,7 @@ func writeSlices(b *strings.Builder, dims []int64, elems []any, ctx any) {
 	}
 }
 
-func writeElem(b *strings.Builder, e any, ctx any) {
+func writeElem(b *showBuf, e any, ctx any) {
 	if e == undef {
 		b.WriteString("#undef")
 		return
@@ -178,8 +185,13 @@ func writeElem(b *strings.Builder, e any, ctx any) {
 // writeIn is show(IOContext(io, :typeinfo => ctx), v): a value whose type
 // the context gives drops what would repeat it (1.0 for a Float32, 1 for a
 // Bool); a nested array uses the context for its prefix.
-func writeIn(b *strings.Builder, v any, ctx any) {
+func writeIn(b *showBuf, v any, ctx any) {
 	switch x := v.(type) {
+	case Float16:
+		if ctx == any(core.Float16Type) {
+			b.WriteString(showHalf(uint16(x), false))
+			return
+		}
 	case float32:
 		if ctx == any(core.Float32Type) {
 			// without the f0 suffix and the specials' 32; an exponent other
@@ -209,7 +221,7 @@ func writeIn(b *strings.Builder, v any, ctx any) {
 			if d, ok := ctx.(*core.DataType); ok && d.Name == x.Type.Name {
 				inner = d.Parameters[0]
 			}
-			writeArray(b, x.Type, eltype, dims, elems, inner)
+			writeArray(b, x, x.Type, eltype, dims, elems, inner)
 			return
 		}
 	case *Memory:
@@ -217,7 +229,7 @@ func writeIn(b *strings.Builder, v any, ctx any) {
 		if d, ok := ctx.(*core.DataType); ok && d.Name == x.Type.Name {
 			inner = d.Parameters[1]
 		}
-		writeArray(b, x.Type, x.Type.Parameters[1], []int64{int64(len(x.Elems))}, x.Elems, inner)
+		writeArray(b, x, x.Type, x.Type.Parameters[1], []int64{int64(len(x.Elems))}, x.Elems, inner)
 		return
 	}
 	writeValue(b, v)

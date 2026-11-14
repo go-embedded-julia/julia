@@ -6,7 +6,7 @@ import "testing"
 // is jl_subtype (subtype.c:4960-5094 only add the rewrapping of env's
 // variables to those): checked on the random pairs of the differential test.
 func TestMspHelpersMatchSubtyping(t *testing.T) {
-	xs, ys := drawPairs(4000)
+	xs, ys := subtypeXs[:4000], subtypeYs[:4000]
 	for i := range xs {
 		x, y := xs[i], ys[i]
 		if got, want := eqMsp(x, y, x, y, nil), TypesEqual(x, y); got != want {

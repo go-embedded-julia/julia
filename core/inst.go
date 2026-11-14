@@ -11,16 +11,41 @@ func (e *Error) Error() string { return e.Msg }
 
 func throwf(format string, args ...any) { panic(&Error{fmt.Sprintf(format, args...)}) }
 
-// catchError turns a panic carrying *Error into a returned error.
+// TypeError is a TypeError julia raises while building a type
+// (jl_type_error_rt, rtutils.c:112-122): in Func, in Context, a value Got
+// where Expected was. Msg is the message core reports it with.
+type TypeError struct {
+	Func, Context string
+	Expected, Got any
+	Msg           string
+}
+
+func (e *TypeError) Error() string { return e.Msg }
+
+// throwTypeError raises a TypeError whose message is the format's.
+func throwTypeError(fn, ctx string, expected, got any, format string, args ...any) {
+	panic(&TypeError{Func: fn, Context: ctx, Expected: expected, Got: got, Msg: fmt.Sprintf(format, args...)})
+}
+
+// catchError turns a panic carrying *Error or *TypeError into a returned
+// error.
 func catchError(err *error) {
 	if r := recover(); r != nil {
-		e, ok := r.(*Error)
-		if !ok {
+		switch e := r.(type) {
+		case *Error:
+			*err = e
+		case *TypeError:
+			*err = e
+		default:
 			panic(r)
 		}
-		*err = e
 	}
 }
+
+// CatchError is catchError for the packages above core: deferred directly
+// (defer core.CatchError(&err)), it turns a panic of core's own errors raised
+// by a query past its work bound into the returned error.
+var CatchError = catchError
 
 // try runs f and returns the *Error it raised, if any.
 func try(f func()) (err error) {
@@ -84,23 +109,34 @@ func mayEqualWrapper(t any) any {
 // WrapVararg is jl_wrap_vararg with check set (jltypes.c:2791-2845).
 func WrapVararg(t, n any) (v *Vararg, err error) {
 	defer catchError(&err)
-	return wrapVararg(t, n, true), nil
+	return wrapVararg(t, n, true, 0), nil
 }
 
-func wrapVararg(t, n any, check bool) *Vararg {
+// wrapVararg is jl_wrap_vararg; with nothrow set an invalid Vararg is nil
+// instead of an error.
+func wrapVararg(t, n any, check bool, nothrow int) *Vararg {
 	if check {
 		if n != nil {
 			if _, ok := n.(*TypeVar); ok {
 			} else if _, ok := UnwrapUnionAll(n).(*Union); ok {
 			} else if k, ok := n.(int64); !ok {
-				throwf("TypeError: in Vararg, in count, expected Int64, got %s", Show(n))
+				if nothrow != 0 {
+					return nil
+				}
+				throwTypeError("Vararg", "count", Int64Type, n, "TypeError: in Vararg, in count, expected Int64, got %s", Show(n))
 			} else if k < 0 {
+				if nothrow != 0 {
+					return nil
+				}
 				throwf("Vararg length is negative: %d", k)
 			}
 		}
 		if t != nil {
 			if !ValidTypeParam(t) {
-				throwf("TypeError: in Vararg, in type, expected Type, got %s", Show(t))
+				if nothrow != 0 {
+					return nil
+				}
+				throwTypeError("Vararg", "type", TypeType, t, "TypeError: in Vararg, in type, expected Type, got %s", Show(t))
 			}
 			t = mayEqualWrapper(normalizeUnionAlls(t))
 		}
@@ -198,8 +234,32 @@ type typeStack struct {
 	prev *typeStack
 }
 
-// instType is inst_type_w_ with nothrow 0 (jltypes.c:2601-2747).
+// instType is inst_type_w_ with nothrow 0.
 func instType(t any, env *typeEnv, stack *typeStack, check bool) any {
+	return instTypeW(t, env, stack, check, 0)
+}
+
+// invariantNothrow is `nothrow ? 1 : 0`: an invariant parameter must be
+// exact, so the imprecise level 2 does not reach it.
+func invariantNothrow(nothrow int) int {
+	if nothrow != 0 {
+		return 1
+	}
+	return 0
+}
+
+// null is julia's NULL where instantiation and intersection return one: no
+// type. It is not nil, which a type parameter can hold (the embedder's
+// nothing).
+var null any = &nullValue{}
+
+type nullValue struct{}
+
+// instTypeW is inst_type_w_ (jltypes.c:2597-2747). With nothrow set, a type
+// that cannot be built is null instead of an error; with nothrow 2 an
+// imprecise result in a covariant position is accepted (a failed union
+// member is dropped, a failed tuple element is Union{}).
+func instTypeW(t any, env *typeEnv, stack *typeStack, check bool, nothrow int) any {
 	switch x := t.(type) {
 	case *TypeVar:
 		for e := env; e != nil; e = e.prev {
@@ -209,26 +269,55 @@ func instType(t any, env *typeEnv, stack *typeStack, check bool) any {
 		}
 		return t
 	case *UnionAll:
-		lb := instType(x.Var.LB, env, stack, check)
-		ub := instType(x.Var.UB, env, stack, check)
-		v := x.Var
-		if lb != x.Var.LB || ub != x.Var.UB {
+		lb := instTypeW(x.Var.LB, env, stack, check, invariantNothrow(nothrow))
+		if lb == null {
+			return null
+		}
+		var v any = x.Var
+		ub := instTypeW(x.Var.UB, env, stack, check, nothrow)
+		if ub == null {
+			if lb != any(Bottom) {
+				return null
+			}
+			v = Bottom
+		} else if lb != x.Var.LB || ub != x.Var.UB {
 			v = &TypeVar{Name: x.Var.Name, LB: lb, UB: ub}
 		}
-		newbody := instType(x.Body, &typeEnv{x.Var, v, env}, stack, check)
-		if !HasTypeVar(newbody, v) {
+		newbody := instTypeW(x.Body, &typeEnv{x.Var, v, env}, stack, check, nothrow)
+		if newbody == null {
+			return null
+		}
+		vt, ok := v.(*TypeVar)
+		if !ok || !HasTypeVar(newbody, vt) {
 			return newbody
 		}
-		if newbody != x.Body || v != x.Var {
-			return &UnionAll{Var: v, Body: newbody}
+		if newbody != x.Body || vt != x.Var {
+			return &UnionAll{Var: vt, Body: newbody}
 		}
 		return t
 	case *Union:
-		a := instType(x.A, env, stack, check)
-		b := instType(x.B, env, stack, check)
+		a := instTypeW(x.A, env, stack, check, nothrow)
+		b := instTypeW(x.B, env, stack, check, nothrow)
+		if nothrow != 0 {
+			if a != null && !isTypeVar(a) && !IsType(a) {
+				a = null
+			}
+			if b != null && !isTypeVar(b) && !IsType(b) {
+				b = null
+			}
+		}
 		if a != x.A || b != x.B {
 			if !check {
 				return &Union{a, b}
+			}
+			if a == null || b == null {
+				if nothrow == 1 {
+					return null
+				}
+				if a == null {
+					return b
+				}
+				return a
 			}
 			return TypeUnion(a, b)
 		}
@@ -236,13 +325,25 @@ func instType(t any, env *typeEnv, stack *typeStack, check bool) any {
 	case *Vararg:
 		var T, N any
 		if x.T != nil {
-			T = instType(x.T, env, stack, check)
+			T = instTypeW(x.T, env, stack, check, nothrow)
+			if T == null {
+				if nothrow != 2 {
+					return null
+				}
+				T = Bottom
+			}
 			if x.N != nil {
-				N = instType(x.N, env, stack, check)
+				N = instTypeW(x.N, env, stack, check, invariantNothrow(nothrow))
+				if N == null {
+					return null
+				}
 			}
 		}
 		if T != x.T || N != x.N {
-			return wrapVararg(T, N, check)
+			if v := wrapVararg(T, N, check, nothrow); v != nil {
+				return v
+			}
+			return null
 		}
 		return t
 	case *DataType:
@@ -250,16 +351,19 @@ func instType(t any, env *typeEnv, stack *typeStack, check bool) any {
 			return t
 		}
 		if x.Name == TupleTypeName {
-			return instTuple(x, env, stack, check)
+			return instTuple(x, env, stack, check, nothrow)
 		}
 		iparams := make([]any, len(x.Parameters))
 		bound := false
 		for i, elt := range x.Parameters {
-			iparams[i] = instType(elt, env, stack, check)
+			iparams[i] = instTypeW(elt, env, stack, check, invariantNothrow(nothrow))
+			if iparams[i] == null {
+				return null
+			}
 			bound = bound || iparams[i] != elt
 		}
 		if bound {
-			return instDatatypeInner(x, iparams, stack, env, check)
+			return instDatatypeInner(x, iparams, stack, env, check, nothrow)
 		}
 		return t
 	}
@@ -267,7 +371,7 @@ func instType(t any, env *typeEnv, stack *typeStack, check bool) any {
 }
 
 // instTuple is inst_tuple_w_ (jltypes.c:2529-2595).
-func instTuple(tt *DataType, env *typeEnv, stack *typeStack, check bool) any {
+func instTuple(tt *DataType, env *typeEnv, stack *typeStack, check bool, nothrow int) any {
 	if IsVaTuple(tt) && len(tt.Parameters) == 1 {
 		va := tt.Parameters[0].(*Vararg)
 		ttT, ttN := unwrapVararg(va), va.N
@@ -282,7 +386,10 @@ func instTuple(tt *DataType, env *typeEnv, stack *typeStack, check bool) any {
 		if T != nil && N != nil {
 			if nt, ok := N.(int64); ok {
 				if nt >= 0 {
-					return tupletypeFill(nt, T, check)
+					return tupletypeFill(nt, T, check, nothrow)
+				}
+				if nothrow != 0 {
+					return null
 				}
 				throwf("Vararg length is negative: %d", nt)
 			}
@@ -290,21 +397,32 @@ func instTuple(tt *DataType, env *typeEnv, stack *typeStack, check bool) any {
 	}
 	iparams := make([]any, len(tt.Parameters))
 	bound := false
+	ntp := len(tt.Parameters)
 	for i, elt := range tt.Parameters {
-		iparams[i] = instType(elt, env, stack, check)
-		bound = bound || iparams[i] != elt
+		pi := instTypeW(elt, env, stack, check, nothrow)
+		if pi == null {
+			if _, va := elt.(*Vararg); nothrow == 1 || (i == ntp-1 && va) {
+				return null
+			}
+			pi = Bottom
+		}
+		iparams[i] = pi
+		bound = bound || pi != elt
 	}
 	if bound {
-		return instDatatypeInner(tt, iparams, stack, env, check)
+		return instDatatypeInner(tt, iparams, stack, env, check, nothrow)
 	}
 	return tt
 }
 
 // tupletypeFill is jl_tupletype_fill (jltypes.c:2058-2085).
-func tupletypeFill(n int64, t any, check bool) any {
+func tupletypeFill(n int64, t any, check bool, nothrow int) any {
 	if check {
 		if !ValidTypeParam(t) {
-			throwf("TypeError: in Vararg, in type, expected Type, got %s", Show(t))
+			if nothrow != 0 {
+				return null
+			}
+			throwTypeError("Vararg", "type", TypeType, t, "TypeError: in Vararg, in type, expected Type, got %s", Show(t))
 		}
 		t = mayEqualWrapper(normalizeUnionAlls(t))
 		check = false
@@ -316,7 +434,7 @@ func tupletypeFill(n int64, t any, check bool) any {
 	for i := range p {
 		p[i] = t
 	}
-	return instDatatypeInner(AnyTupleType, p, nil, nil, check)
+	return instDatatypeInner(AnyTupleType, p, nil, nil, check, 0)
 }
 
 // maxTupleFill bounds NTuple{n,T} expansion. julia has no bound and would
@@ -377,6 +495,12 @@ func objectID(v any) uint32 {
 		return strHash(string(x))
 	case *Instance:
 		return bitmix(x.Type.hash, strHash(x.Bits))
+	case *Tuple:
+		h := x.Type.hash
+		for _, e := range x.Elems {
+			h = bitmix(h, objectID(e))
+		}
+		return h
 	case *bottomType:
 		return 0x1b873593
 	}
@@ -390,6 +514,13 @@ func strHash(s string) uint32 {
 		h *= 16777619
 	}
 	return h
+}
+
+// TypeHash is jl_type_hash (jltypes.c:1779-1785): type_hash with its
+// failure ignored, which Base's hash(::Type) is made of.
+func TypeHash(v any) uint64 {
+	failed := false
+	return uint64(typeHash(v, &failed))
 }
 
 // typeHash is type_hash (jltypes.c:1742-1777); failed reports a key that
@@ -533,6 +664,26 @@ func withinTypeVar(t, vlb, vub any) bool {
 	return (HasFreeTypeVars(vlb) || Subtype(vlb, lb)) && (HasFreeTypeVars(vub) || Subtype(ub, vub))
 }
 
+// InstantiateTypeInEnv is jl_instantiate_type_in_env (jltypes.c:2772-
+// 2784): t with the variables of env's UnionAlls, outermost first, set to
+// vals; Union{} when that builds no valid type (julia's JL_TRY).
+func InstantiateTypeInEnv(t any, env any, vals []any) any {
+	var e *typeEnv
+	for i := 0; ; i++ {
+		u, ok := env.(*UnionAll)
+		if !ok || i >= len(vals) {
+			break
+		}
+		e = &typeEnv{u.Var, vals[i], e}
+		env = u.Body
+	}
+	res := t
+	if try(func() { res = instType(t, e, nil, true) }) != nil {
+		return Bottom
+	}
+	return res
+}
+
 // substituteVar is jl_substitute_var.
 func substituteVar(t any, v *TypeVar, val any) any {
 	if val == any(v) {
@@ -541,9 +692,22 @@ func substituteVar(t any, v *TypeVar, val any) any {
 	return instType(t, &typeEnv{v, val, nil}, nil, true)
 }
 
+// substituteVarNothrow is jl_substitute_var_nothrow (jltypes.c:1550-1557):
+// null when the substitution builds an invalid type.
+func substituteVarNothrow(t any, v *TypeVar, val any, nothrow int) any {
+	if val == any(v) {
+		return t
+	}
+	if isTypeVar(val) {
+		nothrow = 0
+	}
+	return instTypeW(t, &typeEnv{v, val, nil}, nil, true, nothrow)
+}
+
 // checkDatatypeParameters is check_datatype_parameters
-// (jltypes.c:1888-1939).
-func checkDatatypeParameters(tn *TypeName, params []any) {
+// (jltypes.c:1888-1939); with nothrow set it reports an invalid parameter
+// instead of raising.
+func checkDatatypeParameters(tn *TypeName, params []any, nothrow int) (invalid bool) {
 	var bounds []any
 	w := tn.Wrapper
 	for {
@@ -558,21 +722,35 @@ func checkDatatypeParameters(tn *TypeName, params []any) {
 	for i := range params {
 		tv := w.(*UnionAll).Var
 		if !withinTypeVar(params[i], bounds[2*i], bounds[2*i+1]) {
-			throwf("TypeError: in %s, in %s, expected %s, got %s", tn.Name, tv.Name,
-				Show(&TypeVar{Name: tv.Name, LB: bounds[2*i], UB: bounds[2*i+1]}), Show(params[i]))
+			if nothrow != 0 {
+				return true
+			}
+			bound := &TypeVar{Name: tv.Name, LB: bounds[2*i], UB: bounds[2*i+1]}
+			throwTypeError(tn.Name, tv.Name, bound, params[i], "TypeError: in %s, in %s, expected %s, got %s", tn.Name, tv.Name,
+				Show(bound), Show(params[i]))
 		}
 		for j := 2*i + 2; j < len(bounds); j++ {
 			if bj := bounds[j]; bj != any(AnyType) && bj != any(Bottom) {
-				bounds[j] = substituteVar(bj, tv, params[i])
+				level := 0
+				if nothrow != 0 {
+					level = 1 + j&1 // an upper bound may be imprecise
+				}
+				nb := substituteVarNothrow(bj, tv, params[i], level)
+				if nb == null {
+					return true
+				}
+				bounds[j] = nb
 			}
 		}
 		w = w.(*UnionAll).Body
 	}
+	return false
 }
 
 // instDatatypeInner is inst_datatype_inner (jltypes.c:2089-2455) without
-// NamedTuple and GenericMemory validation and without field types.
-func instDatatypeInner(dt *DataType, iparams []any, stack *typeStack, env *typeEnv, check bool) any {
+// GenericMemory validation and without field types. With nothrow set an
+// invalid instance is null.
+func instDatatypeInner(dt *DataType, iparams []any, stack *typeStack, env *typeEnv, check bool, nothrow int) any {
 	tn := dt.Name
 	istuple := tn == TupleTypeName
 	cacheable := true
@@ -596,6 +774,9 @@ func instDatatypeInner(dt *DataType, iparams []any, stack *typeStack, env *typeE
 				}
 			}
 			if pi == any(Bottom) {
+				if nothrow != 0 {
+					return null
+				}
 				throwf("Tuple field type cannot be Union{}")
 			}
 			if cacheable && !IsConcrete(pi) {
@@ -647,7 +828,9 @@ func instDatatypeInner(dt *DataType, iparams []any, stack *typeStack, env *typeE
 		}
 	}
 	if check && !istuple {
-		checkDatatypeParameters(tn, iparams)
+		if checkDatatypeParameters(tn, iparams, nothrow) {
+			return null
+		}
 	} else if ntp == 0 && EmptyTupleType != nil {
 		return EmptyTupleType
 	}
@@ -659,7 +842,7 @@ func instDatatypeInner(dt *DataType, iparams []any, stack *typeStack, env *typeE
 			}
 			if nt, ok := va1.(int64); ok && (nt == 0 || !HasFreeTypeVars(va0)) {
 				if ntp == 1 {
-					return tupletypeFill(nt, va0, false)
+					return tupletypeFill(nt, va0, false, 0)
 				}
 				if nt > maxTupleFill {
 					throwf("Vararg length %d exceeds the limit of %d", nt, maxTupleFill)
@@ -669,7 +852,7 @@ func instDatatypeInner(dt *DataType, iparams []any, stack *typeStack, env *typeE
 				for k := int64(0); k < nt; k++ {
 					p = append(p, va0)
 				}
-				return instDatatypeInner(AnyTupleType, p, nil, nil, check)
+				return instDatatypeInner(AnyTupleType, p, nil, nil, check, nothrow)
 			}
 		}
 	}
@@ -698,17 +881,96 @@ func instDatatypeInner(dt *DataType, iparams []any, stack *typeStack, env *typeE
 	}
 	p := append([]any(nil), iparams...)
 	ndt := &DataType{Name: tn, Parameters: p, HasConcreteSubtype: true}
+	if tn == NamedTupleTypeName && !namedTupleFields(ndt, nothrow) {
+		return null
+	}
 	top := &typeStack{ndt, stack}
 	precomputeMemoized(ndt, cacheable)
 	if istuple {
 		ndt.Super = AnyType
 	} else if dt.Super != nil {
-		ndt.Super = instType(dt.Super, env, top, check).(*DataType)
+		super := instTypeW(dt.Super, env, top, check, nothrow)
+		if super == null {
+			return null
+		}
+		ndt.Super = super.(*DataType)
 	}
 	if cacheable {
 		return cacheOrGet(ndt)
 	}
 	return ndt
+}
+
+// namedTupleFields gives a NamedTuple{names, T} instance its field names,
+// names' symbols, and types, T's parameters (inst_datatype_inner,
+// jltypes.c:2327-2373). With a free type variable in either, julia gives it
+// no field types (an empty list, "essentially always incorrect"). With
+// nothrow set, invalid names or lengths report false instead of raising.
+func namedTupleFields(ndt *DataType, nothrow int) bool {
+	names, tt := ndt.Parameters[0], ndt.Parameters[1]
+	if HasFreeTypeVars(names) || HasFreeTypeVars(tt) {
+		ndt.ntTypes = []any{}
+		return true
+	}
+	nt, ok := names.(*Tuple)
+	if !ok {
+		if nothrow != 0 {
+			return false
+		}
+		throwTypeError("NamedTuple", "names", AnyTupleType, names,
+			"TypeError: in NamedTuple, in names, expected Tuple, got %s", Show(names))
+	}
+	ndt.ntNames = make([]Symbol, len(nt.Elems))
+	for i, ni := range nt.Elems {
+		s, ok := ni.(Symbol)
+		if !ok {
+			if nothrow != 0 {
+				return false
+			}
+			throwTypeError("NamedTuple", "name", SymbolType, ni,
+				"TypeError: in NamedTuple, in name, expected Symbol, got %s", Show(ni))
+		}
+		for _, prev := range ndt.ntNames[:i] {
+			if prev == s {
+				if nothrow != 0 {
+					return false
+				}
+				throwf("duplicate field name in NamedTuple: \"%s\" is not unique", s)
+			}
+		}
+		ndt.ntNames[i] = s
+	}
+	if tt == any(Bottom) && len(nt.Elems) > 0 {
+		ndt.ntTypes = make([]any, len(nt.Elems))
+		for i := range ndt.ntTypes {
+			ndt.ntTypes[i] = Bottom
+		}
+		return true
+	}
+	d, ok := tt.(*DataType)
+	if !ok {
+		// check_datatype_parameters refused it first (T <: Tuple)
+		throwf("NamedTuple field type must be a tuple datatype")
+	}
+	if IsVaTuple(d) || len(d.Parameters) != len(nt.Elems) {
+		if nothrow != 0 {
+			return false
+		}
+		throwf("NamedTuple names and field types must have matching lengths")
+	}
+	// never nil, which would read as not known yet: @NamedTuple{}'s are
+	// Tuple{}'s parameters, none
+	ndt.ntTypes = append([]any{}, d.Parameters...)
+	return true
+}
+
+// FieldNames is the instance's field names (jl_field_names): a NamedTuple's
+// come from its names parameter, any other type's from its name.
+func (d *DataType) FieldNames() []Symbol {
+	if d.Name == NamedTupleTypeName {
+		return d.ntNames
+	}
+	return d.Name.FieldNames
 }
 
 // maybeSubtypeOfCache is maybe_subtype_of_cache (jltypes.c:1292-1314).
@@ -842,9 +1104,18 @@ func Apply(tc any, params ...any) (t any, err error) {
 	return applyType(tc, params), nil
 }
 
+// TupleType is jl_apply_tuple_type_v (jltypes.c:2467-2470, over
+// jl_apply_tuple_type_v_, 2457-2460): Tuple{params...}, for the parameters of
+// types that exist (a call's, widened). julia reports no error from it, and
+// this does not return one; a parameter that is no type is a bug of the
+// caller, and panics.
+func TupleType(params ...any) *DataType {
+	return instDatatypeInner(AnyTupleType, append([]any(nil), params...), nil, nil, true, 0).(*DataType)
+}
+
 func applyType(tc any, params []any) any {
 	if tc == any(AnyTupleType) {
-		return instDatatypeInner(AnyTupleType, append([]any(nil), params...), nil, nil, true)
+		return instDatatypeInner(AnyTupleType, append([]any(nil), params...), nil, nil, true, 0)
 	}
 	if tc == any(UnionType) {
 		return TypeUnion(params...)
@@ -860,7 +1131,7 @@ func applyType(tc any, params []any) any {
 				env = &typeEnv{ua.Var, pi, env}
 				w = ua.Body
 			}
-			return instDatatypeInner(u, append([]any(nil), params...), nil, env, true)
+			return instDatatypeInner(u, append([]any(nil), params...), nil, env, true, 0)
 		}
 	}
 	tc0 := tc
@@ -901,7 +1172,7 @@ func applyType(tc any, params []any) any {
 				if isdt {
 					name = inner.Name.Name
 				}
-				throwf("TypeError: in %s, in %s, expected %s, got %s", name, ua.Var.Name, Show(ua.Var), Show(pi))
+				throwTypeError(name, ua.Var.Name, ua.Var, pi, "TypeError: in %s, in %s, expected %s, got %s", name, ua.Var.Name, Show(ua.Var), Show(pi))
 			}
 		}
 		tc = instType(ua.Body, &typeEnv{ua.Var, pi, nil}, nil, true)

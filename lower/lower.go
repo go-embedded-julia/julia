@@ -104,6 +104,11 @@ func NewStateIn(mod expr.Module, top expr.Symbol) *State {
 	return &State{bindings: map[string]bool{}, mod: mod, top: top}
 }
 
+// SetTop changes the top module later forms name: jl_base_relative_to is
+// asked again for each form, and a module that becomes a top module
+// (jl_set_istopmod, as Base does early in Base_compiler.jl) changes it.
+func (st *State) SetTop(top expr.Symbol) { st.top = top }
+
 func (st *State) converter() *converter { return &converter{mod: st.mod, top: st.top} }
 
 // lowerer holds what one lowering reads and writes.
@@ -115,23 +120,7 @@ type lowerer struct {
 // Lower is Meta.lower(m, ex) for a macro-expanded top-level form ex
 // (jl_expand_with_loc_warn of src/ast.c with file "none" and line 0).
 func (st *State) Lower(ex any) (out any, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if debugPanics {
-				panic(r)
-			}
-			switch x := r.(type) {
-			case unsupported:
-				out, err = nil, fmt.Errorf("%w: %s", ErrUnsupported, string(x))
-			case internalError:
-				out, err = nil, fmt.Errorf("%w: %s", ErrInternal, string(x))
-			default:
-				// a broken invariant the port did not check by name: a
-				// runtime.Error, the only other panic of the port
-				out, err = nil, fmt.Errorf("%w: %v", ErrInternal, x)
-			}
-		}
-	}()
+	defer recoverLowering(&out, &err)
 	if tooDeep(ex, 0) {
 		return nil, fmt.Errorf("%w: an expression nested deeper than %d", ErrLimit, MaxDepth)
 	}
@@ -140,6 +129,41 @@ func (st *State) Lower(ex any) (out any, err error) {
 	res := lw.errorWrap(func() any { return lw.expandToplevelExpr(toSxChecked(ex), sym("none"), 0) })
 	c := st.converter()
 	return c.fromSx(res), nil
+}
+
+// ExpandMacroscope is jl-expand-macroscope (jlfrontend.scm:197-199), the
+// last step of macroexpand (jl_macroexpand, ast.c:1256-1265): the
+// hygienic scopes a macro expansion left resolved, the names a macro
+// introduced renamed; an error is the expression (error msg).
+func (st *State) ExpandMacroscope(ex any) (out any, err error) {
+	defer recoverLowering(&out, &err)
+	if tooDeep(ex, 0) {
+		return nil, fmt.Errorf("%w: an expression nested deeper than %d", ErrLimit, MaxDepth)
+	}
+	lw := &lowerer{st: st}
+	res := lw.errorWrap(func() any { return lw.expandMacroscope(toSxChecked(ex)) })
+	return st.converter().fromSx(res), nil
+}
+
+// recoverLowering, deferred by Lower and ExpandMacroscope, makes a panic of
+// the port its error: what the port cannot do, unsupported; a broken
+// invariant, internal (a runtime.Error, the only other panic of the port).
+func recoverLowering(out *any, err *error) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	if debugPanics {
+		panic(r)
+	}
+	switch x := r.(type) {
+	case unsupported:
+		*out, *err = nil, fmt.Errorf("%w: %s", ErrUnsupported, string(x))
+	case internalError:
+		*out, *err = nil, fmt.Errorf("%w: %s", ErrInternal, string(x))
+	default:
+		*out, *err = nil, fmt.Errorf("%w: %v", ErrInternal, x)
+	}
 }
 
 // toSxChecked is julia_to_scm; its errors become an error result.

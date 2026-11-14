@@ -1,0 +1,23 @@
+{"text":"(α, β) = 3, 5","filename":"none","line":1,"offset":0,"rule":"statement","want":"(:\"=\" (:tuple :\"α\" :\"β\") (:tuple 3 5))\t15"}
+{"text":"(α, β) = 3, 5","filename":"none","line":1,"offset":0,"rule":"atom","want":"(:tuple :\"α\" :\"β\")\t8"}
+{"text":"(α, β) = 3, 5","filename":"none","line":1,"offset":15,"rule":"statement","want":"nothing\t15"}
+{"text":"(α, β) = 3, 5","filename":"none","line":1,"offset":10,"rule":"statement","want":"(:tuple 3 5)\t15"}
+{"text":"(α, β) = 3, 5","filename":"none","line":1,"offset":10,"rule":"atom","want":"3\t12"}
+{"text":"$n is too large to look up in the table; consider using `factorial(big($n))` instead","filename":"none","line":1,"offset":1,"rule":"atom","want":":n\t2"}
+{"text":"$(n+1) is $(f(x)[2])","filename":"none","line":1,"offset":1,"rule":"atom","want":"(:call :\"+\" :n 1)\t6"}
+{"text":"$(n+1) is $(f(x)[2])","filename":"none","line":1,"offset":11,"rule":"atom","want":"(:ref (:call :f :x) 2)\t20"}
+{"text":"x = 1 + 2\ny","filename":"none","line":1,"offset":0,"rule":"statement","want":"(:\"=\" :x (:call :\"+\" 1 2))\t10"}
+{"text":"x = 1 + 2\ny","filename":"none","line":1,"offset":10,"rule":"statement","want":":y\t11"}
+{"text":"x = 1 + 2  # comment\n\ny","filename":"none","line":1,"offset":0,"rule":"statement","want":"(:\"=\" :x (:call :\"+\" 1 2))\t21"}
+{"text":"x; y\nz","filename":"none","line":1,"offset":0,"rule":"statement","want":"(:toplevel :x :y)\t5"}
+{"text":"  # only a comment\n  ","filename":"none","line":1,"offset":0,"rule":"statement","want":"nothing\t21"}
+{"text":"   ","filename":"none","line":1,"offset":0,"rule":"atom","want":"nothing\t3"}
+{"text":"","filename":"none","line":1,"offset":0,"rule":"statement","want":"nothing\t0"}
+{"text":"  #= c =# x + 1","filename":"none","line":1,"offset":0,"rule":"atom","want":":x\t11"}
+{"text":"x = ","filename":"none","line":1,"offset":0,"rule":"statement","want":"(:incomplete {ParseError \"ParseError:\\x0a# Error @ none:1:5\\x0ax = \\x0a#   └ ── premature end of input\"})\t4"}
+{"text":"1.0.2","filename":"none","line":1,"offset":0,"rule":"statement","want":"(:error {ParseError \"ParseError:\\x0a# Error @ none:1:1\\x0a1.0.2\\x0a└──┘ ── invalid numeric constant\"})\t5"}
+{"text":")","filename":"none","line":1,"offset":0,"rule":"atom","want":"(:error {ParseError \"ParseError:\\x0a# Error @ none:1:1\\x0a)\\x0a╙ ── unexpected `)`\"})\t0"}
+{"text":"function f(x)\n  x\n","filename":"none","line":1,"offset":0,"rule":"statement","want":"(:incomplete {ParseError \"ParseError:\\x0a# Error @ none:2:5\\x0afunction f(x)\\x0a  x\\x0a#  \\x0a└ ── Expected `end`\"})\t18"}
+{"text":"a\nb = 2\n","filename":"none","line":1,"offset":0,"rule":"all","want":"(:toplevel {L 1 :none} :a {L 2 :none} (:\"=\" :b 2))\t8"}
+{"text":"a\n)\n","filename":"none","line":1,"offset":0,"rule":"all","want":"(:toplevel {L 1 :none} :a {L 2 :none} (:error {ParseError \"ParseError:\\x0a# Error @ none:2:1\\x0aa\\x0a)\\x0a╙ ── unexpected `)`\"}))\t4"}
+{"text":"a +\n b","filename":"file.jl","line":41,"offset":0,"rule":"statement","want":"(:call :\"+\" :a :b)\t6"}

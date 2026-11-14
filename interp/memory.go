@@ -121,7 +121,7 @@ func (vm *VM) zeroElem(t any) any {
 	if !ok || !d.IsConcrete {
 		return undef
 	}
-	if v, ok := bitsValue(d, 0); ok {
+	if v, ok := bitsValue(d, u128{}); ok {
 		return v
 	}
 	if d == core.NothingType {
@@ -163,8 +163,10 @@ func biMemoryrefnew(vm *VM, args []any) (any, error) {
 			return nil, err
 		}
 	}
-	// size_t arithmetic: an index below 1 wraps to a huge one
-	if i < 1 || uint64(r.Off)+uint64(i-1) >= uint64(len(r.Mem.Elems)) {
+	// size_t arithmetic, offset + (i - 1): an index below 1 steps back from
+	// the offset, and is out of bounds only once it wraps below the memory's
+	// start (builtins.c:1740-1745); _growbeg! steps back so
+	if uint64(r.Off)+uint64(i-1) >= uint64(len(r.Mem.Elems)) {
 		return nil, vm.exception(vm.tBounds, r, args[1])
 	}
 	return &MemoryRef{Type: r.Type, Mem: r.Mem, Off: r.Off + int(i-1)}, nil

@@ -34,8 +34,9 @@ func (vm *VM) bootCTypes() {
 	imm("PhiCNode", []expr.Symbol{"values"}, vecAny)
 	imm("UpsilonNode", []expr.Symbol{"val"}, core.AnyType)
 	vm.tNewvarNode = imm("NewvarNode", []expr.Symbol{"slot"}, vm.tSlotNumber)
+	// mayinlinealloc cleared by hand (jltypes.c:3481)
 	imm("DebugInfo", []expr.Symbol{"def", "linetable", "edges", "codelocs"},
-		core.AnyType, core.AnyType, core.SimpleVectorType, core.StringType)
+		core.AnyType, core.AnyType, core.SimpleVectorType, core.StringType).Name.MayInlineAlloc = false
 
 	opaque := func(name string, params ...string) *core.DataType {
 		tvs := make([]*core.TypeVar, len(params))
@@ -48,16 +49,39 @@ func (vm *VM) bootCTypes() {
 		vm.setCore(expr.Symbol(name), t.Name.Wrapper)
 		return t
 	}
-	for _, name := range []string{"Method", "MethodInstance", "CodeInstance", "MethodTable", "MethodCache",
-		"TypeMapEntry", "TypeMapLevel", "Task", "Binding", "BindingPartition", "Const", "PartialStruct",
-		"PartialOpaque", "InterConditional", "MethodMatch"} {
+	for _, name := range []string{"MethodCache", "TypeMapEntry", "TypeMapLevel"} {
 		opaque(name)
 	}
-	vm.tCodeInfo = opaque("CodeInfo")
-	opaque("NamedTuple", "names", "T")
+	vm.bootTaskType()
+	// julia 1.12's one method table, Core.methodtable (jltypes.c:2959,
+	// builtins.c:2508); inference compares edges against it by identity
+	vm.methodTable = &Struct{Type: opaque("MethodTable")}
+	vm.setCore("methodtable", vm.methodTable)
+	vm.bootBindingTypes()
+	// GlobalRef's binding field is a Binding (jltypes.c:3285-3288)
+	vm.tGlobalRef.Name.Fields[2] = vm.tBinding
+	vm.bootReflectionTypes()
+	vm.bootCodeInstanceType()
+	vm.bootCodeInfoType()
+	vm.setCore("NamedTuple", core.NamedTupleType)
 	opaque("OpaqueClosure", "A", "R")
 	llvm := core.NewIncompletePrimitive("Core", "LLVMPtr", []*core.TypeVar{
 		{Name: "T", LB: core.Bottom, UB: core.AnyType}, {Name: "AS", LB: core.Bottom, UB: core.AnyType}}, 64)
 	must(0, llvm.SetSuper(core.AnyType))
 	vm.setCore("LLVMPtr", llvm.Name.Wrapper)
+	// the n_uninitialized of the runtime's types, as julia 1.12.6 reports
+	// them (jltypes.c gives each its count; boot.jl's types get theirs from
+	// _structtype, the VM's own definitions of BoundsError, UndefVarError
+	// and Box julia's)
+	for name, n := range map[string]int32{"BoundsError": 2, "UndefVarError": 1, "Box": 1,
+		"Binding": 5, "BindingPartition": 5, "CodeInfo": 1,
+		"CodeInstance": 20, "DataType": 5, "EnterNode": 1, "Method": 23, "MethodCache": 2,
+		"MethodInstance": 5, "ReturnNode": 1, "Task": 21, "TypeMapEntry": 6, "TypeName": 16,
+		"TypeofVararg": 2, "UpsilonNode": 1} {
+		if b := vm.Core.own(expr.Symbol(name)); b != nil {
+			if d, ok := core.UnwrapUnionAll(b.Value).(*core.DataType); ok {
+				d.Name.NUninitialized = n
+			}
+		}
+	}
 }

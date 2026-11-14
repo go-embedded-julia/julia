@@ -14,7 +14,7 @@ import (
 // BenchmarkSubtypePairs times x <: y over the golden pairs, for profiling
 // without julia.
 func BenchmarkSubtypePairs(b *testing.B) {
-	xs, ys := drawPairs(goldenPairs)
+	xs, ys := subtypeXs, subtypeYs
 	b.ResetTimer()
 	for b.Loop() {
 		for i := range xs {
@@ -31,7 +31,7 @@ func TestSubtypeSpeedVsJulia(t *testing.T) {
 	if os.Getenv("JLGO_ORACLE") == "" || os.Getenv("JLGO_BENCH") == "" {
 		t.Skip("set JLGO_ORACLE=1 JLGO_BENCH=1")
 	}
-	xs, ys := drawPairs(goldenPairs)
+	xs, ys := subtypeXs, subtypeYs
 	p, err := oracle.Start()
 	if err != nil {
 		t.Fatal(err)

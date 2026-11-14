@@ -119,9 +119,9 @@ func TestMemoryChecks(t *testing.T) {
 		want string
 	}{
 		{"length", []any{m, expr.Symbol("length")}, "2"},
-		{"ptr", []any{m, expr.Symbol("ptr")}, "!not ported yet: the field ptr"},
+		{"ptr", []any{m, expr.Symbol("ptr")}, "Ptr{Nothing}(pointer(Memory{Int64}) + 0)"},
 		{"mem", []any{r, expr.Symbol("mem")}, ""},
-		{"ptr_or_offset", []any{r, int64(1)}, "!not ported yet: the field ptr_or_offset"},
+		{"ptr_or_offset", []any{r, int64(1)}, "Ptr{Nothing}(pointer(Memory{Int64}) + 0)"},
 	} {
 		v, err := biGetfield(vm, c.args)
 		check(t, c.name, v, err, c.want)

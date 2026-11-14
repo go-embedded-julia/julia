@@ -3,25 +3,27 @@ package core
 import "sync"
 
 // Subtyping: a statement-by-statement port of the subtype path of
-// src/subtype.c (julia 1.12.6, lines 43-2529). Intersection
-// (subtype.c:2533-4700) is not ported yet, so every branch that julia takes
-// only when e->intersection is set is left out; the environment never has
-// it set on the subtype path (init_stenv, subtype.c:1842).
+// src/subtype.c (julia 1.12.6, lines 43-2529); intersection, which shares
+// this environment, is in intersect.go.
 
 // varBinding is jl_varbinding_t (subtype.c:67-91).
 type varBinding struct {
-	v           *TypeVar
-	lb, ub      any
-	right       bool
-	occursInv   int8
-	occursCov   int8
-	concrete    bool
-	maxOffset   int8
-	intValued   int8
-	intersected bool
-	depth0      int
-	innervars   []*TypeVar
-	prev        *varBinding
+	v              *TypeVar
+	lb, ub         any
+	right          bool
+	occursInv      int8
+	occursCov      int8
+	concrete       bool
+	maxOffset      int8
+	constraintkind int8
+	intValued      int8
+	limited        bool
+	intersected    bool
+	depth0         int
+	// innervars is julia's jl_array_t: shared, grown in place, and saved
+	// and restored by reference.
+	innervars *[]*TypeVar
+	prev      *varBinding
 }
 
 // unionState is jl_unionstate_t (subtype.c:48-53); the bit stack is a
@@ -37,13 +39,17 @@ type savedUnionState struct {
 	stack             []uint32
 }
 
-// stenv is jl_stenv_t (subtype.c:102-119), without the intersection fields.
+// stenv is jl_stenv_t (subtype.c:102-119).
 type stenv struct {
 	vars             *varBinding
 	lunions, runions unionState
 	envout           []any
 	envidx           int
 	invdepth         int
+	ignoreFree       bool
+	intersection     bool
+	emptinessOnly    bool
+	triangular       int
 	loffset          int64
 	calls            int
 
@@ -171,7 +177,7 @@ func popUnionState(dst *unionState, s savedUnionState) {
 // savedEnv is jl_savedenv_t (subtype.c:256-262).
 type savedEnv struct {
 	roots  []any // lb, ub of each binding
-	inner  [][]*TypeVar
+	inner  []*[]*TypeVar
 	buf    []int8
 	rdepth int
 }
@@ -224,6 +230,7 @@ var stenvPool = sync.Pool{New: func() any { return &stenv{} }}
 func getStenv(envout []any) *stenv {
 	e := stenvPool.Get().(*stenv)
 	e.vars, e.envout, e.envidx, e.invdepth, e.loffset, e.calls = nil, envout, 0, 0, 0, 0
+	e.ignoreFree, e.intersection, e.emptinessOnly, e.triangular = false, false, false, 0
 	e.lunions = unionState{stack: e.lunions.stack[:0]}
 	e.runions = unionState{stack: e.runions.stack[:0]}
 	return e
@@ -242,12 +249,18 @@ func freshForallExists(x, y any, envout []any) bool {
 	return e.forallExistsSubtype(x, y, 0)
 }
 
-// restoreEnv is restore_env (subtype.c:357-390).
-func (e *stenv) restoreEnv(se *savedEnv) {
+// restoreEnv is restore_env with root set (subtype.c:357-390).
+func (e *stenv) restoreEnv(se *savedEnv) { e.restoreEnvRoot(se, true) }
+
+// restoreEnvRoot is restore_env: without root only the occurrence counts,
+// offsets and union depth come back, not the bounds.
+func (e *stenv) restoreEnvRoot(se *savedEnv, root bool) {
 	i, j, k := 0, 0, 0
 	for v := e.vars; v != nil; v = v.prev {
-		v.lb, v.ub = se.roots[i], se.roots[i+1]
-		v.innervars = se.inner[k]
+		if root {
+			v.lb, v.ub = se.roots[i], se.roots[i+1]
+			v.innervars = se.inner[k]
+		}
 		i, k = i+2, k+1
 		v.occursInv, v.occursCov, v.maxOffset = se.buf[j], se.buf[j+1], se.buf[j+2]
 		j += 3
@@ -255,7 +268,7 @@ func (e *stenv) restoreEnv(se *savedEnv) {
 	e.runions.depth = se.rdepth
 	if e.envout != nil && e.envidx < len(e.envout) {
 		for k := e.envidx; k < len(e.envout); k++ {
-			e.envout[k] = nil
+			e.envout[k] = null
 		}
 	}
 }
@@ -640,7 +653,7 @@ func (e *stenv) varOutside(x, y *TypeVar) bool {
 func (e *stenv) varLt(b *TypeVar, a any, param int) bool {
 	bb := e.lookup(b)
 	if bb == nil {
-		return e.subtypeLeftVar(b.UB, a, param)
+		return e.ignoreFree || e.subtypeLeftVar(b.UB, a, param)
 	}
 	e.recordVarOccurrence(bb, param)
 	if e.loffset != 0 && !isTypeVar(a) && a != any(Bottom) && a != any(AnyType) {
@@ -655,7 +668,14 @@ func (e *stenv) varLt(b *TypeVar, a any, param int) bool {
 	if !((bb.lb == any(Bottom) && !IsType(a) && !isTypeVar(a)) || e.subtypeCcheck(bb.lb, a)) {
 		return false
 	}
-	bb.ub = simpleMeet(bb.ub, a, true)
+	if e.intersection {
+		ub := e.intersectAside(a, bb.ub, bb.depth0)
+		if ub != any(b) && (!isTypeVar(ub) || !e.reachableVar(ub, b)) {
+			bb.ub = ub
+		}
+	} else {
+		bb.ub = simpleMeet(bb.ub, a, true)
+	}
 	if at, ok := a.(*TypeVar); ok {
 		aa := e.lookup(at)
 		if aa != nil && !aa.right && inUnion(bb.lb, a) && bb.depth0 != aa.depth0 && e.varOutside(b, at) {
@@ -669,7 +689,7 @@ func (e *stenv) varLt(b *TypeVar, a any, param int) bool {
 func (e *stenv) varGt(b *TypeVar, a any, param int) bool {
 	bb := e.lookup(b)
 	if bb == nil {
-		return e.subtypeLeftVar(a, b.LB, param)
+		return e.ignoreFree || e.subtypeLeftVar(a, b.LB, param)
 	}
 	e.recordVarOccurrence(bb, param)
 	if e.loffset != 0 && !isTypeVar(a) && a != any(Bottom) && a != any(AnyType) {
@@ -684,7 +704,10 @@ func (e *stenv) varGt(b *TypeVar, a any, param int) bool {
 	if !((bb.ub == any(AnyType) && !IsType(a) && !isTypeVar(a)) || e.subtypeCcheck(a, bb.ub)) {
 		return false
 	}
-	bb.lb = simpleJoin(bb.lb, a)
+	lb := simpleJoin(bb.lb, a)
+	if !e.intersection || !isTypeVar(lb) || !e.reachableVar(lb, b) {
+		bb.lb = lb
+	}
 	if at, ok := a.(*TypeVar); ok {
 		aa := e.lookup(at)
 		if aa != nil && !aa.right && bb.depth0 != aa.depth0 && param == 2 && e.varOutside(b, at) {
@@ -696,6 +719,15 @@ func (e *stenv) varGt(b *TypeVar, a any, param int) bool {
 
 // subtypeVar is subtype_var (subtype.c:829-851).
 func (e *stenv) subtypeVar(b *TypeVar, a any, R bool, param int) bool {
+	if e.intersection {
+		bub, blb := b.UB, b.LB
+		if bb := e.lookup(b); bb != nil {
+			bub, blb = bb.ub, bb.lb
+		}
+		if bv, ok := bub.(*TypeVar); ok && bub == blb {
+			return e.subtypeVar(bv, a, R, param)
+		}
+	}
 	if ai, ok := a.(int64); ok && e.loffset != 0 {
 		oldOffset := e.loffset
 		if R {
@@ -751,7 +783,7 @@ func widenType(t any) any {
 
 // fixInferredVarBound is fix_inferred_var_bound (subtype.c:896-914).
 func fixInferredVarBound(v *TypeVar, ty any) any {
-	if ty == nil {
+	if ty == null {
 		return v
 	}
 	if !isTypeVar(ty) && HasFreeTypeVars(ty) {
@@ -815,8 +847,8 @@ func (e *stenv) unaliasUnionAll(u *UnionAll) *UnionAll {
 		aliased := b.v == u.Var ||
 			(b.lb != b.v.LB && HasTypeVar(b.lb, u.Var)) ||
 			(b.ub != b.v.UB && HasTypeVar(b.ub, u.Var))
-		if !aliased {
-			for _, iv := range b.innervars {
+		if !aliased && b.innervars != nil {
+			for _, iv := range *b.innervars {
 				if iv == u.Var {
 					aliased = true
 					break
@@ -895,7 +927,7 @@ func (e *stenv) subtypeUnionAll(t any, u *UnionAll, R bool, param int) bool {
 		default:
 			val = &TypeVar{Name: u.Var.Name, LB: vb.lb, UB: vb.ub}
 		}
-		if old := e.envout[e.envidx]; old != nil && !Egal(old, val) {
+		if old := e.envout[e.envidx]; old != null && !Egal(old, val) {
 			e.envout[e.envidx] = u.Var
 		} else {
 			e.envout[e.envidx] = val
@@ -1216,6 +1248,14 @@ func (e *stenv) subtype(x, y any, param int) bool {
 		}
 		if yvar, ok := y.(*TypeVar); ok && e.runions.depth == 0 && !HasFreeTypeVars(x) {
 			yb := e.lookup(yvar)
+			for e.intersection && yb != nil && yb.lb == yb.ub {
+				lbv, ok := yb.lb.(*TypeVar)
+				if !ok {
+					break
+				}
+				yvar = lbv
+				yb = e.lookup(yvar)
+			}
 			if yb == nil || !yb.right || !e.hasExistsTypeVar(yb.ub) {
 				return e.subtypeVar(yvar, x, true, param)
 			}
@@ -1251,6 +1291,21 @@ func (e *stenv) subtype(x, y any, param int) bool {
 			if yy != nil {
 				ylb = yy.lb
 			}
+			if e.intersection {
+				xlb, yub := xv.LB, yv.UB
+				if xx != nil {
+					xlb = xx.lb
+				}
+				if yy != nil {
+					yub = yy.ub
+				}
+				if isTypeVar(xub) && xub == xlb {
+					return e.subtype(xub, y, param)
+				}
+				if isTypeVar(yub) && yub == ylb {
+					return e.subtype(x, yub, param)
+				}
+			}
 			xr := xx != nil && xx.right
 			yr := yy != nil && yy.right
 			if xr {
@@ -1259,7 +1314,7 @@ func (e *stenv) subtype(x, y any, param int) bool {
 				}
 				if yr {
 					e.recordVarOccurrence(xx, param)
-					return e.subtype(xx.lb, yy.ub, 0)
+					return (e.intersection && e.trySubtypeByBounds(xx.lb, yy.ub)) || e.subtype(xx.lb, yy.ub, 0)
 				}
 				return e.varLt(xv, y, param)
 			} else if yr {
@@ -1276,7 +1331,7 @@ func (e *stenv) subtype(x, y any, param int) bool {
 			if xb != nil {
 				xub = xb.ub
 			}
-			if (xb == nil || !xb.right) && xub != y {
+			if ((xb == nil && !e.ignoreFree) || (xb != nil && !xb.right)) && xub != y {
 				return e.subtypeUnionAll(x, yu, true, param)
 			}
 		}
@@ -1335,7 +1390,9 @@ func (e *stenv) subtype(x, y any, param int) bool {
 			if !isTypeVar(tp0) || !IsKind(x) {
 				return false
 			}
-			return e.subtype(typeTypePrimary, y, param)
+			// jl_type_type, the UnionAll: true iff y's T has full bounds
+			// (subtype.c:1532-1537)
+			return e.subtype(TypeType, y, param)
 		}
 		for xd != AnyType && xd.Name != yd.Name {
 			if xd.Super == nil {
@@ -1510,10 +1567,15 @@ func (e *stenv) localForallExistsSubtype(x, y any, param, limitSlow int) bool {
 // equalVar is equal_var (subtype.c:1699-1733).
 func (e *stenv) equalVar(v *TypeVar, x any) bool {
 	vb := e.lookup(v)
+	if e.intersection && vb != nil && vb.lb == vb.ub {
+		if lbv, ok := vb.lb.(*TypeVar); ok {
+			return e.equalVar(lbv, x)
+		}
+	}
 	e.recordVarOccurrence(vb, 2)
 	if vb == nil {
-		return e.localForallExistsSubtype(x, v.LB, 2, boolBit(!HasFreeTypeVars(x))) &&
-			e.localForallExistsSubtype(v.UB, x, 0, 0)
+		return e.ignoreFree || (e.localForallExistsSubtype(x, v.LB, 2, boolBit(!HasFreeTypeVars(x))) &&
+			e.localForallExistsSubtype(v.UB, x, 0, 0))
 	}
 	if !vb.right {
 		return e.localForallExistsSubtype(x, vb.lb, 2, boolBit(!HasFreeTypeVars(x))) &&
@@ -1525,14 +1587,19 @@ func (e *stenv) equalVar(v *TypeVar, x any) bool {
 	if !e.subtypeCcheck(x, vb.ub) {
 		return false
 	}
-	vb.lb = simpleJoin(vb.lb, x)
+	lb := simpleJoin(vb.lb, x)
+	if !e.intersection || !isTypeVar(lb) || !e.reachableVar(lb, v) {
+		vb.lb = lb
+	}
 	if vb.ub == x {
 		return true
 	}
 	if !e.subtypeCcheck(vb.lb, x) {
 		return false
 	}
-	vb.ub = x
+	if !e.intersection || !e.reachableVar(x, v) {
+		vb.ub = x
+	}
 	return true
 }
 
@@ -1562,7 +1629,7 @@ func (e *stenv) forallExistsEqual(x, y any) bool {
 			return e.forallExistsEqual(xu.A, yu.A) && e.forallExistsEqual(xu.B, yu.B)
 		}
 	}
-	if yv, ok := y.(*TypeVar); ok && e.loffset == 0 && IsType(x) {
+	if yv, ok := y.(*TypeVar); ok && e.loffset == 0 && IsType(x) && (!e.intersection || !xuok) {
 		return e.equalVar(yv, x)
 	}
 	old := pushUnionState(&e.lunions)
@@ -2019,8 +2086,10 @@ func subtypeEnv(x, y any, env []any) bool {
 			return true
 		}
 	}
+	// unset slots are null, julia's NULL: nil is the embedder's nothing, a
+	// variable's value (Parser{nothing} binds Dates to it)
 	for i := range env {
-		env[i] = nil
+		env[i] = null
 	}
 	sub := freshForallExists(x, y, env)
 	// julia's `if (env)` loop runs envsz times; an empty env must not look

@@ -28,7 +28,34 @@ func (vm *VM) Boot() error {
 			return fmt.Errorf("boot.jl:%d: %w", line, err)
 		}
 	}
-	return vm.postBootHooks()
+	// julia's state after boot.jl: Core is the top module of every module
+	// until Base claims it, and there is no Base yet
+	vm.topModule, vm.baseModule = vm.Core, nil
+	if err := vm.postBootHooks(); err != nil {
+		return err
+	}
+	vm.setARGS()
+	return nil
+}
+
+// setARGS is jl_set_ARGS (jlapi.c:53-74), which true_main calls once the
+// runtime is up: Core.ARGS, a Vector{String} of Args.
+func (vm *VM) setARGS() {
+	elems := make([]any, len(vm.Args))
+	for i, a := range vm.Args {
+		elems[i] = a
+	}
+	vm.setCore("ARGS", vm.newVector(core.StringType, elems))
+}
+
+// newVector is a Vector{t} over elems (jl_alloc_array_1d), its memory
+// the slice itself.
+func (vm *VM) newVector(t any, elems []any) *Struct {
+	mem := &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), t, core.CPU)).(*core.DataType), Elems: elems}
+	return &Struct{Type: must(core.Apply(core.ArrayType, t, int64(1))).(*core.DataType), Fields: []any{
+		&MemoryRef{Type: must(core.Apply(core.GenericMemoryRefType, expr.Symbol("not_atomic"), t, core.CPU)).(*core.DataType), Mem: mem},
+		vm.newTuple([]any{int64(len(elems))}),
+	}}
 }
 
 // postBootHooks is post_boot_hooks (jltypes.c:3909-3968): the runtime's
@@ -59,6 +86,7 @@ func (vm *VM) postBootHooks() error {
 		{"UndefRefError", &vm.tUndefRef},
 		{"ErrorException", &vm.tError},
 		{"UndefVarError", &vm.tUndefVar},
+		{"FieldError", &vm.tFieldError},
 		{"ConcurrencyViolationError", &vm.tAtomicError},
 		{"BoundsError", &vm.tBounds},
 		{"TypeError", &vm.tTypeError},

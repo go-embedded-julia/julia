@@ -22,6 +22,9 @@ var (
 	TupleTypeName    *TypeName
 	AnyTupleType     *DataType
 	EmptyTupleType   *DataType
+	// NamedTupleType is Core.NamedTuple, NamedTupleTypeName its name
+	NamedTupleType     *UnionAll
+	NamedTupleTypeName *TypeName
 
 	NumberType, RealType, AbstractFloatType, IntegerType, SignedType, UnsignedType *DataType
 	Float16Type, Float32Type, Float64Type, BFloat16Type                            *DataType
@@ -52,13 +55,19 @@ type spec struct {
 // define creates a type from its spec and returns its wrapper.
 func define(s spec) any {
 	tn := &TypeName{Name: s.name, Module: s.module, Abstract: s.abstract, Mutable: s.mutable,
-		Singleton: s.singleton, Isbits: s.isbits}
+		Singleton: s.singleton, Isbits: s.isbits,
+		// jl_new_datatype gives an immutable type made with field types
+		// mayinlinealloc (datatype.c:954-955)
+		MayInlineAlloc: !s.abstract && !s.mutable}
 	params := make([]any, len(s.vars))
 	for i, v := range s.vars {
 		params[i] = v
 	}
 	if s.fields != nil {
 		tn.Fields = s.fields(params)
+	} else if s.singleton {
+		// a singleton has no fields (Nothing.types === svec())
+		tn.Fields = []any{}
 	}
 	dt := &DataType{Name: tn, Parameters: params, HasConcreteSubtype: true}
 	tn.Primary = dt
@@ -77,6 +86,10 @@ func define(s spec) any {
 }
 
 func tv(name string) *TypeVar { return &TypeVar{Name: name, LB: Bottom, UB: AnyType} }
+
+// noFields is the field list of a type without fields: empty, which is not
+// the absent list of a type whose fields core does not record.
+func noFields([]any) []any { return []any{} }
 
 func core0(name string, super *DataType, abstract bool) *DataType {
 	return define(spec{module: "Core", name: name, abstract: abstract, super: func([]any) any { return super }}).(*DataType)
@@ -104,6 +117,24 @@ func mustApply(tc any, params ...any) any {
 	return t
 }
 
+// layout gives a built-in type its field names and types; a mismatch is a
+// bug in this file.
+func layout(d *DataType, names []Symbol, types ...any) {
+	d.Name.FieldNames = names
+	if err := d.SetFieldTypes(types); err != nil {
+		panic(err)
+	}
+}
+
+// fieldMask is n fields with those at the indices marked.
+func fieldMask(n int, marked ...int) []bool {
+	m := make([]bool, n)
+	for _, i := range marked {
+		m[i] = true
+	}
+	return m
+}
+
 func init() {
 	anyTN := &TypeName{Name: "Any", Module: "Core", Abstract: true}
 	AnyType = &DataType{Name: anyTN, HasConcreteSubtype: true}
@@ -121,8 +152,11 @@ func init() {
 
 	DataTypeType = define(spec{module: "Core", name: "DataType", mutable: true, super: func([]any) any { return typeTypePrimary }}).(*DataType)
 	TypeNameType = define(spec{module: "Core", name: "TypeName", mutable: true}).(*DataType)
-	SymbolType = define(spec{module: "Core", name: "Symbol", mutable: true}).(*DataType)
-	SimpleVectorType = define(spec{module: "Core", name: "SimpleVector", mutable: true}).(*DataType)
+	// Symbol and String have no fields (Symbol.types === svec())
+	SymbolType = define(spec{module: "Core", name: "Symbol", mutable: true, fields: noFields}).(*DataType)
+	// no fields (jltypes.c:3071)
+	SimpleVectorType = define(spec{module: "Core", name: "SimpleVector", mutable: true,
+		fields: func([]any) []any { return []any{} }}).(*DataType)
 	NothingType = define(spec{module: "Core", name: "Nothing", singleton: true, isbits: true}).(*DataType)
 	TypeVarType = define(spec{module: "Core", name: "TypeVar", mutable: true}).(*DataType)
 	TypeofBottomType = define(spec{module: "Core", name: "TypeofBottom", singleton: true, super: func([]any) any { return typeTypePrimary }}).(*DataType)
@@ -130,7 +164,7 @@ func init() {
 	UnionType = define(spec{module: "Core", name: "Union", super: func([]any) any { return typeTypePrimary }}).(*DataType)
 	TypeofVarargType = define(spec{module: "Core", name: "TypeofVararg"}).(*DataType)
 
-	TupleTypeName = &TypeName{Name: "Tuple", Module: "Core"}
+	TupleTypeName = &TypeName{Name: "Tuple", Module: "Core", MayInlineAlloc: true}
 	AnyTupleType = &DataType{Name: TupleTypeName, Super: AnyType, Parameters: []any{&Vararg{T: AnyType}}, HasConcreteSubtype: true}
 	precomputeMemoized(AnyTupleType, false)
 	AnyTupleType.IsConcrete = false
@@ -138,7 +172,14 @@ func init() {
 	TupleTypeName.Wrapper, TupleTypeName.Primary = AnyTupleType, AnyTupleType
 
 	TypeofBottomType.Super = mustApply(TypeType, Bottom).(*DataType)
-	EmptyTupleType = instDatatypeInner(AnyTupleType, nil, nil, nil, false).(*DataType)
+	EmptyTupleType = instDatatypeInner(AnyTupleType, nil, nil, nil, false, 0).(*DataType)
+	// jltypes.c:3742-3749: NamedTuple{names, T<:Tuple}, whose instances take
+	// their fields from the parameters (namedTupleFields)
+	NamedTupleType = define(spec{module: "Core", name: "NamedTuple",
+		vars: []*TypeVar{tv("names"), {Name: "T", LB: Bottom, UB: AnyTupleType}}}).(*UnionAll)
+	NamedTupleTypeName = NamedTupleType.Body.(*UnionAll).Body.(*DataType).Name
+	// its body's parameters are free: no field types yet (namedTupleFields)
+	NamedTupleType.Body.(*UnionAll).Body.(*DataType).ntTypes = []any{}
 
 	NumberType = core0("Number", AnyType, true)
 	RealType = core0("Real", NumberType, true)
@@ -164,9 +205,11 @@ func init() {
 	Int128Type = primitive("Int128", SignedType)
 	UInt128Type = primitive("UInt128", UnsignedType)
 	AbstractStringType = core0("AbstractString", AnyType, true)
-	StringType = define(spec{module: "Core", name: "String", mutable: true, super: func([]any) any { return AbstractStringType }}).(*DataType)
+	StringType = define(spec{module: "Core", name: "String", mutable: true, fields: noFields, super: func([]any) any { return AbstractStringType }}).(*DataType)
 	FunctionType = core0("Function", AnyType, true)
-	ModuleType = define(spec{module: "Core", name: "Module", mutable: true}).(*DataType)
+	// no fields, its layout opaque (jltypes.c:3255-3257)
+	ModuleType = define(spec{module: "Core", name: "Module", mutable: true,
+		fields: func([]any) []any { return []any{} }}).(*DataType)
 	ExceptionType = core0("Exception", AnyType, true)
 
 	AbstractArrayType = define(spec{module: "Core", name: "AbstractArray", abstract: true,
@@ -213,4 +256,33 @@ func init() {
 		vars: []*TypeVar{tv("K"), tv("V")}}).(*UnionAll)
 	DictType = define(spec{module: "Base", name: "Dict", mutable: true, vars: []*TypeVar{tv("K"), tv("V")},
 		super: func(v []any) any { return mustApply(AbstractDictType, v...) }}).(*UnionAll)
+
+	// the kinds' layouts, which refer to one another: DataType
+	// (jltypes.c:2979-2996), TypeName (:3008-3030, its MethodCache field
+	// typed Any here, that type being made after core), TypeVar (:3081-3084),
+	// UnionAll (:3096-3099), Union (:3104-3107), with the field types julia
+	// sets once the types they name exist ("complete builtin type
+	// metadata", jltypes.c:3839-3855)
+	typ := typeTypePrimary.Name.Wrapper
+	layout(DataTypeType, []Symbol{"name", "super", "parameters", "types", "instance", "layout", "hash", "flags"},
+		TypeNameType, DataTypeType, SimpleVectorType, SimpleVectorType, AnyType, voidPtr, Int32Type, UInt16Type)
+	layout(TypeNameType, []Symbol{"name", "module", "singletonname", "names", "atomicfields", "constfields",
+		"wrapper", "Typeofwrapper", "cache", "linearcache", "partial", "hash", "max_args", "n_uninitialized",
+		"flags", "cache_entry_count", "max_methods", "constprop_heuristic"},
+		SymbolType, ModuleType, SymbolType, SimpleVectorType, voidPtr, voidPtr, typ,
+		typ, SimpleVectorType, AnyType, AnyType, Int64Type, Int32Type, Int32Type, UInt8Type, UInt8Type, UInt8Type, UInt8Type)
+	// typename_constfields and typename_atomicfields (jltypes.c:3014-3015)
+	TypeNameType.Name.ConstFields = fieldMask(18, 0, 1, 3, 6, 11, 13, 14)
+	TypeNameType.Name.AtomicFields = fieldMask(18, 7, 8, 9, 12, 15)
+	layout(TypeVarType, []Symbol{"name", "lb", "ub"}, SymbolType, AnyType, AnyType)
+	layout(UnionAllType, []Symbol{"var", "body"}, TypeVarType, AnyType)
+	layout(UnionType, []Symbol{"a", "b"}, AnyType, AnyType)
+	// T and N, neither of which need be set (jltypes.c:3120-3123,
+	// ninitialized 0)
+	layout(TypeofVarargType, []Symbol{"T", "N"}, AnyType, AnyType)
+	TypeofVarargType.Name.NUninitialized = 2
+	// julia clears mayinlinealloc of these by hand (jltypes.c:3102, 3110, 3126)
+	UnionAllType.Name.MayInlineAlloc = false
+	UnionType.Name.MayInlineAlloc = false
+	TypeofVarargType.Name.MayInlineAlloc = false
 }

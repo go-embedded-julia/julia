@@ -184,17 +184,24 @@ func (s *parseStream) parseErrorMessage(filename string, firstLine int) string {
 	return b.String()
 }
 
-// errorExpr is the error branch of core_parser_hook for options === :all.
-func (s *parseStream) errorExpr(filename string, firstLine int) any {
+// errorTree is the error branch of core_parser_hook (hooks.jl:182-208): the
+// stream's tree and its Expr(:error or :incomplete, ParseError), which is
+// the whole answer for options :statement and :atom.
+func (s *parseStream) errorTree(filename string, firstLine int) (*syntaxNode, *expr.Expr) {
 	posBeforeComments := s.lastNonWhitespaceByte()
-	source := s.sourceFile(filename, firstLine)
 	tree := toSyntaxNode(s.textbuf, s.buildGreen(), s.firstByte())
 	tag := incompleteTag(tree, posBeforeComments)
 	head := expr.Symbol("incomplete")
 	if tag == "none" {
 		head = "error"
 	}
-	errorEx := expr.New(head, &expr.ParseError{Msg: s.parseErrorMessage(filename, firstLine)})
+	return tree, expr.New(head, &expr.ParseError{Msg: s.parseErrorMessage(filename, firstLine)})
+}
+
+// errorExpr is the error branch of core_parser_hook for options === :all.
+func (s *parseStream) errorExpr(filename string, firstLine int) any {
+	source := s.sourceFile(filename, firstLine)
+	tree, errorEx := s.errorTree(filename, firstLine)
 	args := []any{syntaxNodeToExpr(source, s.textbuf, tree)}
 	fixupExprChildren(SyntaxHead{kNone, emptyFlags}, args)
 	topex := args[0].(*expr.Expr) // the toplevel node parse_toplevel always emits

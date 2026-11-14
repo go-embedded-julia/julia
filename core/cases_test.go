@@ -58,6 +58,9 @@ func names() map[expr.Symbol]any {
 type typeEval struct {
 	names map[expr.Symbol]any
 	vars  map[expr.Symbol]*TypeVar
+	// nfresh numbers the variables of X{<:T}, each name distinct as
+	// julia's #s names are
+	nfresh int
 }
 
 func (ev *typeEval) eval(v any) (res any, err error) {
@@ -107,7 +110,8 @@ func (ev *typeEval) curly(x *expr.Expr) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			v := &TypeVar{Name: fmt.Sprintf("#%d", len(fresh)), LB: Bottom, UB: AnyType}
+			v := &TypeVar{Name: fmt.Sprintf("#%d", ev.nfresh), LB: Bottom, UB: AnyType}
+			ev.nfresh++
 			if e.Head == "<:" {
 				v.UB = b
 			} else {

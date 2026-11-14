@@ -34,6 +34,20 @@ func TestWorldAges(t *testing.T) {
 	}
 }
 
+// A disabled method is visible up to the world it was disabled in, and
+// only once disabled.
+func TestDisable(t *testing.T) {
+	tab := &Table{Name: "f"}
+	m, _ := tab.Add(mustApply(t, core.AnyTupleType, core.Int64Type))
+	w := tab.World()
+	if !tab.Disable(m, w) || tab.Disable(m, w) {
+		t.Fatal("Disable")
+	}
+	if len(tab.Methods(w)) != 1 || len(tab.Methods(w+1)) != 0 {
+		t.Error("visibility of a disabled method")
+	}
+}
+
 // Define takes the world from the caller's global counter and carries the
 // body; a world that is not newer than the table's is refused.
 func TestDefineInAGlobalWorld(t *testing.T) {
@@ -60,17 +74,28 @@ func TestStaticParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 	call := mustApply(t, core.AnyTupleType, mustApply(t, core.ArrayType, core.Int64Type, int64(1)), core.Int64Type)
-	_, env, err := tab.Lookup(call, tab.World())
+	m, env, err := tab.Lookup(call, tab.World())
 	if err != nil || len(env) != 1 || env[0] != any(core.Int64Type) {
 		t.Fatalf("sparams %v, %v; want [Int64]", env, err)
+	}
+	// Env: a method's parameters for another tuple, false outside its
+	// signature (what invoke asks once it has chosen by a declared tuple)
+	call8 := mustApply(t, core.AnyTupleType, mustApply(t, core.ArrayType, core.Int8Type, int64(1)), core.Int8Type)
+	if env, ok, err := m.Env(call8); err != nil || !ok || env[0] != any(core.Int8Type) {
+		t.Errorf("Env: %v, %v, %v; want [Int8]", env, ok, err)
+	}
+	if _, ok, err := m.Env(mustApply(t, core.AnyTupleType, core.Int8Type)); err != nil || ok {
+		t.Errorf("Env outside the signature: %v, %v", ok, err)
 	}
 }
 
 // The work bound of a subtyping query reaches Lookup as an error, never a
 // panic, wherever it strikes: raising it step by step from 1 makes each
 // call of core inside Lookup the one that fails, until the lookup succeeds.
+// A table whose typemap failed to build stays failed (sync), so each bound
+// gets a new table.
 func TestWorkBoundIsAnError(t *testing.T) {
-	tab := &Table{Name: "f"}
+	var tab *Table
 	T := &core.TypeVar{Name: "T", LB: core.Bottom, UB: core.AnyType}
 	// signatures with unions on both sides of their mutual comparison, so
 	// that specificity needs more steps than matching the call: some bound
@@ -80,15 +105,22 @@ func TestWorkBoundIsAnError(t *testing.T) {
 	u := func(v *core.TypeVar, arr any) any {
 		return core.TypeUnion(arr, mustApply(t, core.RefType, v), mustApply(t, core.PairType, v, v))
 	}
-	tab.Add(core.TypeUnionAll(T, mustApply(t, core.AnyTupleType,
-		u(T, mustApply(t, core.ArrayType, T, int64(1))), core.TypeUnion(T, core.NothingType))))
-	tab.Add(core.TypeUnionAll(S, mustApply(t, core.AnyTupleType,
-		u(S, mustApply(t, core.AbstractArrayType, S, int64(1))), core.TypeUnion(S, core.NothingType))))
+	sig1 := core.TypeUnionAll(T, mustApply(t, core.AnyTupleType,
+		u(T, mustApply(t, core.ArrayType, T, int64(1))), core.TypeUnion(T, core.NothingType)))
+	sig2 := core.TypeUnionAll(S, mustApply(t, core.AnyTupleType,
+		u(S, mustApply(t, core.AbstractArrayType, S, int64(1))), core.TypeUnion(S, core.NothingType)))
+	fresh := func() {
+		tab = &Table{Name: "f"}
+		tab.Add(sig1)
+		tab.Add(sig2)
+	}
 	call := mustApply(t, core.AnyTupleType, vecInt, core.Int64Type)
 	saved := core.SetMaxSubtypeSteps(1)
 	defer core.SetMaxSubtypeSteps(saved)
 	failures := 0
 	for n := 1; n < 1000; n++ {
+		core.SetMaxSubtypeSteps(saved)
+		fresh()
 		core.SetMaxSubtypeSteps(n)
 		_, _, err := tab.Lookup(call, tab.World())
 		if err == nil {
@@ -99,12 +131,54 @@ func TestWorkBoundIsAnError(t *testing.T) {
 		}
 		failures++
 	}
+	// the scan, which names a failed lookup's error, fails alike
+	scanFailures := 0
+	for n := 1; n < 1000; n++ {
+		core.SetMaxSubtypeSteps(saved)
+		fresh()
+		core.SetMaxSubtypeSteps(n)
+		_, _, err := tab.lookup(call, tab.World())
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "exceeded") {
+			t.Fatalf("scan, bound %d: %v; want the work-bound error", n, err)
+		}
+		scanFailures++
+	}
 	core.SetMaxSubtypeSteps(saved)
+	fresh()
+	if scanFailures == 0 {
+		t.Fatal("no bound made the scan fail")
+	}
 	if failures == 0 {
 		t.Fatal("no bound made the lookup fail: the test did not exercise the error paths")
 	}
 	if _, _, err := tab.Lookup(call, tab.World()); err != nil {
 		t.Fatalf("under the real bound: %v", err)
+	}
+}
+
+// The work bound striking while a definition looks for the method it
+// replaces is an error, and the table keeps its world and methods.
+func TestWorkBoundInDefine(t *testing.T) {
+	tab := &Table{Name: "f"}
+	// Tuple{T} where T and Tuple{Any}: equal types that only subtyping
+	// tells equal
+	T := &core.TypeVar{Name: "T", LB: core.Bottom, UB: core.AnyType}
+	if _, err := tab.Add(core.TypeUnionAll(T, mustApply(t, core.AnyTupleType, T))); err != nil {
+		t.Fatal(err)
+	}
+	w := tab.World()
+	again := mustApply(t, core.AnyTupleType, core.AnyType)
+	saved := core.SetMaxSubtypeSteps(1)
+	_, err := tab.Add(again)
+	core.SetMaxSubtypeSteps(saved)
+	if err == nil || !strings.Contains(err.Error(), "exceeded") {
+		t.Fatalf("%v; want the work-bound error", err)
+	}
+	if tab.World() != w || len(tab.methods) != 1 || tab.methods[0].MaxWorld != ^uint64(0) {
+		t.Fatalf("the table changed: world %d, %d methods", tab.World(), len(tab.methods))
 	}
 }
 

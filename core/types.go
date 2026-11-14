@@ -14,6 +14,7 @@ package core
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-embedded-julia/julia/expr"
 )
@@ -21,10 +22,13 @@ import (
 // TypeName is the part of a DataType shared by all its instances
 // (jl_typename_t, julia.h:521-547).
 type TypeName struct {
-	Name     string
-	Module   string
-	Abstract bool
-	Mutable  bool
+	Name   string
+	Module string
+	// ModuleRef is the module the runtime defined the type in, opaque to
+	// core; nil for the types core makes itself, which name theirs
+	ModuleRef any
+	Abstract  bool
+	Mutable   bool
 	// Wrapper is the UnionAll over all parameters, or the DataType itself
 	// when it has none (Vector's wrapper is Array{T,1} where T, not Array).
 	Wrapper any
@@ -46,6 +50,28 @@ type TypeName struct {
 	FieldNames []Symbol
 	// Bits is the size of a primitive type in bits, 0 for any other type.
 	Bits int
+	// AtomicFields and ConstFields mark a mutable struct's @atomic and
+	// const fields by index (jl_typename_t.atomicfields, .constfields), nil
+	// when none is.
+	AtomicFields, ConstFields []bool
+	// NUninitialized is how many trailing fields `new` may leave undefined
+	// (jl_typename_t.n_uninitialized): the field count less the
+	// constructor's minimum (datatype.c:898).
+	NUninitialized int32
+	// MayInlineAlloc is jl_typename_t.mayinlinealloc (julia.h:542): an
+	// immutable type whose instances may be stored inline in another's
+	// layout. A type gets it when it is made with field types
+	// (datatype.c:954-955), and _typebody! decides it for the rest, clearing
+	// it for a type that can reference itself (builtins.c:2254-2269); julia
+	// clears it by hand for UnionAll, Union, TypeofVararg, GlobalRef and
+	// DebugInfo (jltypes.c:3102, 3110, 3126, 3289, 3481).
+	MayInlineAlloc bool
+
+	// MaxArgs, CacheEntryCount, MaxMethods and ConstpropHeuristic are the
+	// hints of jl_typename_t that Julia code sets and type inference reads
+	// (an Int32 and three UInt8s), 0 when made (datatype.c:92-95).
+	MaxArgs                                         atomic.Int32
+	CacheEntryCount, MaxMethods, ConstpropHeuristic atomic.Uint32
 
 	// typeofWrapper is Type{Wrapper}, cached on the name
 	// (jltypes.c:1115-1120).
@@ -74,7 +100,32 @@ type DataType struct {
 	IsDispatchTuple     bool
 	HasConcreteSubtype  bool
 	MaybeSubtypeOfCache bool
+
+	// ntNames and ntTypes are a NamedTuple instance's field names and types,
+	// from its parameters (jltypes.c:2327-2373); nil for any other type.
+	ntNames []Symbol
+	ntTypes []any
+
+	// instance is the type's instance (jl_datatype_t.instance) once the
+	// interpreter has worked it out (CachedInstance); core only carries it.
+	// Atomic: types are shared by every VM of the process.
+	instance atomic.Pointer[instanceBox]
 }
+
+type instanceBox struct{ v any }
+
+// CachedInstance is the instance SetCachedInstance recorded, and whether
+// one was: a recorded nil is the instance nothing.
+func (d *DataType) CachedInstance() (any, bool) {
+	if b := d.instance.Load(); b != nil {
+		return b.v, true
+	}
+	return nil, false
+}
+
+// SetCachedInstance records v as d's instance; a type has one, so every
+// caller records the same.
+func (d *DataType) SetCachedInstance(v any) { d.instance.Store(&instanceBox{v}) }
 
 // Union is Union{A, B} (jl_uniontype_t).
 type Union struct{ A, B any }
@@ -233,10 +284,52 @@ func TypeOf(v any) any {
 		return SymbolType
 	case *Instance:
 		return x.Type
+	case *Tuple:
+		return x.Type
 	case ModuleValue:
 		return ModuleType
+	case nil:
+		return NothingType
+	case int8:
+		return Int8Type
+	case int16:
+		return Int16Type
+	case int32:
+		return Int32Type
+	case uint8:
+		return UInt8Type
+	case uint16:
+		return UInt16Type
+	case uint32:
+		return UInt32Type
+	case uint64:
+		return UInt64Type
+	case float32:
+		return Float32Type
+	case float64:
+		return Float64Type
+	case expr.Char:
+		return CharType
+	case string:
+		return StringType
+	case Typed:
+		return x.JuliaType()
 	}
 	return nil
+}
+
+// Typed is a value of the runtime that knows its Julia type: a struct, a
+// pointer, a primitive value with no Go type of its own. jl_valid_type_param
+// asks a type parameter's type whether it is isbits (builtins.c:1543), and
+// T{x} takes any isbits x: nothing, 1.5, a Float16, an isbits struct.
+type Typed interface{ JuliaType() any }
+
+// Tuple is a tuple value: its type, a concrete Tuple type, and its
+// elements. The interpreter's tuples are these; a tuple of symbols and
+// isbits values is a valid type parameter (NamedTuple{(:a, :b)}).
+type Tuple struct {
+	Type  *DataType
+	Elems []any
 }
 
 // Instance is a constant of a user-visible isbits or singleton type, as it

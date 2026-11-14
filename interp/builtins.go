@@ -1,7 +1,10 @@
 package interp
 
 import (
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -30,11 +33,22 @@ func (vm *VM) bootBuiltins() {
 		"apply_type":       biApplyType,
 		"_expr":            biExpr,
 		"setfield!":        biSetfield,
+		"swapfield!":       biSwapfield,
+		"modifyfield!":     biModifyfield,
+		"replacefield!":    biReplacefield,
+		"setfieldonce!":    biSetfieldonce,
+		"swapglobal!":      biSwapglobal,
+		"modifyglobal!":    biModifyglobal,
+		"replaceglobal!":   biReplaceglobal,
+		"setglobalonce!":   biSetglobalonce,
 		"invokelatest":     biInvokelatest,
 		"invoke_in_world":  biInvokeInWorld,
+		"sizeof":           biSizeof,
 	} {
 		t := mustType("Core", "#"+string(name), vm.builtinType, false, nil, nil)
-		vm.setCore(name, &Builtin{Name: name, Type: t, Fn: fn})
+		b := &Builtin{Name: name, Type: t, Fn: fn}
+		vm.singletons[t] = b // typeof(b).instance
+		vm.setCore(name, b)
 	}
 }
 
@@ -90,11 +104,15 @@ func (vm *VM) egal(a, b any) bool {
 		// immutable: the same memory at the same element
 		y, ok := b.(*MemoryRef)
 		return ok && x.Type == y.Type && x.Mem == y.Mem && x.Off == y.Off
-	case *Function, *Builtin, *Intrinsic, *Module, *Memory:
+	case *Pointer:
+		// bits: the same target at the same offset
+		y, ok := b.(*Pointer)
+		return ok && x.Type == y.Type && x.Target == y.Target && x.Off == y.Off
+	case *Function, *Builtin, *Intrinsic, *Module, *Memory, PrimValue:
 		return a == b
 	}
 	switch b.(type) {
-	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef:
+	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, *Pointer, PrimValue:
 		return false
 	}
 	return core.Egal(a, b)
@@ -118,9 +136,11 @@ func biTypeof(vm *VM, args []any) (any, error) {
 // type, with core.Isa for what core models itself.
 func (vm *VM) isa(v, t any) bool {
 	switch v.(type) {
-	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, nil, string,
-		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char,
-		*expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
+	case *Tuple, *Struct, SVec, *Function, *Builtin, *Intrinsic, *Module, *Memory, *MemoryRef, *Pointer, nil, string,
+		int8, int16, int32, uint8, uint16, uint32, uint64, float32, float64, expr.Char, Int128, UInt128,
+		Float16, BFloat16, *expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef,
+		expr.SSAValue, expr.SlotNumber, expr.Argument, expr.GotoNode, expr.GotoIfNot, expr.ReturnNode,
+		expr.Unreachable, expr.NewvarNode, expr.EnterNode, *expr.CodeInfo, *Binding, PrimValue:
 		return core.Subtype(vm.typeOf(v), t)
 	}
 	return core.Isa(v, t)
@@ -248,6 +268,70 @@ func (vm *VM) argTupleType(args []any) *core.DataType {
 	return t.(*core.DataType)
 }
 
+// demangleTypename is jl_demangle_typename (datatype.c:23-40), a type
+// name's singletonname: f of #f or #f#3; a closure's name, #3 or #f##1,
+// kept with its # and cut before the # that follows (#f##1#2 is #f##1).
+func demangleTypename(n string) string {
+	if n == "" || n[0] != '#' {
+		return n
+	}
+	// C reads NUL past the end
+	at := func(i int) byte {
+		if i < len(n) {
+			return n[i]
+		}
+		return 0
+	}
+	// strchr from i, -1 for NULL
+	hashFrom := func(i int) int {
+		if i >= len(n) {
+			return -1
+		}
+		if j := strings.IndexByte(n[i:], '#'); j >= 0 {
+			return i + j
+		}
+		return -1
+	}
+	end := hashFrom(1)
+	// #f...##...#...
+	if end >= 0 && at(end+1) == '#' {
+		end = hashFrom(end + 2)
+	}
+	var size int
+	if end < 0 || end == 1 {
+		size = len(n) - 1
+	} else {
+		size = end - 1
+	}
+	if isDigit(at(1)) || isCanonicalizedAnonfn(n) {
+		return n[:size+1]
+	}
+	return n[1 : 1+size]
+}
+
+func isDigit(c byte) bool { return '0' <= c && c <= '9' }
+
+// isCanonicalizedAnonfn is is_canonicalized_anonfn_typename
+// (julia_internal.h:1114-1124): #f##1..., a closure's canonical name.
+func isCanonicalizedAnonfn(n string) bool {
+	i := strings.IndexByte(n[1:], '#')
+	if i < 0 {
+		return false
+	}
+	d := n[1+i:]
+	return len(d) > 2 && d[1] == '#' && isDigit(d[2])
+}
+
+// noFieldError is jl_field_index with err=1 (datatype.c:1781):
+// jl_has_no_field_error (rtutils.c:169-172) once post_boot_hooks has found
+// FieldError, its message before.
+func (vm *VM) noFieldError(st *core.DataType, name expr.Symbol) error {
+	if vm.tFieldError == nil {
+		return vm.errorf("type %s has no field %s", st.Name.Name, name)
+	}
+	return vm.exception(vm.tFieldError, st, name)
+}
+
 func biSvec(vm *VM, args []any) (any, error) { return SVec(append([]any(nil), args...)), nil }
 
 // fieldIndex is get_checked_fieldindex (builtins.c:994-1021) for reads.
@@ -264,8 +348,7 @@ func (vm *VM) fieldIndex(fname expr.Symbol, st *core.DataType, names []expr.Symb
 				return i, nil
 			}
 		}
-		// jl_field_index with err=1 (datatype.c)
-		return 0, vm.errorf("type %s has no field %s", st.Name.Name, a)
+		return 0, vm.noFieldError(st, a)
 	}
 	return 0, vm.typeError(fname, "", core.TypeUnion(core.Int64Type, core.SymbolType), arg)
 }
@@ -300,8 +383,20 @@ func (vm *VM) astField(v, arg any) (any, error) {
 			return x.File, true
 		}
 	case expr.GlobalRef:
+		// mod and binding as jl_module_globalref makes them (module.c)
 		names = []expr.Symbol{"mod", "name", "binding"}
-		get = func(i int) (any, bool) { return x.Name, i == 1 }
+		get = func(i int) (any, bool) {
+			m := vm.refModule(nil, x)
+			switch {
+			case i == 1:
+				return x.Name, true
+			case m == nil:
+				return nil, false
+			case i == 0:
+				return m, true
+			}
+			return vm.moduleBinding(m, x.Name, true), true
+		}
 	}
 	return vm.goField(v, t, names, get, arg)
 }
@@ -311,6 +406,28 @@ func (vm *VM) astField(v, arg any) (any, error) {
 // TypeVar :3081-3084, UnionAll :3096-3099, Union :3104-3107, and Vararg
 // (T, N). The fields of runtime bookkeeping (layout, hash, flags, caches)
 // have no value here.
+// fieldMaskPtr is a TypeName's atomicfields or constfields: C_NULL when no
+// field is marked, else a pointer to the UInt32 words of the bit mask,
+// field i in bit i%32 of word i÷32 (jltypes.c:3014, runtime_internals.jl:
+// 450-477 read it so).
+func (vm *VM) fieldMaskPtr(mask []bool) *Pointer {
+	voidp := vm.ptrType(core.NothingType)
+	if !slices.Contains(mask, true) {
+		return &Pointer{Type: voidp}
+	}
+	words := make([]any, (len(mask)+31)/32)
+	for i := range words {
+		words[i] = uint32(0)
+	}
+	for i, on := range mask {
+		if on {
+			words[i/32] = words[i/32].(uint32) | 1<<(i%32)
+		}
+	}
+	mt := must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), core.UInt32Type, core.CPU)).(*core.DataType)
+	return &Pointer{Type: voidp, Target: &Memory{Type: mt, Elems: words}}
+}
+
 func (vm *VM) kindField(v, arg any) (any, error) {
 	t := vm.typeOf(v).(*core.DataType)
 	var names []expr.Symbol
@@ -335,7 +452,13 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 				if x.Name.Abstract || x.Name.Bits > 0 {
 					return SVec{}, true
 				}
-				return nil, true
+				return undef, true
+			case 4:
+				return vm.typeInstance(x), true
+			case 5:
+				return vm.typeLayoutPtr(x), true
+			case 7:
+				return dataTypeFlags(x), true
 			}
 			return nil, false
 		}
@@ -347,14 +470,36 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 			switch i {
 			case 0:
 				return expr.Symbol(x.Name), true
+			case 1:
+				// the defining module; core's own types name Core
+				m := vm.typeNameModule(x)
+				return m, m != nil
+			case 2:
+				return expr.Symbol(demangleTypename(string(x.Name))), true
 			case 3:
 				fs := make(SVec, len(x.FieldNames))
 				for j, n := range x.FieldNames {
 					fs[j] = n
 				}
 				return fs, true
+			case 4:
+				return vm.fieldMaskPtr(x.AtomicFields), true
+			case 5:
+				return vm.fieldMaskPtr(x.ConstFields), true
 			case 6:
 				return x.Wrapper, true
+			case 14:
+				return typeNameFlags(x), true
+			case 12:
+				return x.MaxArgs.Load(), true
+			case 13:
+				return x.NUninitialized, true
+			case 15:
+				return uint8(x.CacheEntryCount.Load()), true
+			case 16:
+				return uint8(x.MaxMethods.Load()), true
+			case 17:
+				return uint8(x.ConstpropHeuristic.Load()), true
 			}
 			return nil, false
 		}
@@ -370,10 +515,15 @@ func (vm *VM) kindField(v, arg any) (any, error) {
 	case *core.Vararg:
 		// an absent T or N is undefined, as jl_vararg_t leaves it NULL
 		names = []expr.Symbol{"T", "N"}
-		get = func(i int) (any, bool) { return []any{x.T, x.N}[i], true }
+		get = func(i int) (any, bool) {
+			if f := []any{x.T, x.N}[i]; f != nil {
+				return f, true
+			}
+			return undef, true
+		}
 	}
 	f, err := vm.goField(v, t, names, get, arg)
-	if err == nil && f == nil {
+	if err == nil && f == undef {
 		return nil, vm.exception(vm.tUndefRef)
 	}
 	return f, err
@@ -394,10 +544,113 @@ func (vm *VM) goField(v any, t *core.DataType, names []expr.Symbol, get func(int
 	return f, nil
 }
 
+// atomicOrder is jl_get_atomic_order_checked (builtins.c:967-992) of a
+// Symbol argument, typechecked as fname's.
+func (vm *VM) atomicOrder(fname expr.Symbol, arg any, loading, storing bool) (expr.Symbol, error) {
+	o, ok := arg.(expr.Symbol)
+	if err := vm.typechk(fname, core.SymbolType, arg, ok); err != nil {
+		return "", err
+	}
+	if o != "not_atomic" && !validAtomicOrder(o, loading, storing) {
+		return "", vm.atomicError("invalid atomic ordering")
+	}
+	return o, nil
+}
+
+// biGetfield is jl_f_getfield (builtins.c:1023-1055): the order, then the
+// field, then whether the order suits the field. A struct's field without
+// an order, the common case, takes the short path: any field suits no order.
 func biGetfield(vm *VM, args []any) (any, error) {
+	if len(args) == 2 {
+		if v, ok := args[0].(*Struct); ok {
+			i, err := vm.fieldIndex("getfield", v.Type, v.Type.FieldNames(), len(v.Fields), v, args[1])
+			if err != nil {
+				return nil, err
+			}
+			if v.Fields[i] == undef {
+				return nil, vm.exception(vm.tUndefRef)
+			}
+			return v.Fields[i], nil
+		}
+	}
+	return vm.getfieldOrdered(args)
+}
+
+func (vm *VM) getfieldOrdered(args []any) (any, error) {
 	if err := vm.nargs("getfield", args, 2, 4); err != nil {
 		return nil, err
 	}
+	order := expr.Symbol("unspecified")
+	if len(args) == 4 || len(args) == 3 && !isBool(args[2]) {
+		_, ok := args[2].(expr.Symbol)
+		if err := vm.typechk("getfield", core.SymbolType, args[2], ok); err != nil {
+			return nil, err
+		}
+		if len(args) == 4 {
+			_, ok := args[3].(bool)
+			if err := vm.typechk("getfield", core.BoolType, args[3], ok); err != nil {
+				return nil, err
+			}
+		}
+		var err error
+		if order, err = vm.atomicOrder("getfield", args[2], true, false); err != nil {
+			return nil, err
+		}
+	}
+	if v, ok := args[0].(*Struct); ok {
+		i, err := vm.fieldIndex("getfield", v.Type, v.Type.FieldNames(), len(v.Fields), v, args[1])
+		if err != nil {
+			return nil, err
+		}
+		if err := vm.getfieldOrder(order, fieldMarked(v.Type.Name.AtomicFields, i)); err != nil {
+			return nil, err
+		}
+		if v.Fields[i] == undef {
+			return nil, vm.exception(vm.tUndefRef)
+		}
+		return v.Fields[i], nil
+	}
+	f, err := vm.getfieldOf(args)
+	if err != nil || order == "unspecified" {
+		return f, err
+	}
+	if _, isMod := args[0].(*Module); isMod {
+		return f, nil // the order is ignored (builtins.c:1040-1041)
+	}
+	// the field's atomicity is its type's (a TypeName's cache, a Binding's
+	// partitions), whatever Go value holds the object
+	isatomic := false
+	if dt, ok := vm.typeOf(args[0]).(*core.DataType); ok && dt.Name.AtomicFields != nil {
+		names := dt.FieldNames()
+		i, _ := vm.fieldIndex("getfield", dt, names, len(names), args[0], args[1])
+		isatomic = fieldMarked(dt.Name.AtomicFields, i)
+	}
+	if err := vm.getfieldOrder(order, isatomic); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// getfieldOrder is whether getfield's order suits the field
+// (builtins.c:1044-1048); an unspecified order suits any.
+func (vm *VM) getfieldOrder(order expr.Symbol, isatomic bool) error {
+	switch {
+	case order == "unspecified":
+	case !isatomic && order != "not_atomic":
+		return vm.atomicError("getfield: non-atomic field cannot be accessed atomically")
+	case isatomic && order == "not_atomic":
+		return vm.atomicError("getfield: atomic field cannot be accessed non-atomically")
+	}
+	return nil
+}
+
+func isBool(v any) bool {
+	_, ok := v.(bool)
+	return ok
+}
+
+// getfieldOf is getfield of a value other than a Struct.
+func (vm *VM) getfieldOf(args []any) (any, error) {
 	switch v := args[0].(type) {
 	case *Module:
 		return biGetglobal(vm, args[:2])
@@ -407,28 +660,30 @@ func biGetfield(vm *VM, args []any) (any, error) {
 			return nil, err
 		}
 		return v.Elems[i], nil
-	case *Struct:
-		i, err := vm.fieldIndex("getfield", v.Type, v.Type.Name.FieldNames, len(v.Fields), v, args[1])
-		if err != nil {
-			return nil, err
-		}
-		if v.Fields[i] == undef {
-			return nil, vm.exception(vm.tUndefRef)
-		}
-		return v.Fields[i], nil
 	case *expr.Expr, expr.QuoteNode, expr.LineNumberNode, expr.GlobalRef:
 		return vm.astField(v, args[1])
+	case expr.SSAValue, expr.SlotNumber, expr.Argument, expr.GotoNode, expr.GotoIfNot,
+		expr.ReturnNode, expr.Unreachable, expr.NewvarNode, expr.EnterNode:
+		return vm.irNodeField(v, args[1])
+	case *Binding:
+		return vm.bindingField(v, args[1])
 	case *core.DataType, *core.TypeName, *core.TypeVar, *core.UnionAll, *core.Union, *core.Vararg:
 		return vm.kindField(v, args[1])
 	case *Memory:
 		// (length, ptr) (jltypes.c:3328-3329); a pointer has no value here
 		return vm.goField(v, v.Type, []expr.Symbol{"length", "ptr"}, func(i int) (any, bool) {
-			return int64(len(v.Elems)), i == 0
+			if i == 1 {
+				return vm.memPtr(v), true
+			}
+			return int64(len(v.Elems)), true
 		}, args[1])
 	case *MemoryRef:
 		// (ptr_or_offset, mem) (jltypes.c:3340-3341)
 		return vm.goField(v, v.Type, []expr.Symbol{"ptr_or_offset", "mem"}, func(i int) (any, bool) {
-			return v.Mem, i == 1
+			if i == 0 {
+				return vm.refPtrOrOffset(v), true
+			}
+			return v.Mem, true
 		}, args[1])
 	}
 	// a value without fields (an Int, a Symbol …): every index is out of
@@ -438,43 +693,85 @@ func biGetfield(vm *VM, args []any) (any, error) {
 }
 
 // biSetfield is jl_f_setfield (builtins.c:1057-1079) over
-// get_checked_fieldindex with mutabl set (:994-1021). No field is atomic
-// yet, so only the non-atomic order is accepted.
+// get_checked_fieldindex with mutabl set (:994-1021): the order, the
+// value's mutability, the field, its constness, then whether the order
+// suits it. A mutable struct without const or atomic fields, written
+// without an order, the common case, takes the short path.
 func biSetfield(vm *VM, args []any) (any, error) {
+	if len(args) == 3 {
+		if v, ok := args[0].(*Struct); ok && v.Type.Name.Mutable && v.Type.Name.ConstFields == nil && v.Type.Name.AtomicFields == nil {
+			i, err := vm.fieldIndex("setfield!", v.Type, v.Type.FieldNames(), len(v.Fields), v, args[1])
+			if err != nil {
+				return nil, err
+			}
+			return vm.setStructField(v, i, args[2])
+		}
+	}
+	return vm.setfieldChecked(args)
+}
+
+// setStructField stores v in field i of a mutable struct, of the field's
+// type.
+func (vm *VM) setStructField(s *Struct, i int, v any) (any, error) {
+	if ft, _ := s.Type.FieldTypes(); ft != nil && !vm.isa(v, ft[i]) {
+		return nil, vm.typeError("setfield!", "", ft[i], v)
+	}
+	s.Fields[i] = v
+	syncArgs(s) // an Expr's args vector: the Expr follows it
+	return v, nil
+}
+
+func (vm *VM) setfieldChecked(args []any) (any, error) {
 	if err := vm.nargs("setfield!", args, 3, 4); err != nil {
 		return nil, err
 	}
+	order := expr.Symbol("not_atomic")
 	if len(args) == 4 {
-		order, ok := args[3].(expr.Symbol)
-		if err := vm.typechk("setfield!", core.SymbolType, args[3], ok); err != nil {
+		var err error
+		if order, err = vm.atomicOrder("setfield!", args[3], false, true); err != nil {
 			return nil, err
 		}
-		if order != "not_atomic" {
-			return nil, fmt.Errorf("%w: setfield! with the atomic order %s", ErrUnsupported, order)
-		}
+	}
+	t, i, err := vm.writableField("setfield!", args[0], args[1])
+	if err != nil {
+		return nil, err
+	}
+	if err := vm.fieldOrderSuits("setfield!", t, i, order, "written"); err != nil {
+		return nil, err
 	}
 	switch v := args[0].(type) {
-	case *Module:
-		return nil, vm.errorf("cannot assign variables in other modules")
 	case *Struct:
-		if !v.Type.Name.Mutable {
-			return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", v.Type.Name.Name)
-		}
-		i, err := vm.fieldIndex("setfield!", v.Type, v.Type.Name.FieldNames, len(v.Fields), v, args[1])
-		if err != nil {
-			return nil, err
-		}
-		if ft, _ := v.Type.FieldTypes(); ft != nil && !vm.isa(args[2], ft[i]) {
-			return nil, vm.typeError("setfield!", "", ft[i], args[2])
-		}
-		v.Fields[i] = args[2]
-		syncArgs(v) // an Expr's args vector: the Expr follows it
-		return args[2], nil
+		return vm.setStructField(v, i, args[2])
 	case *expr.Expr:
-		return vm.setExprField(v, args[1], args[2])
+		return vm.setExprField(v, i, args[2])
+	case *core.TypeName:
+		// the hints that steer inference and method caches, of their C
+		// types
+		n, isByte := args[2].(uint8)
+		switch t.FieldNames()[i] {
+		case "max_args":
+			if a, ok := args[2].(int32); ok {
+				v.MaxArgs.Store(a)
+				return args[2], nil
+			}
+		case "cache_entry_count":
+			if isByte {
+				v.CacheEntryCount.Store(uint32(n))
+				return args[2], nil
+			}
+		case "max_methods":
+			if isByte {
+				v.MaxMethods.Store(uint32(n))
+				return args[2], nil
+			}
+		case "constprop_heuristic":
+			if isByte {
+				v.ConstpropHeuristic.Store(uint32(n))
+				return args[2], nil
+			}
+		}
 	}
-	t := vm.typeOf(args[0]).(*core.DataType)
-	return nil, vm.errorf("setfield!: immutable struct of type %s cannot be changed", t.Name.Name)
+	return nil, fmt.Errorf("%w: setfield! of a %s's %s", ErrUnsupported, t.Name.Name, t.FieldNames()[i])
 }
 
 func biNfields(vm *VM, args []any) (any, error) {
@@ -517,7 +814,7 @@ func biSetglobal(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("setglobal!", args, 3, 4); err != nil {
 		return nil, err
 	}
-	m, s, err := vm.moduleSymbol("setglobal!", args)
+	m, s, err := vm.globalOp("setglobal!", args, 3, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -551,8 +848,12 @@ func biGetBindingType(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("get_binding_type", args, 2, 2); err != nil {
 		return nil, err
 	}
-	if _, _, err := vm.moduleSymbol("get_binding_type", args); err != nil {
+	m, name, err := vm.moduleSymbol("get_binding_type", args)
+	if err != nil {
 		return nil, err
+	}
+	if b := m.own(name); b != nil && b.Type != nil {
+		return b.Type, nil
 	}
 	return core.AnyType, nil
 }
@@ -563,7 +864,17 @@ func biApplyType(vm *VM, args []any) (any, error) {
 	}
 	t, err := core.ApplyType(args[0], args[1:]...)
 	if err != nil {
-		return nil, vm.errorf("%s", err.Error())
+		return nil, vm.coreError(err)
 	}
 	return t, nil
+}
+
+// coreError is an error building a type, as julia raises it: a TypeError
+// (jl_type_error_rt) or an ErrorException of the message.
+func (vm *VM) coreError(err error) error {
+	var te *core.TypeError
+	if errors.As(err, &te) {
+		return vm.typeError(expr.Symbol(te.Func), te.Context, te.Expected, te.Got)
+	}
+	return vm.errorf("%s", err.Error())
 }

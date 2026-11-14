@@ -69,6 +69,7 @@ type (
 	sLatestWorld struct{}
 	sToplevel    struct{ e *expr.Expr } // import, using, export, module …: toplevel.go
 	sNop         struct{}               // line numbers and module-level :meta at top level
+	sMeta        struct{ args []any }   // a statement's :meta, the module's options (modopts.go)
 	sRaise       struct{ msg string }   // a statement julia rejects when it is reached
 )
 
@@ -85,10 +86,12 @@ type (
 	oGlobal struct {
 		mod  expr.Symbol
 		name expr.Symbol
+		obj  any // the module object, when the reference is bound to one
 	}
 	oSymbol          struct{ name expr.Symbol } // a bare global of the frame's module
 	oCall            struct{ args []op }
 	oNew             struct{ args []op }
+	oSplatnew        struct{ args []op }
 	oIsdefSlot       struct{ i int }
 	oIsdefSparam     struct{ n int }
 	oThrowUndefIfNot struct {
@@ -100,6 +103,7 @@ type (
 	oCopyast      struct{ v op }
 	oMethodDecl   struct {
 		mod  expr.Symbol // "" for the frame's module
+		obj  any         // the module object, when the reference is bound to one
 		name any
 	}
 	oRaise       struct{ msg string }  // jl_error when evaluated
@@ -250,7 +254,7 @@ func (c *code) prepExprStmt(x *expr.Expr) stmt {
 		case "toplevel", "import", "using", "export", "public", "module", "thunk", "global", "struct", "abstract", "primitive":
 			return sToplevel{x}
 		case "meta":
-			return sNop{}
+			return sMeta{x.Args}
 		}
 	}
 	return sValue{c.prepValue(x)}
@@ -275,7 +279,7 @@ func (c *code) prepValue(v any) op {
 	case expr.QuoteNode:
 		return oConst{x.Value}
 	case expr.GlobalRef:
-		return oGlobal{x.Mod, x.Name}
+		return oGlobal{x.Mod, x.Name, x.Obj}
 	case expr.Symbol:
 		return oSymbol{x}
 	case *expr.Expr:
@@ -309,6 +313,11 @@ func (c *code) prepExpr(x *expr.Expr) op {
 			return oRaise{"Invalid IR: :new without a type"}
 		}
 		return oNew{c.prepArgs(x.Args)}
+	case "splatnew":
+		if len(x.Args) != 2 {
+			return oRaise{"Invalid IR: malformed :splatnew"}
+		}
+		return oSplatnew{c.prepArgs(x.Args)}
 	case "isdefined":
 		if len(x.Args) == 1 {
 			switch a := x.Args[0].(type) {
@@ -358,16 +367,16 @@ func (c *code) prepExpr(x *expr.Expr) op {
 		if len(x.Args) == 1 {
 			switch f := x.Args[0].(type) {
 			case expr.GlobalRef:
-				return oMethodDecl{f.Mod, f.Name}
+				return oMethodDecl{f.Mod, f.Obj, f.Name}
 			default:
-				return oMethodDecl{"", f}
+				return oMethodDecl{"", nil, f}
 			}
 		}
 	case "foreigncall":
 		return c.prepForeign(x)
 	case "cfunction":
-		return oRaise{"`cfunction` requires the compiler"}
-	case "invoke", "splatnew", "new_opaque_closure":
+		return c.prepCfunction(x)
+	case "invoke", "new_opaque_closure":
 		return oUnsupported{":" + string(x.Head)}
 	}
 	return oRaise{"unsupported or misplaced expression " + string(x.Head)}

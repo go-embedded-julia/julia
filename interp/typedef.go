@@ -2,6 +2,8 @@ package interp
 
 import (
 	"fmt"
+	"math"
+	"slices"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/core/dispatch"
@@ -104,27 +106,77 @@ func (vm *VM) typeUnionAll(v *core.TypeVar, body any) (any, error) {
 	return core.TypeUnionAll(v, body), nil
 }
 
-// biApplyIterate is jl_f__apply_iterate (builtins.c:661-830) for the
-// arguments it spreads without calling iterate: tuples and simple vectors.
-// Spreading anything else calls Base.iterate, whose methods are Base's
-// code, not run yet.
+// biApplyIterate is jl_f__apply_iterate (builtins.c:661-875): f applied to
+// its arguments spread. Simple vectors, tuples, memories and arrays are
+// copied out; anything else is walked with the iterate function given
+// first, until it answers nothing. The spread is bounded by
+// VM.MaxMemoryElems, where julia's is bounded by memory alone.
 func biApplyIterate(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("_apply_iterate", args, 2, -1); err != nil {
 		return nil, err
 	}
-	f := args[1]
+	iterate, f := args[0], args[1]
 	var spread []any
+	add := func(xs ...any) error {
+		if len(spread)+len(xs) > vm.MaxMemoryElems {
+			return fmt.Errorf("%w: splatting more than %d values (VM.MaxMemoryElems)", ErrMemoryLimit, vm.MaxMemoryElems)
+		}
+		spread = append(spread, xs...)
+		return nil
+	}
+	// an element memory leaves undefined is an error to spread (#11772)
+	addElems := func(elems []any) error {
+		for _, e := range elems {
+			if e == undef {
+				return vm.exception(vm.tUndefRef)
+			}
+		}
+		return add(elems...)
+	}
 	for _, a := range args[2:] {
+		var err error
 		switch x := a.(type) {
 		case SVec:
-			spread = append(spread, x...)
+			err = add(x...)
 		case *Tuple:
-			spread = append(spread, x.Elems...)
+			err = add(x.Elems...)
+		case *Memory:
+			err = addElems(x.Elems)
 		default:
-			return nil, fmt.Errorf("%w: splatting a %s, which needs Base.iterate", ErrUnsupported, core.Show(vm.typeOf(a)))
+			if s, ok := a.(*Struct); ok && s.Type.Name == core.NamedTupleTypeName {
+				// a NamedTuple spreads its fields, as a tuple (builtins.c:773)
+				err = add(s.Fields...)
+			} else if _, _, elems, ok := arrayOf(a); ok {
+				err = addElems(elems)
+			} else {
+				err = vm.spreadIterate(iterate, a, add)
+			}
+		}
+		if err != nil {
+			return nil, err
 		}
 	}
 	return vm.apply(f, spread)
+}
+
+// spreadIterate walks a with iterate (builtins.c:837-860): iterate(a), then
+// iterate(a, state) while the answer is a (value, state) and not nothing.
+func (vm *VM) spreadIterate(iterate, a any, add func(...any) error) error {
+	next, err := vm.apply(iterate, []any{a})
+	for err == nil && next != nil {
+		var value, state any
+		if value, err = biGetfield(vm, []any{next, int64(1)}); err != nil {
+			return err
+		}
+		if state, err = biGetfield(vm, []any{next, int64(2)}); err != nil {
+			return err
+		}
+		if err = add(value); err != nil {
+			return err
+		}
+		next, err = vm.apply(iterate, []any{a, state})
+	}
+	return err
 }
 
 // biTypevar is jl_f__typevar over jl_new_typevar (builtins.c:1688-1708).
@@ -183,7 +235,9 @@ func biAbstracttype(vm *VM, args []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return core.NewIncompleteType(string(m.Name), string(name), params, true, false, nil).Name.Wrapper, nil
+	dt := core.NewIncompleteType(string(m.Name), string(name), params, true, false, nil)
+	dt.Name.ModuleRef = m
+	return dt.Name.Wrapper, nil
 }
 
 // biPrimitivetype is jl_f__primitivetype (builtins.c:2007-2024): the bit
@@ -203,11 +257,12 @@ func biPrimitivetype(vm *VM, args []any) (any, error) {
 	if nb < 1 || nb >= 1<<23 || nb&7 != 0 {
 		return nil, vm.errorf("invalid number of bits in primitive type %s", name)
 	}
-	return core.NewIncompletePrimitive(string(m.Name), string(name), params, int(nb)).Name.Wrapper, nil
+	dt := core.NewIncompletePrimitive(string(m.Name), string(name), params, int(nb))
+	dt.Name.ModuleRef = m
+	return dt.Name.Wrapper, nil
 }
 
-// biStructtype is jl_f__structtype (builtins.c:1978-1995). Field attributes
-// (const, atomic) are not supported yet.
+// biStructtype is jl_f__structtype (builtins.c:1978-1995).
 func biStructtype(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("_structtype", args, 7, 7); err != nil {
 		return nil, err
@@ -228,12 +283,9 @@ func biStructtype(vm *VM, args []any) (any, error) {
 	if err := vm.typechk("_structtype", core.BoolType, args[5], ok); err != nil {
 		return nil, err
 	}
-	_, ok = args[6].(int64)
+	ninit, ok := args[6].(int64)
 	if err := vm.typechk("_structtype", core.Int64Type, args[6], ok); err != nil {
 		return nil, err
-	}
-	if len(fattrs) > 0 {
-		return nil, fmt.Errorf("%w: field attributes (%s)", ErrUnsupported, name)
 	}
 	names := make([]expr.Symbol, len(fnames))
 	for i, f := range fnames {
@@ -243,8 +295,55 @@ func biStructtype(vm *VM, args []any) (any, error) {
 		}
 		names[i] = s
 	}
-	return core.NewIncompleteType(string(m.Name), string(name), params, false, mutable, names).Name.Wrapper, nil
+	atomic, cnst, err := vm.fieldAttrs(fattrs, len(names), mutable)
+	if err != nil {
+		return nil, err
+	}
+	dt := core.NewIncompleteType(string(m.Name), string(name), params, false, mutable, names)
+	dt.Name.ModuleRef = m
+	dt.Name.AtomicFields, dt.Name.ConstFields = atomic, cnst
+	// jl_new_datatype's int32 difference, unchecked (datatype.c:898)
+	dt.Name.NUninitialized = int32(len(names)) - int32(ninit)
+	return dt.Name.Wrapper, nil
 }
+
+// fieldAttrs reads _structtype's attributes, pairs of a field's index from 1
+// and :atomic or :const, into masks (jl_new_datatype, datatype.c:900-944).
+func (vm *VM) fieldAttrs(fattrs SVec, n int, mutable bool) (atomic, cnst []bool, err error) {
+	for i := 0; i+1 < len(fattrs); i += 2 {
+		fld, ok := fattrs[i].(int64)
+		if !ok {
+			return nil, nil, vm.typeError("typeassert", "", core.Int64Type, fattrs[i])
+		}
+		attr, ok := fattrs[i+1].(expr.Symbol)
+		if !ok {
+			return nil, nil, vm.typeError("typeassert", "", core.SymbolType, fattrs[i+1])
+		}
+		if fld < 1 || fld > int64(n) {
+			return nil, nil, vm.errorf("invalid field attribute %d", fld)
+		}
+		var mask *[]bool
+		switch attr {
+		case "atomic":
+			mask = &atomic
+		case "const":
+			mask = &cnst
+		default:
+			return nil, nil, vm.errorf("invalid field attribute %s", attr)
+		}
+		if !mutable {
+			return nil, nil, vm.errorf("invalid field attribute %s for immutable struct", attr)
+		}
+		if *mask == nil {
+			*mask = make([]bool, n)
+		}
+		(*mask)[fld-1] = true
+	}
+	return atomic, cnst, nil
+}
+
+// fieldMarked is whether field i is marked in a mask of fieldAttrs.
+func fieldMarked(mask []bool, i int) bool { return i >= 0 && i < len(mask) && mask[i] }
 
 // biSetsuper is jl_f__setsuper (builtins.c:2051-2058).
 func biSetsuper(vm *VM, args []any) (any, error) {
@@ -311,7 +410,9 @@ func equivFieldTypes(old []any, ft SVec) bool {
 
 // biEquivTypedef is jl_f__equiv_typedef over equiv_type (builtins.c:
 // 2287-2352) for types without parameters: same kind, name, mutability,
-// field names, and an equal supertype.
+// field attributes, field names, and an equal supertype. slices.Equal tells
+// a nil mask (no field marked) from an all-false one, as the C compares a
+// NULL mask; fieldAttrs makes one only to mark a field.
 func biEquivTypedef(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("_equiv_typedef", args, 2, 2); err != nil {
 		return nil, err
@@ -323,7 +424,8 @@ func biEquivTypedef(vm *VM, args []any) (any, error) {
 	}
 	if a.Name.Name != b.Name.Name || a.Name.Abstract != b.Name.Abstract || a.Name.Mutable != b.Name.Mutable ||
 		a.Name.Bits != b.Name.Bits ||
-		len(a.Name.FieldNames) != len(b.Name.FieldNames) || len(a.Parameters) != len(b.Parameters) {
+		len(a.Name.FieldNames) != len(b.Name.FieldNames) || len(a.Parameters) != len(b.Parameters) ||
+		!slices.Equal(a.Name.AtomicFields, b.Name.AtomicFields) || !slices.Equal(a.Name.ConstFields, b.Name.ConstFields) {
 		return false, nil
 	}
 	for i := range a.Name.FieldNames {
@@ -334,8 +436,7 @@ func biEquivTypedef(vm *VM, args []any) (any, error) {
 	return a.Super != nil && b.Super != nil && core.TypesEqual(a.Super, b.Super), nil
 }
 
-// biFieldtype is jl_f_fieldtype over get_fieldtype (builtins.c:1179-1265)
-// for a struct or tuple type.
+// biFieldtype is jl_f_fieldtype (builtins.c:1258-1265).
 func biFieldtype(vm *VM, args []any) (any, error) {
 	if err := vm.nargs("fieldtype", args, 2, 3); err != nil {
 		return nil, err
@@ -346,32 +447,100 @@ func biFieldtype(vm *VM, args []any) (any, error) {
 			return nil, err
 		}
 	}
-	st, ok := args[0].(*core.DataType)
-	if !ok {
-		if core.IsType(args[0]) {
-			return nil, fmt.Errorf("%w: fieldtype of %s", ErrUnsupported, core.Show(args[0]))
+	return vm.getFieldtype(args[0], args[1], true)
+}
+
+// getFieldtype is get_fieldtype (builtins.c:1179-1256): a UnionAll's
+// field type is its body's, rewrapped; a Union's joins its members', an
+// error only when no member has the field; a NamedTuple's comes from its
+// types parameter; a tuple's past its Vararg is the Vararg's element type.
+// Without dothrow a missing field is Union{}.
+func (vm *VM) getFieldtype(t, f any, dothrow bool) (any, error) {
+	switch x := t.(type) {
+	case *core.UnionAll:
+		u, err := vm.getFieldtype(x.Body, f, dothrow)
+		if err != nil {
+			return nil, err
 		}
-		return nil, vm.typeError("fieldtype", "", core.DataTypeType, args[0])
+		return core.TypeUnionAll(x.Var, u), nil
+	case *core.Union:
+		a, err := vm.getFieldtype(x.A, f, false)
+		if err != nil {
+			return nil, err
+		}
+		b, err := vm.getFieldtype(x.B, f, false)
+		if err != nil {
+			return nil, err
+		}
+		if a == any(core.Bottom) && b == any(core.Bottom) && dothrow {
+			// the error of a member that lacks it
+			if _, err := vm.getFieldtype(x.A, f, true); err != nil {
+				return nil, err
+			}
+			if _, err := vm.getFieldtype(x.B, f, true); err != nil {
+				return nil, err
+			}
+		}
+		return core.TypeUnion(a, b), nil
 	}
-	types, _ := st.FieldTypes()
+	st, ok := t.(*core.DataType)
+	if !ok {
+		return nil, vm.typeError("fieldtype", "", core.DataTypeType, t)
+	}
 	idx := -1
-	switch f := args[1].(type) {
+	switch f := f.(type) {
 	case int64:
-		idx = int(f - 1)
+		idx = int(max(min(f-1, math.MaxInt32), -1))
 	case expr.Symbol:
-		for i, n := range st.Name.FieldNames {
+		for i, n := range st.FieldNames() {
 			if n == f {
 				idx = i
 			}
 		}
 		if idx < 0 {
-			return nil, vm.errorf("type %s has no field %s", st.Name.Name, f)
+			if dothrow {
+				return nil, vm.noFieldError(st, f)
+			}
+			return core.Bottom, nil
 		}
 	default:
-		return nil, vm.typeError("fieldtype", "", core.SymbolType, args[1])
+		return nil, vm.typeError("fieldtype", "", core.SymbolType, f)
 	}
-	if idx < 0 || idx >= len(types) {
-		return nil, vm.exception(vm.tBounds, args[0], args[1])
+	outOfBounds := func() (any, error) {
+		if dothrow {
+			return nil, vm.exception(vm.tBounds, t, f)
+		}
+		return core.Bottom, nil
+	}
+	if st.Name == core.NamedTupleTypeName {
+		if nm, isTuple := st.Parameters[0].(*core.Tuple); isTuple && (idx < 0 || idx >= len(nm.Elems)) {
+			return outOfBounds()
+		}
+		tt := st.Parameters[1]
+		for {
+			tv, isVar := tt.(*core.TypeVar)
+			if !isVar {
+				break
+			}
+			tt = tv.UB
+		}
+		if tt == any(core.AnyType) || tt == any(core.Bottom) {
+			return tt, nil
+		}
+		return vm.getFieldtype(tt, int64(idx+1), dothrow)
+	}
+	types, _ := st.FieldTypes()
+	nf := len(types)
+	if nf > 0 && idx >= nf-1 && st.Name == core.TupleTypeName {
+		if va, isVa := types[nf-1].(*core.Vararg); isVa {
+			if va.T == nil {
+				return core.AnyType, nil
+			}
+			return va.T, nil
+		}
+	}
+	if idx < 0 || idx >= nf {
+		return outOfBounds()
 	}
 	return types[idx], nil
 }
@@ -398,7 +567,7 @@ func biDefaultctors(vm *VM, args []any) (any, error) {
 	low := lower.NewState()
 	fields := dt.Name.Fields
 	tab := vm.ctorTable(dt)
-	mod := vm.modules[expr.Symbol(dt.Name.Module)]
+	mod := vm.typeNameModule(dt.Name)
 	var tvars []*core.TypeVar
 	for u, ok := ty.(*core.UnionAll); ok; u, ok = u.Body.(*core.UnionAll) {
 		tvars = append(tvars, u.Var)

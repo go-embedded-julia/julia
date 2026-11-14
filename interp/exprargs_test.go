@@ -35,7 +35,7 @@ mset!(m, i, x) = Core.memoryrefset!(Core.memoryrefnew(Core.memoryrefnew(m), i, t
 		{"ex = :(g(3, 4)); setfield!(ex, :head, :tuple); ex", "Expr(:tuple, :g, 3, 4)"},
 		{"ex = :(f(1)); try setfield!(ex, :head, 1) catch e; e end", `TypeError(:setfield!, "", Symbol, 1)`},
 		{"ex = :(f(1)); try setfield!(ex, :args, 1) catch e; e end", `TypeError(:setfield!, "", Vector{Any}, 1)`},
-		{"ex = :(f(1)); try setfield!(ex, :nope, 1) catch e; e end", `ErrorException("type Expr has no field nope")`},
+		{"ex = :(f(1)); try setfield!(ex, :nope, 1) catch e; e end", `FieldError(Expr, :nope)`},
 		// what push! does: new memory, then the vector's ref and size
 		{"ex = :(f(1)); a = getfield(ex, :args); m = Memory{Any}(undef, 3); mset!(m, 1, :f); mset!(m, 2, 1); mset!(m, 3, 5); setfield!(a, :ref, Core.memoryrefnew(m)); setfield!(a, :size, (3,)); ex", "Expr(:call, :f, 1, 5)"},
 		{"ex = :(f(1, 2)); setfield!(getfield(ex, :args), :size, (1,)); ex", "Expr(:call, :f)"},

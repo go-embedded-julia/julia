@@ -2,6 +2,7 @@ package interp
 
 import (
 	"sync"
+	"sync/atomic"
 	"weak"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -18,10 +19,7 @@ import (
 var undef = &struct{ _ byte }{}
 
 // Tuple is an instance of a concrete Tuple type.
-type Tuple struct {
-	Type  *core.DataType
-	Elems []any
-}
+type Tuple = core.Tuple
 
 // Struct is an instance of a struct type the runtime created; a field that
 // was never set holds undef.
@@ -56,6 +54,7 @@ type SVec []any
 // Intrinsic is a Core.IntrinsicFunction.
 type Intrinsic struct {
 	Name expr.Symbol
+	ID   int32 // its number in enum intrinsic, its bits (intrinsicid.go)
 	Fn   func(vm *VM, args []any) (any, error)
 }
 
@@ -68,6 +67,14 @@ type Module struct {
 	mu       sync.RWMutex
 	bindings map[expr.Symbol]*Binding
 	usings   []*Module
+	// istopmod marks a module `(top x)` resolves in (jl_set_istopmod).
+	istopmod bool
+	// uuid is the module's package UUID (jl_module_t.uuid), zero for none.
+	uuid [2]uint64
+	// buildID is jl_module_t.build_id, high half first (newModule).
+	buildID [2]uint64
+	// opts are the module's compiler options (modopts.go)
+	opts moduleOpts
 }
 
 // Binding is a module's global variable. julia 1.12 partitions a binding by
@@ -75,12 +82,57 @@ type Module struct {
 // binding was declared in, before which it does not exist, and one value.
 type Binding struct {
 	Name    expr.Symbol
+	Mod     *Module // the module that holds it (its globalref's)
 	World   uint64
 	Const   bool
 	Value   any // undef until assigned
 	Exports bool
-	// Alias is the binding an import refers to.
+	// Alias is the binding an import refers to, From the module it was
+	// imported from (jl_binding_dbgmodule).
 	Alias *Binding
+	From  *Module
+	// explicit marks an Alias `using A: x` made (PARTITION_KIND_EXPLICIT)
+	explicit bool
+	// Type is a global's declared type (`global x::T`, the partition's
+	// restriction), nil for Any.
+	Type any
+	// implicit marks a binding only export or public made: julia's
+	// implicit kind, which a read resolves through the module's usings
+	// until the name is assigned or declared.
+	implicit bool
+	// stdName marks the Core and Base names addStandardImports binds, which
+	// julia 1.12 resolves through `using Base` instead (toplevel.c:39-46):
+	// Base.names does not list them
+	stdName bool
+	// constImport marks a module's name `import A` (or `using A` in Main)
+	// bound: julia's PARTITION_KIND_CONST_IMPORT, which Base.names lists
+	// with imported only
+	constImport bool
+	// backedges are the code that reads it from another module (a
+	// Vector{Any}, nil until the first), flags julia's BINDING_FLAG_* bits
+	// (jl_binding_t): kept, not yet used to invalidate
+	backedges *Struct
+	flags     uint8
+	// deprecations are the changes of the partition's deprecation flags
+	// (jl_deprecate_binding), each from its world on, oldest first
+	deprecations []depChange
+}
+
+// depChange is a binding's deprecation flags from a world on.
+type depChange struct {
+	world uint64
+	flags uint8
+}
+
+// depFlags is b's deprecation flags in world w.
+func (b *Binding) depFlags(w uint64) uint8 {
+	var f uint8
+	for _, c := range b.deprecations {
+		if c.world <= w {
+			f = c.flags
+		}
+	}
+	return f
 }
 
 // resolve follows an import to the binding it names.
@@ -92,8 +144,22 @@ func (b *Binding) resolve() *Binding {
 }
 
 func newModule(name expr.Symbol, parent *Module) *Module {
-	return &Module{Name: name, Parent: parent, bindings: map[expr.Symbol]*Binding{}}
+	return &Module{Name: name, Parent: parent, bindings: map[expr.Symbol]*Binding{}, opts: newModuleOpts(),
+		buildID: [2]uint64{^uint64(0), moduleCounter.Add(1)}}
 }
+
+// ModuleName makes a module a core.ModuleValue, which core takes as a type
+// parameter (jl_valid_type_param accepts a module: Artifacts.jl:776's
+// Base.Val{Artifacts}), shown by its full name as julia shows
+// V{Main.Outer.Inner}.
+func (m *Module) ModuleName() string { return showValue(m) }
+
+// moduleCounter numbers the modules made (module.c:510, mcounter): a
+// module's build id is ~0 and its number, unique and never 0 as julia's;
+// julia also mixes in the time and a random number (module.c:512), which
+// only Base's comparisons of ids for identity read, and which would make
+// two runs differ.
+var moduleCounter atomic.Uint64
 
 // own returns the binding m itself holds for name, nil when it has none.
 func (m *Module) own(name expr.Symbol) *Binding {
@@ -105,16 +171,38 @@ func (m *Module) own(name expr.Symbol) *Binding {
 // lookup returns the binding a global read of name in m finds in world w:
 // m's own, else an exported one of a module m uses.
 func (m *Module) lookup(name expr.Symbol, w uint64) *Binding {
-	if b := m.own(name); b != nil && b.World <= w {
+	return m.lookupFrom(name, w, nil)
+}
+
+// lookupFrom is lookup, with seen the modules whose implicit binding of name
+// is being resolved already. An exported binding a used module gets itself
+// through its own usings (Base's MIME, from `using .Multimedia`) resolves
+// through them in turn, and a cycle resolves to nothing
+// (jl_resolve_implicit_import, module.c:205-296).
+func (m *Module) lookupFrom(name expr.Symbol, w uint64, seen []*Module) *Binding {
+	if b := m.own(name); b != nil && b.World <= w && !(b.implicit && b.Value == undef) {
 		return b.resolve()
+	}
+	for _, s := range seen {
+		if s == m {
+			return nil
+		}
 	}
 	m.mu.RLock()
 	usings := m.usings
 	m.mu.RUnlock()
 	for _, u := range usings {
-		if b := u.own(name); b != nil && b.Exports && b.World <= w {
-			return b.resolve()
+		b := u.own(name)
+		if b == nil || !b.Exports || b.World > w {
+			continue
 		}
+		if b.implicit && b.Value == undef {
+			if r := u.lookupFrom(name, w, append(seen, m)); r != nil {
+				return r
+			}
+			continue
+		}
+		return b.resolve()
 	}
 	return nil
 }
@@ -126,7 +214,7 @@ func (m *Module) declare(name expr.Symbol, w uint64) *Binding {
 	if b := m.bindings[name]; b != nil {
 		return b
 	}
-	b := &Binding{Name: name, World: w, Value: undef}
+	b := &Binding{Name: name, Mod: m, World: w, Value: undef}
 	m.bindings[name] = b
 	return b
 }

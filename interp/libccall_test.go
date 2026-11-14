@@ -1,0 +1,156 @@
+package interp
+
+import (
+	"testing"
+
+	"github.com/go-embedded-julia/julia/core"
+	"github.com/go-embedded-julia/julia/expr"
+)
+
+// A ccall((:f, lib), …) reaches the shim the VM has for f in lib, lib
+// being a literal or a global; another library, or a name the library has
+// no shim for, is refused when the call runs.
+func TestLibraryQualifiedCcall(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	vm.libShims = map[string]map[expr.Symbol]shim{"libtest": {
+		"twice": func(vm *VM, a []any) (any, error) { return a[0].(int64) * 2, nil },
+	}}
+	s := vm.NewSession()
+	for _, c := range []struct{ src, want string }{
+		{`ccall((:twice, "libtest"), Int, (Int,), 21)`, "42"},
+		{`const LIBT = "libtest"; ccall((:twice, LIBT), Int, (Int,), 4)`, "8"},
+		// a literal String name, as mpfr.jl's @eval builds ("mpfr_const_pi")
+		{`ccall(("twice", "libtest"), Int, (Int,), 5)`, "10"},
+		{`ccall((:twice, "libother"), Int, (Int,), 1)`, `!not ported yet: ccall((:twice, "libother"))`},
+		{`ccall((:thrice, "libtest"), Int, (Int,), 1)`, `!not ported yet: ccall((:thrice, "libtest"))`},
+		{`f() = ccall((:twice, throw(ErrorException("no library"))), Int, (Int,), 1); f()`, "!no library"},
+	} {
+		v, err := s.Eval(c.src)
+		check(t, c.src, v, err, c.want)
+	}
+}
+
+// A ccall whose callee is a value, a global holding a Symbol
+// (ccall(memhash, …), hashing.jl:200), calls the shim the Symbol names;
+// any other value is refused when the call runs, and so is a computed
+// name with a library.
+func TestComputedCcall(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	vm.shims["twice"] = func(vm *VM, a []any) (any, error) { return a[0].(int64) * 2, nil }
+	s := vm.NewSession()
+	for _, c := range []struct{ src, want string }{
+		{`const CALLEE = :twice; f1() = ccall(CALLEE, Int, (Int,), 21); f1()`, "42"},
+		{`const NOTSYM = 22; f2() = ccall(NOTSYM, Int, (Int,), 1); f2()`, "!not ported yet: a ccall to 22"},
+		{`const NOSUCH = :thrice; f3() = ccall(NOSUCH, Int, (Int,), 1); f3()`, "!not ported yet: ccall(:thrice)"},
+		{`f4() = ccall(Core.throw(ErrorException("no callee")), Int, (Int,), 1); f4()`, "!no callee"},
+		{`const N5 = :twice; f5() = ccall((N5, "libtest"), Int, (Int,), 1); f5()`, "!not ported yet: a ccall to a computed function"},
+	} {
+		v, err := s.Eval(c.src)
+		check(t, c.src, v, err, c.want)
+	}
+}
+
+// jl_new_structt builds a struct from a tuple of exactly its fields, and
+// refuses what new would.
+func TestNewStructt(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	s := vm.NewSession()
+	two := must(s.Eval("struct TwoT; a::Int; b::Int; end; TwoT"))
+	tup := func(xs ...any) *Tuple { return vm.newTuple(xs) }
+	sh := vm.shims["jl_new_structt"]
+	for _, c := range []struct {
+		name string
+		args []any
+		want string
+	}{
+		{"two fields", []any{two, tup(int64(1), int64(2))}, "Main.L.TwoT(1, 2)"},
+		{"no tuple", []any{two, int64(1)}, "!TypeError(:new"},
+		{"an abstract type", []any{core.IntegerType, tup()}, "!TypeError(:new"},
+		// JL_NARGS(new, nf, nf)'s errors
+		{"too few", []any{two, tup(int64(1))}, `!ArgumentError("new: too few arguments (expected 2)")`},
+		{"too many", []any{two, tup(int64(1), int64(2), int64(3))}, `!ArgumentError("new: too many arguments (expected 2)")`},
+	} {
+		v, err := sh(vm, c.args)
+		check(t, c.name, v, err, c.want)
+	}
+}
+
+// A Ref{T} argument is passed as the Ptr{T} lowering converted it to.
+func TestRefArg(t *testing.T) {
+	vm := New()
+	refInt32 := must(core.Apply(core.RefType, core.Int32Type))
+	for _, c := range []struct {
+		at, v any
+		want  bool
+	}{
+		{refInt32, &Pointer{Type: vm.ptrType(core.Int32Type)}, true},
+		{refInt32, &Pointer{Type: vm.ptrType(core.Int64Type)}, false},
+		{refInt32, int32(1), false},
+		{vm.ptrType(core.Int32Type), &Pointer{Type: vm.ptrType(core.Int32Type)}, false},
+		{core.AnyType, &Pointer{Type: vm.ptrType(core.Int32Type)}, false},
+	} {
+		if got := refArg(c.at, c.v); got != c.want {
+			t.Errorf("refArg(%s, %s) = %v", showValue(c.at), showValue(c.v), got)
+		}
+	}
+}
+
+// Through pointer_from_objref of a mutable struct, a pointer of its first
+// field's type reads and writes that field, as a C function does through a
+// Ref; any other element, offset or type has no address.
+func TestPointerIntoMutableStruct(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	s := vm.NewSession()
+	v, err := s.Eval("mutable struct MR; x::Int32; y::Int; end; MR(Int32(5), 7)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := v.(*Struct)
+	p := &Pointer{Type: vm.ptrType(core.Int32Type), Target: st}
+	v, err = vm.ptrLoad("pointerref", p, 1)
+	check(t, "load the first field", v, err, "5")
+	check(t, "store the first field", nil, vm.ptrStore("pointerset", p, int32(9), 1), "")
+	v, err = vm.ptrLoad("pointerref", p, 1)
+	check(t, "load it back", v, err, "9")
+	_, err = vm.ptrLoad("pointerref", p, 2)
+	check(t, "load the second element", nil, err, "!pointerref: invalid pointer")
+	check(t, "store the second element", nil, vm.ptrStore("pointerset", p, int32(1), 2), "!pointerset: invalid pointer")
+	check(t, "store another type", nil, vm.ptrStore("pointerset", p, int64(1), 1), "!TypeError(:pointerset")
+	wide := &Pointer{Type: vm.ptrType(core.Int64Type), Target: st}
+	_, err = vm.ptrLoad("pointerref", wide, 1)
+	check(t, "load as another type", nil, err, "!pointerref: invalid pointer")
+	off := &Pointer{Type: p.Type, Target: st, Off: 8}
+	_, err = vm.ptrLoad("pointerref", off, 1)
+	check(t, "load at an offset", nil, err, "!pointerref: invalid pointer")
+	// an immutable struct has no address, and an unset field is undefined
+	v, err = s.Eval("struct IR; x::Int32; end; IR(Int32(1))")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = vm.ptrLoad("pointerref", &Pointer{Type: p.Type, Target: v.(*Struct)}, 1)
+	check(t, "load from an immutable", nil, err, "!pointerref: invalid pointer")
+	v, err = s.Eval("mutable struct MU; x::Any; MU() = new(); end; MU()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = vm.ptrLoad("pointerref", &Pointer{Type: vm.ptrType(core.AnyType), Target: v.(*Struct)}, 1)
+	check(t, "load an unset field", nil, err, "!UndefRefError")
+	v, err = s.Eval("mutable struct ME; end; ME()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = vm.ptrLoad("pointerref", &Pointer{Type: p.Type, Target: v.(*Struct)}, 1)
+	check(t, "load from a struct without fields", nil, err, "!pointerref: invalid pointer")
+}

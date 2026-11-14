@@ -115,7 +115,9 @@ func unionSortCmp(a, b any) int {
 // themselves (Tuple{Missing}, Pair{Nothing,Missing}), which is when julia
 // gives it an instance.
 func (d *DataType) isSingleton() bool {
-	if !d.IsConcrete || d.Name.Mutable {
+	// a type that may reference itself has a pointer field (the walk of its
+	// fields below would not end)
+	if !d.IsConcrete || d.Name.Mutable || !d.Name.MayInlineAlloc {
 		return false
 	}
 	if d.Name.Singleton {
@@ -134,11 +136,18 @@ func (d *DataType) isSingleton() bool {
 	return true
 }
 
+// IsSingleton is jl_is_datatype_singleton (julia.h:1743): d has the one
+// instance of a type of size zero (isSingleton above).
+func (d *DataType) IsSingleton() bool { return d.isSingleton() }
+
 // fieldTypes returns the field types of a tuple or of a struct whose fields
 // the boot table records.
 func (d *DataType) fieldTypes() ([]any, bool) {
 	if d.Name == TupleTypeName {
 		return d.Parameters, true
+	}
+	if d.Name == NamedTupleTypeName {
+		return d.ntTypes, d.ntTypes != nil
 	}
 	if d.Name.Fields == nil {
 		return nil, false
@@ -158,7 +167,7 @@ func (d *DataType) fieldTypes() ([]any, bool) {
 // bits — a primitive type, a singleton, or a struct or tuple whose field
 // types are all isbits (datatype.c, jl_compute_field_offsets).
 func (d *DataType) isbits() bool {
-	if !d.IsConcrete || d.Name.Mutable {
+	if !d.IsConcrete || d.Name.Mutable || !d.Name.MayInlineAlloc {
 		return false
 	}
 	if d.Name.Isbits || d.isSingleton() {
@@ -176,6 +185,9 @@ func (d *DataType) isbits() bool {
 	}
 	return true
 }
+
+// IsBits is jl_isbits of d (isbits above).
+func (d *DataType) IsBits() bool { return d.isbits() }
 
 // countUnionComponents is count_union_components (jltypes.c:497-516).
 func countUnionComponents(types []any, widen bool) int {
@@ -365,7 +377,7 @@ func TypeUnion(ts ...any) any {
 	}
 	for _, pi := range ts {
 		if !(IsType(pi) || isTypeVar(pi)) {
-			throwf("TypeError: in Union, expected Type, got %s", Show(pi))
+			throwTypeError("Union", "", TypeType, pi, "TypeError: in Union, expected Type, got %s", Show(pi))
 		}
 	}
 	if len(ts) == 1 {
@@ -479,6 +491,10 @@ func simpleUnion(a, b any) any {
 // That path already over-estimates by design (subtype.c:654-656), and the
 // differential test measures what it costs.
 func hasEmptyIntersection(a, b any) bool { return obviouslyDisjoint(a, b, false) }
+
+// ObviouslyDisjoint is obviously_disjoint (subtype.c): true only when a and
+// b certainly have no common subtype; false says nothing.
+func ObviouslyDisjoint(a, b any) bool { return obviouslyDisjoint(a, b, false) }
 
 // simpleIntersect is simple_intersect (jltypes.c:799-903).
 func simpleIntersect(a, b any, overesi bool) any {

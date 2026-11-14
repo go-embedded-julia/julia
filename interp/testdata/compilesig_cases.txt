@@ -1,0 +1,295 @@
+# One case a line, for interp/compilesig_test.go and compilesig.jl: a call
+# signature to normalize (jl_normalize_to_compilable_sig, with and without
+# return_if_compileable) and to test (jl_isa_compileable_sig); `set` changes
+# the field of the method that signature finds, before the lines that follow.
+call Tuple{typeof(a1), Int}
+call Tuple{typeof(a1), Type{Int}}
+call Tuple{typeof(a1), Type{Type{Int}}}
+call Tuple{typeof(a1), Type{Union{}}}
+call Tuple{typeof(a1), DataType}
+call Tuple{typeof(a1), Type}
+call Tuple{typeof(a1), Type{<:Integer}}
+call Tuple{typeof(a1), Vector{Int}}
+call Tuple{typeof(a1), Any}
+call Tuple{typeof(a1), Union{Int,Float64}}
+call Tuple{typeof(a1), UnionAll}
+call Tuple{typeof(a1), Type{Vector}}
+call Tuple{typeof(a1), Union}
+call Tuple{typeof(a1), typeof(Union{})}
+call Tuple{typeof(a1), typeof(a1)}
+call Tuple{typeof(a1), Function}
+call Tuple{typeof(a1)}
+call Tuple{typeof(a1), Int, Int}
+call Tuple{typeof(a1), Vararg{Int}}
+call Tuple{typeof(a2), Type{Int}}
+call Tuple{typeof(a2), Type{Type{Int}}}
+call Tuple{typeof(a2), DataType}
+call Tuple{typeof(a2), Type}
+call Tuple{typeof(a2), Type{Vector}}
+call Tuple{typeof(a2), Type{Union{}}}
+call Tuple{typeof(a2), Type{<:Integer}}
+call Tuple{typeof(a3), Type{Int}}
+call Tuple{typeof(a3), Type{Type{Int}}}
+call Tuple{typeof(a3), Type{Vector}}
+call Tuple{typeof(a4), DataType}
+call Tuple{typeof(a4), Type{Int}}
+call Tuple{typeof(a5), typeof(a1)}
+call Tuple{typeof(a5), Function}
+call Tuple{typeof(a5), typeof(a5)}
+call Tuple{typeof(a6), typeof(a1), Int}
+call Tuple{typeof(a6), Type{Int}, Int}
+call Tuple{typeof(a6), Int, Type{Int}}
+call Tuple{typeof(a7), typeof(a1), Int}
+call Tuple{typeof(a8), typeof(a1)}
+call Tuple{typeof(a8), Int}
+call Tuple{typeof(a8), Function}
+call Tuple{typeof(a9), Int}
+call Tuple{typeof(a9), Integer}
+call Tuple{typeof(a9), Union{Int,Int8}}
+set Tuple{typeof(a10), Int, Int} nospecialize 2
+call Tuple{typeof(a10), Int, Int}
+call Tuple{typeof(a10), Type{Int}, Int}
+call Tuple{typeof(a10), Any, Int}
+call Tuple{typeof(a10), DataType, Int}
+set Tuple{typeof(a11), Int, Int} nospecialize 2
+call Tuple{typeof(a11), Int, Int}
+call Tuple{typeof(a11), Integer, Int}
+call Tuple{typeof(a11), Int8, Type{Int}}
+set Tuple{typeof(a11), Int, Int} nospecialize 4
+call Tuple{typeof(a11), Int, Int}
+call Tuple{typeof(a11), Int, Type{Int}}
+call Tuple{typeof(a11), Int, DataType}
+call Tuple{typeof(a12), Type{Int}}
+call Tuple{typeof(a12), Type{Integer}}
+call Tuple{typeof(a12), Type{Int8}}
+call Tuple{typeof(a12), Type{<:Integer}}
+call Tuple{typeof(a12), Type{Type{Int}}}
+call Tuple{typeof(a13), Type{Int}}
+call Tuple{typeof(a14), Int, Type{Int}}
+call Tuple{typeof(a14), Int, DataType}
+call Tuple{typeof(a14), Int, Type{Type{Int}}}
+call Tuple{typeof(a14), Int, Type}
+call Tuple{typeof(a15), Union}
+call Tuple{typeof(a15), Type{Union{Int,Int8}}}
+call Tuple{typeof(a16), UnionAll}
+call Tuple{typeof(a16), Type{Vector}}
+call Tuple{typeof(a17), Type{Type{Int}}}
+call Tuple{typeof(a17), Type{Type{Type{Int}}}}
+call Tuple{typeof(a17), Type{Type}}
+call Tuple{typeof(a18), Type{Type{Int}}}
+call Tuple{typeof(a19), Int, typeof(a1)}
+call Tuple{typeof(a19), Int, Function}
+call Tuple{typeof(a20), typeof(a1), typeof(a1)}
+call Tuple{typeof(a21), Type{Union{}}}
+call Tuple{typeof(a22), Tuple{Int,Int}}
+call Tuple{typeof(a22), Tuple}
+call Tuple{typeof(a22), Tuple{Int,Vararg{Int}}}
+call Tuple{typeof(v1)}
+call Tuple{typeof(v1), Int}
+call Tuple{typeof(v1), Int, Int}
+call Tuple{typeof(v1), Int, Int, Int}
+call Tuple{typeof(v1), Int, Int, Int, Int}
+call Tuple{typeof(v1), Int, Float64, Int, Int, Int}
+call Tuple{typeof(v1), Vararg{Int}}
+call Tuple{typeof(v1), Int, Vararg{Int}}
+call Tuple{typeof(v1), Int, Int, Vararg{Int}}
+call Tuple{typeof(v1), Int, Int, Int, Vararg{Int}}
+call Tuple{typeof(v1), Type{Int}, Type{Int}, Type{Int}}
+call Tuple{typeof(v1), Type{Int}, Type{Int}, Type{Int}, Type{Int}}
+call Tuple{typeof(v1), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v1), DataType, DataType, DataType, DataType}
+call Tuple{typeof(v1), Int, Int, Int, Int, Int, Int, Int, Int}
+set Tuple{typeof(v1), Int} max_varargs 0
+call Tuple{typeof(v1)}
+call Tuple{typeof(v1), Int}
+call Tuple{typeof(v1), Int, Int}
+call Tuple{typeof(v1), Vararg{Int}}
+set Tuple{typeof(v1), Int} max_varargs 1
+call Tuple{typeof(v1), Int, Int}
+call Tuple{typeof(v1), Int, Int, Int}
+call Tuple{typeof(v1), Int, Vararg{Int}}
+set Tuple{typeof(v1), Int} max_varargs 3
+call Tuple{typeof(v1), Int, Int, Int}
+call Tuple{typeof(v1), Int, Int, Int, Int}
+call Tuple{typeof(v1), Int, Int, Int, Int, Int}
+call Tuple{typeof(v1), Int, Int, Int, Vararg{Int}}
+call Tuple{typeof(v1), Int, Int, Int, Int, Vararg{Int}}
+call Tuple{typeof(v1), Type{Int}, Type{Int}, Type{Int}, Type{Int}}
+call Tuple{typeof(v1), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v1), Int, Float64, Int8, Int8}
+set Tuple{typeof(v1), Int} max_varargs 255
+call Tuple{typeof(v1), Int, Int, Int}
+call Tuple{typeof(v1), Int, Int, Int, Int, Int}
+call Tuple{typeof(v2), Int}
+call Tuple{typeof(v2), Int, Int}
+call Tuple{typeof(v2), Int, Int, Int}
+call Tuple{typeof(v2), Int, Int, Int, Int}
+call Tuple{typeof(v2), Int, Vararg{Int}}
+call Tuple{typeof(v2), Int, Int, Vararg{Int}}
+call Tuple{typeof(v2), Int, Int, Int, Vararg{Int}}
+call Tuple{typeof(v2), Int, Int, Int, Int, Vararg{Int}}
+call Tuple{typeof(v3)}
+call Tuple{typeof(v3), Int}
+call Tuple{typeof(v3), Int, Int}
+call Tuple{typeof(v3), Int, Int, Int}
+call Tuple{typeof(v3), Int, Int, Int, Int}
+call Tuple{typeof(v3), Vararg{Int}}
+call Tuple{typeof(v3), Int, Vararg{Int}}
+call Tuple{typeof(v3), Int, Int, Vararg{Int}}
+call Tuple{typeof(v4), Int}
+call Tuple{typeof(v4), Int, Int}
+call Tuple{typeof(v4), Int, Int, Int}
+call Tuple{typeof(v4), Int, Int, Int, Int}
+call Tuple{typeof(v4), Int, Int8, Int, Int}
+call Tuple{typeof(v4), Int, Vararg{Int}}
+call Tuple{typeof(v4), Int, Int, Vararg{Int}}
+call Tuple{typeof(v4), Int, Int, Int, Vararg{Int}}
+call Tuple{typeof(v5), Int, Type{Int}}
+call Tuple{typeof(v5), Int, Type{Int}, Int}
+call Tuple{typeof(v5), Int, Type{Int}, Int, Int}
+call Tuple{typeof(v5), Int, Type{Int}, Int, Int, Int}
+call Tuple{typeof(v5), Int, DataType, Type{Int}, Type{Int}}
+call Tuple{typeof(v5), Int, Type{Int}, Vararg{Int}}
+call Tuple{typeof(v6), Type{Int}}
+call Tuple{typeof(v6), Type{Int}, Int}
+call Tuple{typeof(v6), Type{Int}, Int, Int}
+call Tuple{typeof(v6), Type{Int}, Int, Int, Int}
+call Tuple{typeof(v6), Type{Int}, Type{Int}, Type{Int}, Type{Int}}
+call Tuple{typeof(v6), Type{Int}, Int, Vararg{Int}}
+call Tuple{typeof(v7)}
+call Tuple{typeof(v7), Type{Int}}
+call Tuple{typeof(v7), Type{Int}, Type{Int}}
+call Tuple{typeof(v7), Type{Int}, Type{Int}, Type{Int}}
+call Tuple{typeof(v7), Type{Int}, Type{Int}, Type{Int}, Type{Int}}
+call Tuple{typeof(v7), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v7), DataType, DataType, DataType, DataType}
+call Tuple{typeof(v7), Vararg{Type}}
+call Tuple{typeof(v8), Int, Int, Int}
+call Tuple{typeof(v8), Int, Vararg{Int}}
+call Tuple{typeof(v8), Int, Int}
+call Tuple{typeof(v9), Int}
+call Tuple{typeof(v9), Int, Int}
+call Tuple{typeof(v9), Vararg{Int}}
+call Tuple{typeof(v10), Int}
+call Tuple{typeof(v10), Int, Int}
+call Tuple{typeof(v10), Int, Int, Float64}
+call Tuple{typeof(v10), Int, Int, Float64, Int8}
+call Tuple{typeof(v10), Int, Number, Number}
+call Tuple{typeof(v10), Int, Vararg{Int}}
+call Tuple{typeof(v11), typeof(a1), Int}
+call Tuple{typeof(v11), typeof(a1), Int, Int}
+call Tuple{typeof(v11), typeof(a1), Int, Int, Int}
+call Tuple{typeof(v11), typeof(a1), Int, Int, Int, Int}
+call Tuple{typeof(v11), Type{Int}, Int}
+call Tuple{typeof(v11), Type{Int}, Int, Int, Int}
+call Tuple{typeof(v11), Type{Int}, Vararg{Int}}
+set Tuple{typeof(g1), Int, Int} generator stub
+call Tuple{typeof(g1), Int, Int}
+call Tuple{typeof(g1), Type{Int}, Int}
+call Tuple{typeof(g1), Any, Any}
+call Tuple{typeof(g1), Int}
+call Tuple{typeof(g1), Vararg{Int}}
+set Tuple{typeof(g2), Int} generator stub
+call Tuple{typeof(g2), Int}
+call Tuple{typeof(g2), Int, Int, Int}
+call Tuple{typeof(g2), Int, Vararg{Int}}
+call Tuple{typeof(g2), Type{Int}, Int}
+call Tuple{typeof(Core.kwcall), NamedTuple{(:a,),Tuple{Int}}, typeof(kf), Int}
+call Tuple{typeof(Core.kwcall), NamedTuple{(:a,),Tuple{Int}}, typeof(kf), Int, Int}
+call Tuple{typeof(Core.kwcall), NamedTuple, typeof(kf), Int}
+call Tuple{typeof(Core.kwcall), NamedTuple{(:a,),Tuple{Int}}, typeof(kf), Type{Int}}
+call Tuple{typeof(Core.kwcall), NamedTuple{(:a,),Tuple{Int}}, typeof(a1), Int}
+callm Tuple{typeof(v4), Int, Vararg{S}} where S<:Integer | Tuple{typeof(v4), Int, Vararg{Int}}
+callm Tuple{typeof(v4), Int, Int, Int, Int, Vararg{S}} where S | Tuple{typeof(v4), Int, Int, Int, Int, Vararg{Int}}
+callm Tuple{typeof(v4), Int, Int, Vararg{S}} where S<:Integer | Tuple{typeof(v4), Int, Int, Vararg{Int}}
+callm Tuple{typeof(v4), Int, Int, Int, Vararg{S}} where S<:Integer | Tuple{typeof(v4), Int, Int, Int, Int}
+callm Tuple{typeof(v9), Vararg{S}} where S<:Int | Tuple{typeof(v9), Vararg{Int}}
+callm Tuple{typeof(v6), Type{T}, Vararg{S}} where {T,S} | Tuple{typeof(v6), Type{Int}, Vararg{Int}}
+callm Tuple{typeof(v6), Type{T}, Int, Int, Int, Vararg{S}} where {T,S} | Tuple{typeof(v6), Type{Int}, Int, Int, Int, Vararg{Int}}
+callm Tuple{typeof(v1), Vararg{S}} where S | Tuple{typeof(v1), Vararg{Int}}
+callm Tuple{typeof(v1), Int, Vararg{S}} where S<:Integer | Tuple{typeof(v1), Int, Vararg{Int}}
+call Tuple{typeof(v1), Type{Type{Int}}, Vararg{Type{Type{Int}}}}
+call Tuple{typeof(v1), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Vararg{Type{Type{Int}}}}
+call Tuple{typeof(v7), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Vararg{Type{Type{Int}}}}
+call Tuple{typeof(v12), Type{Type{Int}}}
+call Tuple{typeof(v12), Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v12), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v12), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v12), Type{Type{Int}}, Vararg{Type{Type{Int}}}}
+call Tuple{typeof(v13), Int, Int, Int, Int}
+call Tuple{typeof(v13), Int, Int, Int, Int, Int}
+call Tuple{typeof(v13), Int, Int, Int, Int, Int, Int}
+call Tuple{typeof(v13), Int, Int, Int, Int, Int, Int, Int}
+call Tuple{typeof(v13), Int, Int, Int, Int, Int, Int, Int, Int}
+call Tuple{Type{Foo}, Int}
+call Tuple{Type{Foo}, Int, Int, Int}
+call Tuple{Type{Foo}, Int, Int, Int, Int}
+call Tuple{Foo, Int}
+call Tuple{Foo, Int, Int, Int}
+call Tuple{Bar, Int, Int, Int, Int}
+callm Tuple{typeof(a1), Int} | Tuple{typeof(a1)}
+callm Tuple{typeof(a1), Int} | Tuple{typeof(a1), Vararg{Int}}
+callm Tuple{typeof(a1), Int} | Tuple{typeof(a1), Int, Int}
+callm Tuple{typeof(v9), Int} | Tuple{typeof(v9), Vararg{Int}}
+callm Tuple{typeof(v9), Int} | Tuple{typeof(v9)}
+callm Tuple{typeof(v1), Int} | Tuple{typeof(v1), Vararg{Int}}
+callm Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2)}
+callm Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2), Int}
+callm Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2), Vararg{Int}}
+isa Tuple{typeof(a1), Int} | Tuple{typeof(a1)}
+isa Tuple{typeof(a1), Int} | Tuple{}
+isa Tuple{typeof(a1), Int} | Tuple{typeof(a1), Vararg{Int}}
+isa Tuple{typeof(a1), Int} | Tuple{typeof(a1), Int, Int}
+isa Tuple{typeof(a1), Int} | Union{Tuple{typeof(a1), Int}, Tuple{typeof(a1), Int8}}
+isa Tuple{typeof(a1), Int} | Tuple{typeof(a1), Int} where {T}
+isa Tuple{typeof(a1), Int} | let T = Core.TypeVar(:T); Tuple{typeof(a1), T}; end
+isa Tuple{typeof(v1), Int} | Tuple{typeof(v1)}
+isa Tuple{typeof(v1), Int} | Tuple{typeof(v1), Vararg{Int}}
+isa Tuple{typeof(v1), Int} | Tuple{typeof(v1), Int, Vararg{Int}}
+isa Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2)}
+isa Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2), Int, Int, Int, Int, Int, Int, Int, Int}
+isa Tuple{typeof(v3), Int} | Tuple{typeof(v3), Int, Int, Int, Int, Int, Int}
+isa Tuple{typeof(v9), Int} | Tuple{typeof(v9), Int, Int}
+isa Tuple{typeof(v9), Int} | Tuple{typeof(v9), Vararg{Int}}
+isa0 Tuple{typeof(v4), Int, Int, Int} | Tuple{typeof(v4), Int, Int, Vararg{Int}}
+isa0 Tuple{typeof(v4), Int, Int, Int} | Tuple{typeof(v4), Int, Vararg{Int}}
+isa0 Tuple{typeof(v1), Int} | Tuple{typeof(v1), Vararg{Any}}
+isa0 Tuple{typeof(v1), Int} | Tuple{typeof(v1), Int, Vararg{Any}}
+isa0 Tuple{typeof(v1), Int} | Tuple{typeof(v1), Int, Vararg{Int}}
+isa Tuple{typeof(v1), Int} | Tuple{typeof(v1), Vararg{Type{Type{Int}}}}
+isa Tuple{typeof(v1), Int} | Tuple{typeof(v1), Int, Vararg{Type{Type{Int}}}}
+isa Tuple{typeof(v12), Type{Type{Int}}} | Tuple{typeof(v12), Type{Type{Int}}, Vararg{Type{Type{Int}}}}
+isa Tuple{typeof(v12), Type{Type{Int}}} | Tuple{typeof(v12), Vararg{Type{Type{Int}}}}
+isa Tuple{typeof(v12), Type{Type{Int}}} | Tuple{typeof(v12), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}
+isa Tuple{typeof(v12), Type{Type{Int}}} | Tuple{typeof(v12), Type{Type{Int}}}
+set Tuple{typeof(v7), Type{Int}} called 4
+isa Tuple{typeof(v7), Type{Int}} | Tuple{typeof(v7), Type, Type, Type}
+isa Tuple{typeof(v7), Type{Int}} | Tuple{typeof(v7), Type, Type}
+isa Tuple{typeof(v7), Type{Int}} | Tuple{typeof(v7), Type{Int}, Type{Int}}
+set Tuple{typeof(a2), Type{Int}} called 2
+isa Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type}
+isa Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type{Int}}
+isa Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type{Type{Int}}}
+isa Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type{Union{}}}
+isa Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), typeof(Union{})}
+isa Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type{<:Integer}}
+isa Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), DataType}
+isa Tuple{typeof(a1), Int} | Tuple{typeof(a1), Type{Int}}
+isa Tuple{typeof(a1), Int} | Tuple{typeof(a1), Type{Type{Int}}}
+isa Tuple{typeof(a1), Int} | Tuple{typeof(a1), Type}
+isa Tuple{typeof(a18), Type{Type{Int}}} | Tuple{typeof(a18), Type{Type{Int}}}
+isa Tuple{typeof(a17), Type{Type{Int}}} | Tuple{typeof(a17), Type{Type{Int}}}
+isa Tuple{typeof(a17), Type{Type{Int}}} | Tuple{typeof(a17), Type{Type}}
+isa Tuple{typeof(a3), Type{Int}} | Tuple{typeof(a3), Type{Type{Int}}}
+isa Tuple{typeof(a3), Type{Int}} | Tuple{typeof(a3), Type{Type{Type{Int}}}}
+isa Tuple{typeof(a3), Type{Int}} | Tuple{typeof(a3), Type{Int}}
+isa Tuple{typeof(v16), Type{Int}} | Tuple{typeof(v16), Type{Int}, Type}
+isa Tuple{typeof(v16), Type{Int}} | Tuple{typeof(v16), Type{Int}, Type, Type}
+isa Tuple{typeof(v16), Type{Int}} | Tuple{typeof(v16), Type, Type}
+call Tuple{typeof(v16), Type{Int}, Type{Int8}, Type{Int16}}
+call Tuple{typeof(v16), Type{Int}, Type{Int8}, Type{Int16}, Type{Int32}}
+call Tuple{typeof(v17), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v17), Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v18), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v18), Type{Type{Int}}, Type{Type{Int}}}
+call Tuple{typeof(v18), Type{Type{Int}}, Type{Type{Int8}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}

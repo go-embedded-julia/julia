@@ -1,0 +1,280 @@
+Tuple{typeof(a1), Int}	Tuple{typeof(a1), Int64}	Tuple{typeof(a1), Int64}	1	1
+Tuple{typeof(a1), Type{Int}}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	0	1
+Tuple{typeof(a1), Type{Type{Int}}}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	0	1
+Tuple{typeof(a1), Type{Union{}}}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	0	1
+Tuple{typeof(a1), DataType}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	0	1
+Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	1	1
+Tuple{typeof(a1), Type{<:Integer}}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	0	1
+Tuple{typeof(a1), Vector{Int}}	Tuple{typeof(a1), Vector{Int64}}	Tuple{typeof(a1), Vector{Int64}}	1	1
+Tuple{typeof(a1), Any}	Tuple{typeof(a1), Any}	nothing	0	0
+Tuple{typeof(a1), Union{Int,Float64}}	Tuple{typeof(a1), Union{Float64, Int64}}	nothing	0	0
+Tuple{typeof(a1), UnionAll}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	0	1
+Tuple{typeof(a1), Type{Vector}}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	0	1
+Tuple{typeof(a1), Union}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	0	1
+Tuple{typeof(a1), typeof(Union{})}	Tuple{typeof(a1), Type}	Tuple{typeof(a1), Type}	0	1
+Tuple{typeof(a1), typeof(a1)}	Tuple{typeof(a1), Function}	Tuple{typeof(a1), Function}	0	1
+Tuple{typeof(a1), Function}	Tuple{typeof(a1), Function}	Tuple{typeof(a1), Function}	1	1
+Tuple{typeof(a1)}	nomethod
+Tuple{typeof(a1), Int, Int}	nomethod
+Tuple{typeof(a1), Vararg{Int}}	nomethod
+Tuple{typeof(a2), Type{Int}}	Tuple{typeof(a2), Type}	Tuple{typeof(a2), Type}	0	1
+Tuple{typeof(a2), Type{Type{Int}}}	Tuple{typeof(a2), Type}	Tuple{typeof(a2), Type}	0	1
+Tuple{typeof(a2), DataType}	Tuple{typeof(a2), Type}	Tuple{typeof(a2), Type}	0	1
+Tuple{typeof(a2), Type}	Tuple{typeof(a2), Type}	Tuple{typeof(a2), Type}	1	1
+Tuple{typeof(a2), Type{Vector}}	Tuple{typeof(a2), Type}	Tuple{typeof(a2), Type}	0	1
+Tuple{typeof(a2), Type{Union{}}}	Tuple{typeof(a2), Type}	Tuple{typeof(a2), Type}	0	1
+Tuple{typeof(a2), Type{<:Integer}}	Tuple{typeof(a2), Type}	Tuple{typeof(a2), Type}	0	1
+Tuple{typeof(a3), Type{Int}}	Tuple{typeof(a3), Type{Int64}}	Tuple{typeof(a3), Type{Int64}}	1	1
+Tuple{typeof(a3), Type{Type{Int}}}	Tuple{typeof(a3), Type{Type{Int64}}}	Tuple{typeof(a3), Type{Type{Int64}}}	1	1
+Tuple{typeof(a3), Type{Vector}}	Tuple{typeof(a3), Type{Vector}}	Tuple{typeof(a3), Type{Vector}}	1	1
+Tuple{typeof(a4), DataType}	Tuple{typeof(a4), DataType}	Tuple{typeof(a4), DataType}	1	1
+Tuple{typeof(a4), Type{Int}}	Tuple{typeof(a4), DataType}	Tuple{typeof(a4), DataType}	0	1
+Tuple{typeof(a5), typeof(a1)}	Tuple{typeof(a5), Function}	Tuple{typeof(a5), Function}	0	1
+Tuple{typeof(a5), Function}	Tuple{typeof(a5), Function}	Tuple{typeof(a5), Function}	1	1
+Tuple{typeof(a5), typeof(a5)}	Tuple{typeof(a5), Function}	Tuple{typeof(a5), Function}	0	1
+Tuple{typeof(a6), typeof(a1), Int}	Tuple{typeof(a6), typeof(a1), Int64}	Tuple{typeof(a6), typeof(a1), Int64}	1	1
+Tuple{typeof(a6), Type{Int}, Int}	Tuple{typeof(a6), Type{Int64}, Int64}	Tuple{typeof(a6), Type{Int64}, Int64}	1	1
+Tuple{typeof(a6), Int, Type{Int}}	Tuple{typeof(a6), Int64, Type}	Tuple{typeof(a6), Int64, Type}	0	1
+Tuple{typeof(a7), typeof(a1), Int}	Tuple{typeof(a7), typeof(a1), Int64}	Tuple{typeof(a7), typeof(a1), Int64}	1	1
+Tuple{typeof(a8), typeof(a1)}	Tuple{typeof(a8), Function}	Tuple{typeof(a8), Function}	0	1
+Tuple{typeof(a8), Int}	Tuple{typeof(a8), Int64}	Tuple{typeof(a8), Int64}	1	1
+Tuple{typeof(a8), Function}	Tuple{typeof(a8), Function}	Tuple{typeof(a8), Function}	1	1
+Tuple{typeof(a9), Int}	Tuple{typeof(a9), Int64}	Tuple{typeof(a9), Int64}	1	1
+Tuple{typeof(a9), Integer}	Tuple{typeof(a9), Integer}	nothing	0	0
+Tuple{typeof(a9), Union{Int,Int8}}	Tuple{typeof(a9), Union{Int64, Int8}}	nothing	0	0
+Tuple{typeof(a10), Int, Int}	Tuple{typeof(a10), Int64, Any}	Tuple{typeof(a10), Int64, Any}	0	1
+Tuple{typeof(a10), Type{Int}, Int}	Tuple{typeof(a10), Type, Any}	Tuple{typeof(a10), Type, Any}	0	1
+Tuple{typeof(a10), Any, Int}	Tuple{typeof(a10), Any, Any}	nothing	0	0
+Tuple{typeof(a10), DataType, Int}	Tuple{typeof(a10), Type, Any}	Tuple{typeof(a10), Type, Any}	0	1
+Tuple{typeof(a11), Int, Int}	Tuple{typeof(a11), Int64, Any}	Tuple{typeof(a11), Int64, Any}	0	1
+Tuple{typeof(a11), Integer, Int}	Tuple{typeof(a11), Integer, Any}	nothing	0	0
+Tuple{typeof(a11), Int8, Type{Int}}	Tuple{typeof(a11), Int8, Any}	Tuple{typeof(a11), Int8, Any}	0	1
+Tuple{typeof(a11), Int, Int}	Tuple{typeof(a11), Int64, Int64}	Tuple{typeof(a11), Int64, Int64}	1	1
+Tuple{typeof(a11), Int, Type{Int}}	Tuple{typeof(a11), Int64, Type}	Tuple{typeof(a11), Int64, Type}	0	1
+Tuple{typeof(a11), Int, DataType}	Tuple{typeof(a11), Int64, Type}	Tuple{typeof(a11), Int64, Type}	0	1
+Tuple{typeof(a12), Type{Int}}	Tuple{typeof(a12), Type{Int64}}	Tuple{typeof(a12), Type{Int64}}	1	1
+Tuple{typeof(a12), Type{Integer}}	Tuple{typeof(a12), Type{Integer}}	Tuple{typeof(a12), Type{Integer}}	1	1
+Tuple{typeof(a12), Type{Int8}}	Tuple{typeof(a12), Type{Int8}}	Tuple{typeof(a12), Type{Int8}}	1	1
+Tuple{typeof(a12), Type{<:Integer}}	Tuple{typeof(a12), Type}	nothing	0	0
+Tuple{typeof(a12), Type{Type{Int}}}	nomethod
+Tuple{typeof(a13), Type{Int}}	Tuple{typeof(a13), Type{Int64}}	Tuple{typeof(a13), Type{Int64}}	1	1
+Tuple{typeof(a14), Int, Type{Int}}	Tuple{typeof(a14), Int64, Type}	Tuple{typeof(a14), Int64, Type}	0	1
+Tuple{typeof(a14), Int, DataType}	Tuple{typeof(a14), Int64, Type}	Tuple{typeof(a14), Int64, Type}	0	1
+Tuple{typeof(a14), Int, Type{Type{Int}}}	Tuple{typeof(a14), Int64, Type}	Tuple{typeof(a14), Int64, Type}	0	1
+Tuple{typeof(a14), Int, Type}	Tuple{typeof(a14), Int64, Type}	Tuple{typeof(a14), Int64, Type}	1	1
+Tuple{typeof(a15), Union}	Tuple{typeof(a15), Union}	Tuple{typeof(a15), Union}	1	1
+Tuple{typeof(a15), Type{Union{Int,Int8}}}	Tuple{typeof(a15), Union}	Tuple{typeof(a15), Union}	0	1
+Tuple{typeof(a16), UnionAll}	Tuple{typeof(a16), UnionAll}	Tuple{typeof(a16), UnionAll}	1	1
+Tuple{typeof(a16), Type{Vector}}	Tuple{typeof(a16), UnionAll}	Tuple{typeof(a16), UnionAll}	0	1
+Tuple{typeof(a17), Type{Type{Int}}}	Tuple{typeof(a17), Type{Type{Int64}}}	Tuple{typeof(a17), Type{Type{Int64}}}	1	1
+Tuple{typeof(a17), Type{Type{Type{Int}}}}	Tuple{typeof(a17), Type{T} where T<:Type}	Tuple{typeof(a17), Type{T} where T<:Type}	0	0
+Tuple{typeof(a17), Type{Type}}	Tuple{typeof(a17), Type{Type}}	Tuple{typeof(a17), Type{Type}}	1	1
+Tuple{typeof(a18), Type{Type{Int}}}	Tuple{typeof(a18), Type{Type{Int64}}}	Tuple{typeof(a18), Type{Type{Int64}}}	1	1
+Tuple{typeof(a19), Int, typeof(a1)}	Tuple{typeof(a19), Int64, Function}	Tuple{typeof(a19), Int64, Function}	0	1
+Tuple{typeof(a19), Int, Function}	Tuple{typeof(a19), Int64, Function}	Tuple{typeof(a19), Int64, Function}	1	1
+Tuple{typeof(a20), typeof(a1), typeof(a1)}	Tuple{typeof(a20), Function, typeof(a1)}	Tuple{typeof(a20), Function, typeof(a1)}	0	1
+Tuple{typeof(a21), Type{Union{}}}	Tuple{typeof(a21), Core.TypeofBottom}	Tuple{typeof(a21), Core.TypeofBottom}	0	1
+Tuple{typeof(a22), Tuple{Int,Int}}	Tuple{typeof(a22), Tuple{Int64, Int64}}	Tuple{typeof(a22), Tuple{Int64, Int64}}	1	1
+Tuple{typeof(a22), Tuple}	Tuple{typeof(a22), Tuple}	nothing	0	0
+Tuple{typeof(a22), Tuple{Int,Vararg{Int}}}	Tuple{typeof(a22), Tuple{Int64, Vararg{Int64}}}	nothing	0	0
+Tuple{typeof(v1)}	Tuple{typeof(v1)}	Tuple{typeof(v1)}	1	1
+Tuple{typeof(v1), Int}	Tuple{typeof(v1), Int64}	Tuple{typeof(v1), Int64}	1	1
+Tuple{typeof(v1), Int, Int}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Int, Int, Int}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Int, Int, Int, Int}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Int, Float64, Int, Int, Int}	Tuple{typeof(v1), Int64, Vararg{Any}}	Tuple{typeof(v1), Int64, Vararg{Any}}	1	1
+Tuple{typeof(v1), Vararg{Int}}	Tuple{typeof(v1), Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v1), Int, Vararg{Int}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Int, Int, Vararg{Int}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Int, Int, Int, Vararg{Int}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Type{Int}, Type{Int}, Type{Int}}	Tuple{typeof(v1), Type, Vararg{Type}}	Tuple{typeof(v1), Type, Vararg{Type}}	0	1
+Tuple{typeof(v1), Type{Int}, Type{Int}, Type{Int}, Type{Int}}	Tuple{typeof(v1), Type, Vararg{Type}}	Tuple{typeof(v1), Type, Vararg{Type}}	0	1
+Tuple{typeof(v1), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v1), Type, Vararg{Type}}	Tuple{typeof(v1), Type, Vararg{Type}}	0	1
+Tuple{typeof(v1), DataType, DataType, DataType, DataType}	Tuple{typeof(v1), Type, Vararg{Type}}	Tuple{typeof(v1), Type, Vararg{Type}}	0	1
+Tuple{typeof(v1), Int, Int, Int, Int, Int, Int, Int, Int}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1)}	Tuple{typeof(v1)}	Tuple{typeof(v1)}	1	1
+Tuple{typeof(v1), Int}	Tuple{typeof(v1), Vararg{Any}}	Tuple{typeof(v1), Vararg{Any}}	0	1
+Tuple{typeof(v1), Int, Int}	Tuple{typeof(v1), Vararg{Any}}	Tuple{typeof(v1), Vararg{Any}}	0	1
+Tuple{typeof(v1), Vararg{Int}}	Tuple{typeof(v1), Vararg{Any}}	Tuple{typeof(v1), Vararg{Any}}	1	1
+Tuple{typeof(v1), Int, Int}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	0	1
+Tuple{typeof(v1), Int, Int, Int}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	0	1
+Tuple{typeof(v1), Int, Vararg{Int}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Int, Int, Int}	Tuple{typeof(v1), Int64, Int64, Int64}	Tuple{typeof(v1), Int64, Int64, Int64}	1	1
+Tuple{typeof(v1), Int, Int, Int, Int}	Tuple{typeof(v1), Int64, Int64, Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Int64, Int64, Vararg{Int64}}	0	1
+Tuple{typeof(v1), Int, Int, Int, Int, Int}	Tuple{typeof(v1), Int64, Int64, Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Int64, Int64, Vararg{Int64}}	0	1
+Tuple{typeof(v1), Int, Int, Int, Vararg{Int}}	Tuple{typeof(v1), Int64, Int64, Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Int, Int, Int, Int, Vararg{Int}}	Tuple{typeof(v1), Int64, Int64, Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Int64, Int64, Vararg{Int64}}	0	1
+Tuple{typeof(v1), Type{Int}, Type{Int}, Type{Int}, Type{Int}}	Tuple{typeof(v1), Type, Type, Type, Vararg{Type}}	Tuple{typeof(v1), Type, Type, Type, Vararg{Type}}	0	1
+Tuple{typeof(v1), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v1), Type, Type, Type}	Tuple{typeof(v1), Type, Type, Type}	0	1
+Tuple{typeof(v1), Int, Float64, Int8, Int8}	Tuple{typeof(v1), Int64, Float64, Int8, Vararg{Int8}}	Tuple{typeof(v1), Int64, Float64, Int8, Vararg{Int8}}	0	1
+Tuple{typeof(v1), Int, Int, Int}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Int, Int, Int, Int, Int}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v2), Int}	Tuple{typeof(v2), Int64}	Tuple{typeof(v2), Int64}	1	1
+Tuple{typeof(v2), Int, Int}	Tuple{typeof(v2), Int64, Int64}	Tuple{typeof(v2), Int64, Int64}	1	1
+Tuple{typeof(v2), Int, Int, Int}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v2), Int, Int, Int, Int}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v2), Int, Vararg{Int}}	Tuple{typeof(v2), Int64, Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v2), Int, Int, Vararg{Int}}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v2), Int, Int, Int, Vararg{Int}}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v2), Int, Int, Int, Int, Vararg{Int}}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	Tuple{typeof(v2), Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v3)}	Tuple{typeof(v3)}	Tuple{typeof(v3)}	1	1
+Tuple{typeof(v3), Int}	Tuple{typeof(v3), Int64}	Tuple{typeof(v3), Int64}	1	1
+Tuple{typeof(v3), Int, Int}	Tuple{typeof(v3), Int64, Vararg{Int64}}	Tuple{typeof(v3), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v3), Int, Int, Int}	Tuple{typeof(v3), Int64, Vararg{Int64}}	Tuple{typeof(v3), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v3), Int, Int, Int, Int}	Tuple{typeof(v3), Int64, Vararg{Int64}}	Tuple{typeof(v3), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v3), Vararg{Int}}	Tuple{typeof(v3), Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v3), Int, Vararg{Int}}	Tuple{typeof(v3), Int64, Vararg{Int64}}	Tuple{typeof(v3), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v3), Int, Int, Vararg{Int}}	Tuple{typeof(v3), Int64, Vararg{Int64}}	Tuple{typeof(v3), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v4), Int}	Tuple{typeof(v4), Int64}	Tuple{typeof(v4), Int64}	1	1
+Tuple{typeof(v4), Int, Int}	Tuple{typeof(v4), Int64, Int64}	Tuple{typeof(v4), Int64, Int64}	1	1
+Tuple{typeof(v4), Int, Int, Int}	Tuple{typeof(v4), Int64, Int64, Vararg{Int64}}	Tuple{typeof(v4), Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v4), Int, Int, Int, Int}	Tuple{typeof(v4), Int64, Int64, Vararg{Int64}}	Tuple{typeof(v4), Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v4), Int, Int8, Int, Int}	nomethod
+Tuple{typeof(v4), Int, Vararg{Int}}	Tuple{typeof(v4), Int64, Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v4), Int, Int, Vararg{Int}}	Tuple{typeof(v4), Int64, Int64, Vararg{Int64}}	Tuple{typeof(v4), Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v4), Int, Int, Int, Vararg{Int}}	Tuple{typeof(v4), Int64, Int64, Vararg{Int64}}	Tuple{typeof(v4), Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v5), Int, Type{Int}}	Tuple{typeof(v5), Int64, Type}	Tuple{typeof(v5), Int64, Type}	0	1
+Tuple{typeof(v5), Int, Type{Int}, Int}	Tuple{typeof(v5), Int64, Type, Int64}	Tuple{typeof(v5), Int64, Type, Int64}	0	1
+Tuple{typeof(v5), Int, Type{Int}, Int, Int}	Tuple{typeof(v5), Int64, Type, Int64, Vararg{Int64}}	Tuple{typeof(v5), Int64, Type, Int64, Vararg{Int64}}	0	1
+Tuple{typeof(v5), Int, Type{Int}, Int, Int, Int}	Tuple{typeof(v5), Int64, Type, Int64, Vararg{Int64}}	Tuple{typeof(v5), Int64, Type, Int64, Vararg{Int64}}	0	1
+Tuple{typeof(v5), Int, DataType, Type{Int}, Type{Int}}	Tuple{typeof(v5), Int64, Type, Type, Vararg{Type}}	Tuple{typeof(v5), Int64, Type, Type, Vararg{Type}}	0	1
+Tuple{typeof(v5), Int, Type{Int}, Vararg{Int}}	Tuple{typeof(v5), Int64, Type{Int64}, Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v6), Type{Int}}	Tuple{typeof(v6), Type{Int64}}	Tuple{typeof(v6), Type{Int64}}	1	1
+Tuple{typeof(v6), Type{Int}, Int}	Tuple{typeof(v6), Type{Int64}, Int64}	Tuple{typeof(v6), Type{Int64}, Int64}	1	1
+Tuple{typeof(v6), Type{Int}, Int, Int}	Tuple{typeof(v6), Type{Int64}, Int64, Vararg{Int64}}	Tuple{typeof(v6), Type{Int64}, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v6), Type{Int}, Int, Int, Int}	Tuple{typeof(v6), Type{Int64}, Int64, Vararg{Int64}}	Tuple{typeof(v6), Type{Int64}, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v6), Type{Int}, Type{Int}, Type{Int}, Type{Int}}	Tuple{typeof(v6), Type{Int64}, Type, Vararg{Type}}	Tuple{typeof(v6), Type{Int64}, Type, Vararg{Type}}	0	1
+Tuple{typeof(v6), Type{Int}, Int, Vararg{Int}}	Tuple{typeof(v6), Type{Int64}, Int64, Vararg{Int64}}	Tuple{typeof(v6), Type{Int64}, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v7)}	Tuple{typeof(v7)}	Tuple{typeof(v7)}	1	1
+Tuple{typeof(v7), Type{Int}}	Tuple{typeof(v7), Type}	Tuple{typeof(v7), Type}	0	1
+Tuple{typeof(v7), Type{Int}, Type{Int}}	Tuple{typeof(v7), Type, Vararg{Type}}	Tuple{typeof(v7), Type, Vararg{Type}}	0	1
+Tuple{typeof(v7), Type{Int}, Type{Int}, Type{Int}}	Tuple{typeof(v7), Type, Vararg{Type}}	Tuple{typeof(v7), Type, Vararg{Type}}	0	1
+Tuple{typeof(v7), Type{Int}, Type{Int}, Type{Int}, Type{Int}}	Tuple{typeof(v7), Type, Vararg{Type}}	Tuple{typeof(v7), Type, Vararg{Type}}	0	1
+Tuple{typeof(v7), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v7), Type, Vararg{Type}}	Tuple{typeof(v7), Type, Vararg{Type}}	0	1
+Tuple{typeof(v7), DataType, DataType, DataType, DataType}	Tuple{typeof(v7), Type, Vararg{Type}}	Tuple{typeof(v7), Type, Vararg{Type}}	0	1
+Tuple{typeof(v7), Vararg{Type}}	Tuple{typeof(v7), Vararg{Type}}	nothing	0	0
+Tuple{typeof(v8), Int, Int, Int}	Tuple{typeof(v8), Int64, Int64, Int64}	Tuple{typeof(v8), Int64, Int64, Int64}	1	1
+Tuple{typeof(v8), Int, Vararg{Int}}	nomethod
+Tuple{typeof(v8), Int, Int}	nomethod
+Tuple{typeof(v9), Int}	Tuple{typeof(v9), Int64}	Tuple{typeof(v9), Int64}	1	1
+Tuple{typeof(v9), Int, Int}	Tuple{typeof(v9), Int64, Int64}	Tuple{typeof(v9), Int64, Int64}	1	1
+Tuple{typeof(v9), Vararg{Int}}	Tuple{typeof(v9), Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v10), Int}	Tuple{typeof(v10), Int64}	Tuple{typeof(v10), Int64}	1	1
+Tuple{typeof(v10), Int, Int}	Tuple{typeof(v10), Int64, Int64}	Tuple{typeof(v10), Int64, Int64}	1	1
+Tuple{typeof(v10), Int, Int, Float64}	Tuple{typeof(v10), Int64, Int64, Vararg{Number}}	Tuple{typeof(v10), Int64, Int64, Vararg{Number}}	1	1
+Tuple{typeof(v10), Int, Int, Float64, Int8}	Tuple{typeof(v10), Int64, Int64, Vararg{Number}}	Tuple{typeof(v10), Int64, Int64, Vararg{Number}}	1	1
+Tuple{typeof(v10), Int, Number, Number}	Tuple{typeof(v10), Int64, Number, Vararg{Number}}	nothing	0	0
+Tuple{typeof(v10), Int, Vararg{Int}}	Tuple{typeof(v10), Int64, Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v11), typeof(a1), Int}	Tuple{typeof(v11), typeof(a1), Int64}	Tuple{typeof(v11), typeof(a1), Int64}	1	1
+Tuple{typeof(v11), typeof(a1), Int, Int}	Tuple{typeof(v11), typeof(a1), Int64, Vararg{Int64}}	Tuple{typeof(v11), typeof(a1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v11), typeof(a1), Int, Int, Int}	Tuple{typeof(v11), typeof(a1), Int64, Vararg{Int64}}	Tuple{typeof(v11), typeof(a1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v11), typeof(a1), Int, Int, Int, Int}	Tuple{typeof(v11), typeof(a1), Int64, Vararg{Int64}}	Tuple{typeof(v11), typeof(a1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v11), Type{Int}, Int}	Tuple{typeof(v11), Type{Int64}, Int64}	Tuple{typeof(v11), Type{Int64}, Int64}	1	1
+Tuple{typeof(v11), Type{Int}, Int, Int, Int}	Tuple{typeof(v11), Type{Int64}, Int64, Vararg{Int64}}	Tuple{typeof(v11), Type{Int64}, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v11), Type{Int}, Vararg{Int}}	Tuple{typeof(v11), Type{Int64}, Vararg{Int64}}	nothing	0	0
+Tuple{typeof(g1), Int, Int}	Tuple{typeof(g1), Int64, Int64}	Tuple{typeof(g1), Int64, Int64}	1	1
+Tuple{typeof(g1), Type{Int}, Int}	Tuple{typeof(g1), Type{Int64}, Int64}	Tuple{typeof(g1), Type{Int64}, Int64}	1	1
+Tuple{typeof(g1), Any, Any}	Tuple{typeof(g1), Any, Any}	nothing	0	0
+Tuple{typeof(g1), Int}	nomethod
+Tuple{typeof(g1), Vararg{Int}}	nomethod
+Tuple{typeof(g2), Int}	Tuple{typeof(g2), Int64}	Tuple{typeof(g2), Int64}	1	1
+Tuple{typeof(g2), Int, Int, Int}	Tuple{typeof(g2), Int64, Int64, Int64}	Tuple{typeof(g2), Int64, Int64, Int64}	1	1
+Tuple{typeof(g2), Int, Vararg{Int}}	Tuple{typeof(g2), Int64, Vararg{Int64}}	nothing	0	0
+Tuple{typeof(g2), Type{Int}, Int}	Tuple{typeof(g2), Type{Int64}, Int64}	Tuple{typeof(g2), Type{Int64}, Int64}	1	1
+Tuple{typeof(Core.kwcall), NamedTuple{(:a,),Tuple{Int}}, typeof(kf), Int}	Tuple{typeof(Core.kwcall), @NamedTuple{a::Int64}, typeof(kf), Int64}	Tuple{typeof(Core.kwcall), @NamedTuple{a::Int64}, typeof(kf), Int64}	1	1
+Tuple{typeof(Core.kwcall), NamedTuple{(:a,),Tuple{Int}}, typeof(kf), Int, Int}	Tuple{typeof(Core.kwcall), @NamedTuple{a::Int64}, typeof(kf), Int64, Int64}	Tuple{typeof(Core.kwcall), @NamedTuple{a::Int64}, typeof(kf), Int64, Int64}	1	1
+Tuple{typeof(Core.kwcall), NamedTuple, typeof(kf), Int}	Tuple{typeof(Core.kwcall), NamedTuple, typeof(kf), Int64}	nothing	0	0
+Tuple{typeof(Core.kwcall), NamedTuple{(:a,),Tuple{Int}}, typeof(kf), Type{Int}}	Tuple{typeof(Core.kwcall), @NamedTuple{a::Int64}, typeof(kf), Type}	Tuple{typeof(Core.kwcall), @NamedTuple{a::Int64}, typeof(kf), Type}	0	1
+Tuple{typeof(Core.kwcall), NamedTuple{(:a,),Tuple{Int}}, typeof(a1), Int}	nomethod
+Tuple{typeof(v4), Int, Vararg{S}} where S<:Integer | Tuple{typeof(v4), Int, Vararg{Int}}	Tuple{typeof(v4), Int64, Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v4), Int, Int, Int, Int, Vararg{S}} where S | Tuple{typeof(v4), Int, Int, Int, Int, Vararg{Int}}	nomethod
+Tuple{typeof(v4), Int, Int, Vararg{S}} where S<:Integer | Tuple{typeof(v4), Int, Int, Vararg{Int}}	nomethod
+Tuple{typeof(v4), Int, Int, Int, Vararg{S}} where S<:Integer | Tuple{typeof(v4), Int, Int, Int, Int}	nomethod
+Tuple{typeof(v9), Vararg{S}} where S<:Int | Tuple{typeof(v9), Vararg{Int}}	Tuple{typeof(v9), Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v6), Type{T}, Vararg{S}} where {T,S} | Tuple{typeof(v6), Type{Int}, Vararg{Int}}	Tuple{typeof(v6), Type{Int64}, Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v6), Type{T}, Int, Int, Int, Vararg{S}} where {T,S} | Tuple{typeof(v6), Type{Int}, Int, Int, Int, Vararg{Int}}	Tuple{typeof(v6), Type{Int64}, Int64, Vararg{Int64}}	Tuple{typeof(v6), Type{Int64}, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Vararg{S}} where S | Tuple{typeof(v1), Vararg{Int}}	Tuple{typeof(v1), Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v1), Int, Vararg{S}} where S<:Integer | Tuple{typeof(v1), Int, Vararg{Int}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	Tuple{typeof(v1), Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v1), Type{Type{Int}}, Vararg{Type{Type{Int}}}}	Tuple{typeof(v1), Type, Vararg{Type}}	Tuple{typeof(v1), Type, Vararg{Type}}	0	1
+Tuple{typeof(v1), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Vararg{Type{Type{Int}}}}	Tuple{typeof(v1), Type, Vararg{Type}}	Tuple{typeof(v1), Type, Vararg{Type}}	0	1
+Tuple{typeof(v7), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Vararg{Type{Type{Int}}}}	Tuple{typeof(v7), Type, Vararg{Type}}	Tuple{typeof(v7), Type, Vararg{Type}}	0	1
+Tuple{typeof(v12), Type{Type{Int}}}	Tuple{typeof(v12), Type{Type{Int64}}}	Tuple{typeof(v12), Type{Type{Int64}}}	1	1
+Tuple{typeof(v12), Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v12), Type{Type{Int64}}, Vararg{Type{Type{Int64}}}}	Tuple{typeof(v12), Type{Type{Int64}}, Vararg{Type{Type{Int64}}}}	0	1
+Tuple{typeof(v12), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v12), Type{Type{Int64}}, Vararg{Type{Type{Int64}}}}	Tuple{typeof(v12), Type{Type{Int64}}, Vararg{Type{Type{Int64}}}}	0	1
+Tuple{typeof(v12), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v12), Type{Type{Int64}}, Vararg{Type{Type{Int64}}}}	Tuple{typeof(v12), Type{Type{Int64}}, Vararg{Type{Type{Int64}}}}	0	1
+Tuple{typeof(v12), Type{Type{Int}}, Vararg{Type{Type{Int}}}}	Tuple{typeof(v12), Type{Type{Int64}}, Vararg{Type{Type{Int64}}}}	Tuple{typeof(v12), Type{Type{Int64}}, Vararg{Type{Type{Int64}}}}	1	1
+Tuple{typeof(v13), Int, Int, Int, Int}	Tuple{typeof(v13), Vararg{Int64, 4}}	Tuple{typeof(v13), Vararg{Int64, 4}}	1	1
+Tuple{typeof(v13), Int, Int, Int, Int, Int}	Tuple{typeof(v13), Vararg{Int64, 5}}	Tuple{typeof(v13), Vararg{Int64, 5}}	1	1
+Tuple{typeof(v13), Int, Int, Int, Int, Int, Int}	Tuple{typeof(v13), Int64, Int64, Int64, Int64, Int64, Vararg{Int64}}	Tuple{typeof(v13), Int64, Int64, Int64, Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v13), Int, Int, Int, Int, Int, Int, Int}	Tuple{typeof(v13), Int64, Int64, Int64, Int64, Int64, Vararg{Int64}}	Tuple{typeof(v13), Int64, Int64, Int64, Int64, Int64, Vararg{Int64}}	1	1
+Tuple{typeof(v13), Int, Int, Int, Int, Int, Int, Int, Int}	Tuple{typeof(v13), Int64, Int64, Int64, Int64, Int64, Vararg{Int64}}	Tuple{typeof(v13), Int64, Int64, Int64, Int64, Int64, Vararg{Int64}}	1	1
+Tuple{Type{Foo}, Int}	Tuple{Type{Foo}, Int64}	Tuple{Type{Foo}, Int64}	1	1
+Tuple{Type{Foo}, Int, Int, Int}	Tuple{Type{Foo}, Int64, Vararg{Int64}}	Tuple{Type{Foo}, Int64, Vararg{Int64}}	0	1
+Tuple{Type{Foo}, Int, Int, Int, Int}	Tuple{Type{Foo}, Int64, Vararg{Int64}}	Tuple{Type{Foo}, Int64, Vararg{Int64}}	0	1
+Tuple{Foo, Int}	Tuple{Foo, Int64}	Tuple{Foo, Int64}	1	1
+Tuple{Foo, Int, Int, Int}	Tuple{Foo, Int64, Vararg{Int64}}	Tuple{Foo, Int64, Vararg{Int64}}	0	1
+Tuple{Bar, Int, Int, Int, Int}	Tuple{Bar, Int64, Vararg{Int64}}	Tuple{Bar, Int64, Vararg{Int64}}	0	1
+Tuple{typeof(a1), Int} | Tuple{typeof(a1)}	Tuple{typeof(a1)}	Tuple{typeof(a1)}	0	0
+Tuple{typeof(a1), Int} | Tuple{typeof(a1), Vararg{Int}}	Tuple{typeof(a1), Vararg{Int64}}	nothing	0	0
+Tuple{typeof(a1), Int} | Tuple{typeof(a1), Int, Int}	Tuple{typeof(a1), Int64, Int64}	Tuple{typeof(a1), Int64, Int64}	0	0
+Tuple{typeof(v9), Int} | Tuple{typeof(v9), Vararg{Int}}	Tuple{typeof(v9), Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v9), Int} | Tuple{typeof(v9)}	Tuple{typeof(v9)}	Tuple{typeof(v9)}	1	1
+Tuple{typeof(v1), Int} | Tuple{typeof(v1), Vararg{Int}}	Tuple{typeof(v1), Vararg{Int64}}	nothing	0	0
+Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2)}	Tuple{typeof(v2)}	Tuple{typeof(v2)}	0	0
+Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2), Int}	Tuple{typeof(v2), Int64}	Tuple{typeof(v2), Int64}	1	1
+Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2), Vararg{Int}}	Tuple{typeof(v2), Vararg{Int64}}	nothing	0	0
+Tuple{typeof(a1), Int} | Tuple{typeof(a1)}	-	-	0	-
+Tuple{typeof(a1), Int} | Tuple{}	-	-	0	-
+Tuple{typeof(a1), Int} | Tuple{typeof(a1), Vararg{Int}}	-	-	0	-
+Tuple{typeof(a1), Int} | Tuple{typeof(a1), Int, Int}	-	-	0	-
+Tuple{typeof(a1), Int} | Union{Tuple{typeof(a1), Int}, Tuple{typeof(a1), Int8}}	-	-	0	-
+Tuple{typeof(a1), Int} | Tuple{typeof(a1), Int} where {T}	-	-	1	-
+Tuple{typeof(a1), Int} | let T = Core.TypeVar(:T); Tuple{typeof(a1), T}; end	-	-	0	-
+Tuple{typeof(v1), Int} | Tuple{typeof(v1)}	-	-	1	-
+Tuple{typeof(v1), Int} | Tuple{typeof(v1), Vararg{Int}}	-	-	0	-
+Tuple{typeof(v1), Int} | Tuple{typeof(v1), Int, Vararg{Int}}	-	-	1	-
+Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2)}	-	-	0	-
+Tuple{typeof(v2), Int, Int} | Tuple{typeof(v2), Int, Int, Int, Int, Int, Int, Int, Int}	-	-	1	-
+Tuple{typeof(v3), Int} | Tuple{typeof(v3), Int, Int, Int, Int, Int, Int}	-	-	1	-
+Tuple{typeof(v9), Int} | Tuple{typeof(v9), Int, Int}	-	-	1	-
+Tuple{typeof(v9), Int} | Tuple{typeof(v9), Vararg{Int}}	-	-	0	-
+Tuple{typeof(v4), Int, Int, Int} | Tuple{typeof(v4), Int, Int, Vararg{Int}}	-	-	0	-
+Tuple{typeof(v4), Int, Int, Int} | Tuple{typeof(v4), Int, Vararg{Int}}	-	-	0	-
+Tuple{typeof(v1), Int} | Tuple{typeof(v1), Vararg{Any}}	-	-	0	-
+Tuple{typeof(v1), Int} | Tuple{typeof(v1), Int, Vararg{Any}}	-	-	1	-
+Tuple{typeof(v1), Int} | Tuple{typeof(v1), Int, Vararg{Int}}	-	-	1	-
+Tuple{typeof(v1), Int} | Tuple{typeof(v1), Vararg{Type{Type{Int}}}}	-	-	0	-
+Tuple{typeof(v1), Int} | Tuple{typeof(v1), Int, Vararg{Type{Type{Int}}}}	-	-	0	-
+Tuple{typeof(v12), Type{Type{Int}}} | Tuple{typeof(v12), Type{Type{Int}}, Vararg{Type{Type{Int}}}}	-	-	1	-
+Tuple{typeof(v12), Type{Type{Int}}} | Tuple{typeof(v12), Vararg{Type{Type{Int}}}}	-	-	0	-
+Tuple{typeof(v12), Type{Type{Int}}} | Tuple{typeof(v12), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}	-	-	0	-
+Tuple{typeof(v12), Type{Type{Int}}} | Tuple{typeof(v12), Type{Type{Int}}}	-	-	1	-
+Tuple{typeof(v7), Type{Int}} | Tuple{typeof(v7), Type, Type, Type}	-	-	1	-
+Tuple{typeof(v7), Type{Int}} | Tuple{typeof(v7), Type, Type}	-	-	1	-
+Tuple{typeof(v7), Type{Int}} | Tuple{typeof(v7), Type{Int}, Type{Int}}	-	-	0	-
+Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type}	-	-	1	-
+Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type{Int}}	-	-	0	-
+Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type{Type{Int}}}	-	-	0	-
+Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type{Union{}}}	-	-	0	-
+Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), typeof(Union{})}	-	-	0	-
+Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), Type{<:Integer}}	-	-	0	-
+Tuple{typeof(a2), Type{Int}} | Tuple{typeof(a2), DataType}	-	-	0	-
+Tuple{typeof(a1), Int} | Tuple{typeof(a1), Type{Int}}	-	-	0	-
+Tuple{typeof(a1), Int} | Tuple{typeof(a1), Type{Type{Int}}}	-	-	0	-
+Tuple{typeof(a1), Int} | Tuple{typeof(a1), Type}	-	-	1	-
+Tuple{typeof(a18), Type{Type{Int}}} | Tuple{typeof(a18), Type{Type{Int}}}	-	-	1	-
+Tuple{typeof(a17), Type{Type{Int}}} | Tuple{typeof(a17), Type{Type{Int}}}	-	-	1	-
+Tuple{typeof(a17), Type{Type{Int}}} | Tuple{typeof(a17), Type{Type}}	-	-	1	-
+Tuple{typeof(a3), Type{Int}} | Tuple{typeof(a3), Type{Type{Int}}}	-	-	1	-
+Tuple{typeof(a3), Type{Int}} | Tuple{typeof(a3), Type{Type{Type{Int}}}}	-	-	0	-
+Tuple{typeof(a3), Type{Int}} | Tuple{typeof(a3), Type{Int}}	-	-	1	-
+Tuple{typeof(v16), Type{Int}} | Tuple{typeof(v16), Type{Int}, Type}	-	-	1	-
+Tuple{typeof(v16), Type{Int}} | Tuple{typeof(v16), Type{Int}, Type, Type}	-	-	1	-
+Tuple{typeof(v16), Type{Int}} | Tuple{typeof(v16), Type, Type}	-	-	0	-
+Tuple{typeof(v16), Type{Int}, Type{Int8}, Type{Int16}}	Tuple{typeof(v16), Type{Int64}, Vararg{Type{<:Integer}}}	Tuple{typeof(v16), Type{Int64}, Vararg{Type{<:Integer}}}	1	1
+Tuple{typeof(v16), Type{Int}, Type{Int8}, Type{Int16}, Type{Int32}}	Tuple{typeof(v16), Type{Int64}, Vararg{Type{<:Integer}}}	Tuple{typeof(v16), Type{Int64}, Vararg{Type{<:Integer}}}	1	1
+Tuple{typeof(v17), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v17), Type{<:Type{Int64}}, Vararg{Type{<:Type{Int64}}}}	Tuple{typeof(v17), Type{<:Type{Int64}}, Vararg{Type{<:Type{Int64}}}}	0	0
+Tuple{typeof(v17), Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v17), Type{<:Type{Int64}}, Vararg{Type{<:Type{Int64}}}}	Tuple{typeof(v17), Type{<:Type{Int64}}, Vararg{Type{<:Type{Int64}}}}	0	0
+Tuple{typeof(v18), Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v18), Type{Type{Int64}}, Vararg{Type}}	Tuple{typeof(v18), Type{Type{Int64}}, Vararg{Type}}	1	1
+Tuple{typeof(v18), Type{Type{Int}}, Type{Type{Int}}}	Tuple{typeof(v18), Type{Type{Int64}}, Vararg{Type}}	Tuple{typeof(v18), Type{Type{Int64}}, Vararg{Type}}	1	1
+Tuple{typeof(v18), Type{Type{Int}}, Type{Type{Int8}}, Type{Type{Int}}, Type{Type{Int}}, Type{Type{Int}}}	nomethod

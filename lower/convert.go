@@ -43,7 +43,7 @@ func toSx(v any) any {
 		if x.Mod == "Core" {
 			return list(sCore, x.Name)
 		}
-		return list(sym("globalref"), &jlValue{expr.Module{Path: []expr.Symbol{x.Mod}}}, x.Name)
+		return list(sym("globalref"), &jlValue{expr.Module{Path: []expr.Symbol{x.Mod}, Obj: x.Obj}}, x.Name)
 	case expr.SSAValue:
 		errorf("SSAValue objects should not occur in an AST")
 	case expr.SlotNumber:
@@ -150,7 +150,7 @@ func (c *converter) fromList(e []any) any {
 			}
 			c.notImage[m.Path[len(m.Path)-1]] = true
 		}
-		return expr.GlobalRef{Mod: m.Path[len(m.Path)-1], Name: c.fromSx(args[1]).(sym)}
+		return expr.GlobalRef{Mod: m.Path[len(m.Path)-1], Name: c.fromSx(args[1]).(sym), Obj: m.Obj}
 	case hd == sTop:
 		return expr.GlobalRef{Mod: c.top, Name: c.fromSx(args[0]).(sym)}
 	case hd == sCore:
@@ -172,13 +172,6 @@ func (c *converter) fromList(e []any) any {
 	return expr.New(hd, out...)
 }
 
-// lineInfo is a (lineinfo file line inlined-at) entry of the line table.
-type lineInfo struct {
-	file    any
-	line    int32
-	inlined int32
-}
-
 // codeInfo is jl_new_code_info_from_ir of the converted lambda
 // (lambda (list args…) (list (list vinfo…) captured nssa sparams) (block
 // stmts…) (list locs…) (list (lineinfo …)…)).
@@ -187,28 +180,57 @@ func (c *converter) codeInfo(args []any) *expr.CodeInfo {
 	vinfo := asList(args[1])[1:]
 	body := asList(args[2])[1:]
 	locs := asList(args[3])[1:]
-	var linetable []lineInfo
+	var linetable []LineInfo
 	for _, li := range asList(args[4])[1:] {
 		l := asList(li)
-		linetable = append(linetable, lineInfo{c.fromSx(l[1]), int32(l[2].(int64)), int32(l[3].(int64))})
-	}
-	ci := &expr.CodeInfo{
-		SlotTypes: nil, RetType: expr.Opaque{Type: "DataType", Repr: "Any"}, Parent: nil,
-		Edges: expr.Vector{}, MinWorld: uint64(1), MaxWorld: ^uint64(0), MethodForInferenceLH: nil,
-		NArgs: uint64(len(arglist)), PropagateInbounds: false, HasFcall: false,
-		HasImageGlobalref: false, NoSpecializeInfer: false, IsVA: false,
-		Inlining: uint8(0), Constprop: uint8(0), Purity: uint16(0), InliningCost: uint16(0xffff),
+		linetable = append(linetable, LineInfo{c.fromSx(l[1]), int32(l[2].(int64)), int32(l[3].(int64))})
 	}
 	codelocs := make([]int64, len(locs))
 	for i, l := range locs {
 		codelocs[i] = l.(int64)
 	}
-	ci.DebugInfo = linetableToDebugInfo(codelocs, linetable)
-
 	code := make(expr.Vector, len(body))
 	for i, st := range body {
 		code[i] = c.fromSx(st)
 	}
+	vis := asList(vinfo[0])[1:]
+	slots := make([]Slot, len(vis))
+	for i, v := range vis {
+		vi := asList(v)[1:]
+		slots[i] = Slot{vi[0].(sym), vi[2].(int64)}
+	}
+	return NewCodeInfo(len(arglist), slots, vinfo[2].(int64), code, codelocs, linetable, c.inImage)
+}
+
+// LineInfo is a (lineinfo file line inlined-at) entry of a lambda's line
+// table, a LegacyLineInfoNode.
+type LineInfo struct {
+	File    any
+	Line    int32
+	Inlined int32
+}
+
+// Slot is a lambda's variable: its name and its vinfo flags.
+type Slot struct {
+	Name  expr.Symbol
+	Flags int64
+}
+
+// NewCodeInfo is jl_new_code_info_from_ir (method.c:384) and
+// jl_code_info_set_ir of a lambda's parts: nargs arguments, its slots, the
+// number of SSA values, its statements (julia values), their locations in
+// linetable. inImage tells the modules of the system image, for
+// has_image_globalref. jl_method_def uses it for a method whose body a
+// closure made at run time (method.c:1246-1251).
+func NewCodeInfo(nargs int, slots []Slot, nssa int64, code expr.Vector, codelocs []int64, linetable []LineInfo, inImage func(expr.Symbol) bool) *expr.CodeInfo {
+	ci := &expr.CodeInfo{
+		SlotTypes: nil, RetType: expr.Opaque{Type: "DataType", Repr: "Any"}, Parent: nil,
+		Edges: expr.Vector{}, MinWorld: uint64(1), MaxWorld: ^uint64(0), MethodForInferenceLH: nil,
+		NArgs: uint64(nargs), PropagateInbounds: false, HasFcall: false,
+		HasImageGlobalref: false, NoSpecializeInfer: false, IsVA: false,
+		Inlining: uint8(0), Constprop: uint8(0), Purity: uint16(0), InliningCost: uint16(0xffff),
+	}
+	ci.DebugInfo = linetableToDebugInfo(codelocs, linetable)
 	ci.Code = code
 	ssaflags := make(expr.Vector, len(code))
 	inbounds := 0
@@ -288,7 +310,7 @@ func (c *converter) codeInfo(args []any) *expr.CodeInfo {
 			code[j] = expr.ReturnNode{Val: e.Args[0]}
 		default:
 			if gr, ok := st.(expr.GlobalRef); ok {
-				if c.inImage(gr.Mod) {
+				if inImage(gr.Mod) {
 					ci.HasImageGlobalref = true
 				}
 				break
@@ -325,13 +347,11 @@ func (c *converter) codeInfo(args []any) *expr.CodeInfo {
 	ci.Purity = purityBits
 	ci.SSAFlags = ssaflags
 
-	vis := asList(vinfo[0])[1:]
-	ci.SSAValueTypes = vinfo[2].(int64)
-	names := make(expr.Vector, len(vis))
-	flags := make(expr.Vector, len(vis))
-	for i, v := range vis {
-		vi := asList(v)[1:]
-		name := vi[0].(sym)
+	ci.SSAValueTypes = nssa
+	names := make(expr.Vector, len(slots))
+	flags := make(expr.Vector, len(slots))
+	for i, v := range slots {
+		name := v.Name
 		if i > 0 && name != unusedSym && strings.HasPrefix(string(name), "#") {
 			// convention for renamed variables: #...#original_name
 			if k := strings.IndexByte(string(name[1:]), '#'); k >= 0 {
@@ -341,7 +361,7 @@ func (c *converter) codeInfo(args []any) *expr.CodeInfo {
 			}
 		}
 		names[i] = name
-		flags[i] = uint8(vi[2].(int64)) & (8 | 16 | 32 | 64)
+		flags[i] = uint8(v.Flags) & (8 | 16 | 32 | 64)
 	}
 	ci.SlotNames = names
 	ci.SlotFlags = flags
@@ -366,7 +386,7 @@ func (c *converter) inImage(m sym) bool {
 }
 
 // linetableToDebugInfo is jl_linetable_to_debuginfo.
-func linetableToDebugInfo(codelocsAny []int64, linetable []lineInfo) *expr.DebugInfo {
+func linetableToDebugInfo(codelocsAny []int64, linetable []LineInfo) *expr.DebugInfo {
 	top := linetable[0]
 	type edge struct {
 		file any
@@ -374,20 +394,20 @@ func linetableToDebugInfo(codelocsAny []int64, linetable []lineInfo) *expr.Debug
 		locs []int32 // triples
 	}
 	var edges []*edge
-	var addEdge func(list *[]*edge, stack *[]lineInfo) (int32, int32)
-	addEdge = func(list *[]*edge, stack *[]lineInfo) (int32, int32) {
+	var addEdge func(list *[]*edge, stack *[]LineInfo) (int32, int32)
+	addEdge = func(list *[]*edge, stack *[]LineInfo) (int32, int32) {
 		li := (*stack)[len(*stack)-1]
 		*stack = (*stack)[:len(*stack)-1]
 		var e *edge
 		i := 0
 		for ; i < len(*list); i++ {
-			if equal((*list)[i].file, li.file) {
+			if equal((*list)[i].file, li.File) {
 				e = (*list)[i]
 				break
 			}
 		}
 		if e == nil {
-			e = &edge{file: li.file, sub: new([]*edge)}
+			e = &edge{file: li.File, sub: new([]*edge)}
 			*list = append(*list, e)
 		}
 		to := int32(i + 1)
@@ -397,29 +417,29 @@ func linetableToDebugInfo(codelocsAny []int64, linetable []lineInfo) *expr.Debug
 		}
 		k := 0
 		for ; k < len(e.locs); k += 3 {
-			if e.locs[k] == li.line && e.locs[k+1] == subTo && e.locs[k+2] == subPC {
+			if e.locs[k] == li.Line && e.locs[k+1] == subTo && e.locs[k+2] == subPC {
 				break
 			}
 		}
 		if k == len(e.locs) {
-			e.locs = append(e.locs, li.line, subTo, subPC)
+			e.locs = append(e.locs, li.Line, subTo, subPC)
 		}
 		return to, int32(k/3 + 1)
 	}
 	codelocs := make([]int32, 0, 3*len(codelocsAny))
-	var stack []lineInfo
+	var stack []LineInfo
 	for _, idx := range codelocsAny {
 		for idx != 0 {
 			li := linetable[idx-1]
-			idx = int64(li.inlined)
+			idx = int64(li.Inlined)
 			stack = append(stack, li)
 		}
 		var line, to, pc int32
 		if len(stack) > 0 {
 			li := stack[len(stack)-1]
 			stack = stack[:len(stack)-1]
-			if equal(li.file, top.file) {
-				line = li.line
+			if equal(li.File, top.File) {
+				line = li.Line
 			} else {
 				stack = append(stack, li)
 			}
@@ -434,17 +454,81 @@ func linetableToDebugInfo(codelocsAny []int64, linetable []lineInfo) *expr.Debug
 		out := make(expr.Vector, len(list))
 		for i, e := range list {
 			out[i] = &expr.DebugInfo{Def: e.file, Linetable: nil, Edges: alloc(*e.sub),
-				Codelocs: compressCodelocs(0, e.locs)}
+				Codelocs: CompressCodelocs(0, e.locs)}
 		}
 		return out
 	}
-	return &expr.DebugInfo{Def: top.file, Linetable: nil, Edges: alloc(edges),
-		Codelocs: compressCodelocs(top.line, codelocs)}
+	return &expr.DebugInfo{Def: top.File, Linetable: nil, Edges: alloc(edges),
+		Codelocs: CompressCodelocs(top.Line, codelocs)}
 }
 
-// compressCodelocs is jl_compress_codelocs (little-endian, as julia writes
-// it on the platforms the goldens come from).
-func compressCodelocs(firstline int32, codelocs []int32) string {
+// UncompressCodeloc is jl_uncompress1_codeloc (ircode.c:1425-1433, over
+// codelocs_parseheader and unpack_codeloc, 956-981 and 1352-1420): the
+// (line, to, pc) of statement pc (0 the first line), (-1, 0, 0) out of
+// range. julia reads past a malformed string; a short one is out of range
+// here. With 4-byte entries julia's switch never assigns pc (it has case 3
+// for 4): pc is 0 then.
+func UncompressCodeloc(cl string, pc int) (line, to, at int32) {
+	if len(cl) == 0 {
+		return 0, 0, 0
+	}
+	if len(cl) < 12 {
+		return -1, 0, 0
+	}
+	header := func(i int) int32 { return int32(binary.LittleEndian.Uint32([]byte(cl[4*i : 4*i+4]))) }
+	lineOffset := header(0)
+	lineBytes, toBytes := 4, 4
+	switch h := header(1); {
+	case h < 255:
+		lineBytes = 1
+	case h < 65535:
+		lineBytes = 2
+	}
+	switch h := header(2); {
+	case h == 0:
+		toBytes = 0
+	case h < 255:
+		toBytes = 1
+	case h < 65535:
+		toBytes = 2
+	}
+	if len(cl) < 12+lineBytes {
+		return -1, 0, 0
+	}
+	nstmts := (len(cl) - 12 - lineBytes) / (lineBytes + toBytes*2)
+	if pc < 0 || pc > nstmts {
+		return -1, 0, 0
+	}
+	// pc ≤ nstmts keeps every read inside cl
+	off := 12
+	if pc == 0 {
+		toBytes = 0
+	} else {
+		off += lineBytes + (pc-1)*(lineBytes+toBytes*2)
+	}
+	read := func(n int) int32 {
+		var v uint32
+		for i := n - 1; i >= 0; i-- {
+			v = v<<8 | uint32(cl[off+i])
+		}
+		off += n
+		return int32(v)
+	}
+	if line = read(lineBytes); line > 0 {
+		line += lineOffset - 1
+	}
+	to = read(toBytes)
+	if at = read(toBytes); toBytes == 4 {
+		at = 0
+	}
+	return line, to, at
+}
+
+// CompressCodelocs is jl_compress_codelocs (ircode.c:1446-1566): a
+// DebugInfo's codelocs, three Int32 per statement, as julia's compressed
+// string (little-endian, as julia writes it on the platforms the goldens
+// come from).
+func CompressCodelocs(firstline int32, codelocs []int32) string {
 	nstmts := len(codelocs) / 3
 	allzero := true
 	for _, v := range codelocs {

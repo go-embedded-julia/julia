@@ -9,6 +9,37 @@ import (
 	"github.com/go-embedded-julia/julia/expr"
 )
 
+// get_fieldtype's error paths inside a UnionAll and a Union, and a
+// NamedTuple whose types parameter is Any or Union{} (builtins.c:1179-1240).
+func TestGetFieldtypeEdges(t *testing.T) {
+	vm := New()
+	T := &core.TypeVar{Name: "T", LB: core.Bottom, UB: core.AnyType}
+	st := core.NewIncompleteType("L", "St", nil, false, false, []expr.Symbol{"x"})
+	st.SetSuper(core.AnyType)
+	st.SetFieldTypes([]any{core.Int64Type})
+	// a field of type Union{}: its type is Union{} and asking it is no error
+	bot := core.NewIncompleteType("L", "Bot", nil, false, false, []expr.Symbol{"x"})
+	bot.SetSuper(core.AnyType)
+	bot.SetFieldTypes([]any{core.Bottom})
+	names := vm.newTuple([]any{expr.Symbol("a")})
+	for _, c := range []struct {
+		name string
+		t, f any
+		want string
+	}{
+		{"a UnionAll's body refusing the index", &core.UnionAll{Var: T, Body: st}, 1.5, "!TypeError(:fieldtype"},
+		{"a Union's first member refusing it", &core.Union{A: st, B: core.Int64Type}, 1.5, "!TypeError(:fieldtype"},
+		{"a Union's second member refusing it", &core.Union{A: st, B: T}, int64(1), "!TypeError(:fieldtype"},
+		// the first has the field, of type Union{}; the second lacks it
+		{"the second member's error under dothrow", &core.Union{A: bot, B: core.Int64Type}, int64(1), "!BoundsError"},
+		{"a NamedTuple of Any types", &core.DataType{Name: core.NamedTupleTypeName, Parameters: []any{names, core.AnyType}}, int64(1), "Any"},
+		{"a NamedTuple of Union{} types", &core.DataType{Name: core.NamedTupleTypeName, Parameters: []any{names, core.Bottom}}, int64(1), "Union{}"},
+	} {
+		v, err := vm.getFieldtype(c.t, c.f, true)
+		check(t, c.name, v, err, c.want)
+	}
+}
+
 // The type definition builtins check their arguments as builtins.c does.
 func TestTypedefBuiltins(t *testing.T) {
 	vm := New()
@@ -38,7 +69,7 @@ func TestTypedefBuiltins(t *testing.T) {
 		{"_structtype attrs", "_structtype", []any{m, sym("S"), SVec{}, SVec{}, int64(1), false, int64(0)}, "!TypeError(:_structtype, \"\", Core.SimpleVector, 1)"},
 		{"_structtype mutable", "_structtype", []any{m, sym("S"), SVec{}, SVec{}, SVec{}, int64(1), int64(0)}, "!TypeError(:_structtype, \"\", Bool, 1)"},
 		{"_structtype ninit", "_structtype", []any{m, sym("S"), SVec{}, SVec{}, SVec{}, false, true}, "!TypeError(:_structtype, \"\", Int64, true)"},
-		{"_structtype attributes", "_structtype", []any{m, sym("S"), SVec{}, SVec{sym("x")}, SVec{int64(1), sym("const")}, true, int64(1)}, "!not ported yet: field attributes"},
+		{"_structtype attributes", "_structtype", []any{m, sym("S"), SVec{}, SVec{sym("x")}, SVec{int64(1), sym("const")}, true, int64(1)}, "Main.L.S"},
 		{"_structtype field name", "_structtype", []any{m, sym("S"), SVec{}, SVec{int64(1)}, SVec{}, false, int64(1)}, "!TypeError(:_structtype, \"\", Symbol, 1)"},
 		{"_setsuper! arity", "_setsuper!", nil, "!_setsuper!: too few arguments"},
 		{"_setsuper! of a non-type", "_setsuper!", []any{int64(1), core.AnyType}, "!TypeError(:_setsuper!, \"\", DataType, 1)"},
@@ -62,7 +93,8 @@ func TestTypedefBuiltins(t *testing.T) {
 		{"fieldtype arity", "fieldtype", nil, "!fieldtype: too few arguments"},
 		{"fieldtype boundscheck", "fieldtype", []any{st, int64(1), int64(1)}, "!TypeError(:fieldtype, \"\", Bool, 1)"},
 		{"fieldtype with boundscheck", "fieldtype", []any{st, int64(1), true}, "Int64"},
-		{"fieldtype of a UnionAll", "fieldtype", []any{core.ArrayType, int64(1)}, "!not ported"},
+		// julia 1.12.6: fieldtype(Vector, 1) == MemoryRef
+		{"fieldtype of a UnionAll", "fieldtype", []any{core.ArrayType, int64(1)}, "MemoryRef"},
 		{"fieldtype of a value", "fieldtype", []any{int64(1), int64(1)}, "!TypeError(:fieldtype, \"\", DataType, 1)"},
 		{"_typevar arity", "_typevar", []any{sym("T")}, "!TypeVar: too few arguments (expected 3)"},
 		{"_typevar of a non-symbol", "_typevar", []any{int64(1), core.Bottom, core.AnyType}, "!TypeError(:TypeVar, \"\", Symbol, 1)"},

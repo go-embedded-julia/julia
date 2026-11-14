@@ -90,7 +90,9 @@ func TestBuiltins(t *testing.T) {
 		{"getfield of a line", "getfield", []any{expr.LineNumberNode{Line: 3, File: expr.Symbol("f")}, int64(1)}, "3"},
 		{"getfield of a file", "getfield", []any{expr.LineNumberNode{Line: 3, File: expr.Symbol("f")}, expr.Symbol("file")}, ":f"},
 		{"getfield of a GlobalRef's name", "getfield", []any{gr("Core", "Int"), expr.Symbol("name")}, ":Int"},
-		{"getfield of a GlobalRef's module", "getfield", []any{gr("Core", "Int"), expr.Symbol("mod")}, "!not ported yet: the field mod"},
+		{"getfield of a GlobalRef's module", "getfield", []any{gr("Core", "Int"), expr.Symbol("mod")}, "Core"},
+		{"getfield of a GlobalRef's binding", "getfield", []any{gr("Core", "Int"), expr.Symbol("binding")}, ""},
+		{"getfield of an unknown module's GlobalRef", "getfield", []any{gr("Nowhere", "x"), expr.Symbol("mod")}, "!not ported yet: the field mod"},
 		{"getfield of an AST node's unknown field", "getfield", []any{gr("Core", "Int"), expr.Symbol("nope")}, "!type GlobalRef has no field nope"},
 		{"nfields arity", "nfields", nil, "!nfields: too few arguments"},
 		{"nfields of a struct", "nfields", []any{ex}, "1"},
@@ -115,7 +117,21 @@ func TestBuiltins(t *testing.T) {
 		{"apply_type of a non-type", "apply_type", []any{int64(1), int64(2)}, "!ErrorException("},
 		{"setfield! arity", "setfield!", []any{m1, int64(1)}, "!setfield!: too few arguments"},
 		{"setfield! of a non-symbol order", "setfield!", []any{m1, int64(1), int64(2), int64(1)}, "!TypeError(:setfield!, \"\", Symbol, 1)"},
-		{"setfield! atomic", "setfield!", []any{m1, int64(1), int64(2), expr.Symbol("sequentially_consistent")}, "!not ported yet: setfield! with the atomic order"},
+		{"setfield! atomic", "setfield!", []any{m1, int64(1), int64(2), expr.Symbol("sequentially_consistent")}, "!setfield!: non-atomic field cannot be written atomically"},
+		{"setfield! of a bad order", "setfield!", []any{m1, int64(1), int64(2), expr.Symbol("bogus")}, "!invalid atomic ordering"},
+		{"setfield! of a TypeName's atomic field", "setfield!", []any{mut.Name, expr.Symbol("max_args"), int32(3), expr.Symbol("monotonic")}, "3"},
+		{"getfield of a TypeName's max_args", "getfield", []any{mut.Name, expr.Symbol("max_args")}, "3"},
+		{"setfield! of a TypeName's max_args of another type", "setfield!", []any{mut.Name, expr.Symbol("max_args"), int64(3), expr.Symbol("monotonic")}, "!not ported yet: setfield! of a TypeName's max_args"},
+		{"setfield! of a TypeName's atomic field non-atomically", "setfield!", []any{mut.Name, expr.Symbol("max_args"), int32(3)}, "!setfield!: atomic field cannot be written non-atomically"},
+		{"setfield! of a TypeName's field atomically", "setfield!", []any{mut.Name, expr.Symbol("max_methods"), uint8(3), expr.Symbol("monotonic")}, "!setfield!: non-atomic field cannot be written atomically"},
+		{"setfield! of a TypeName's unknown field", "setfield!", []any{mut.Name, expr.Symbol("nope"), int64(1)}, "!type TypeName has no field nope"},
+		{"setfield! of a TypeName's hint", "setfield!", []any{mut.Name, expr.Symbol("max_methods"), uint8(3)}, "0x03"},
+		{"getfield of a TypeName's hint", "getfield", []any{mut.Name, expr.Symbol("max_methods")}, "0x03"},
+		{"setfield! of a TypeName's hint of another type", "setfield!", []any{mut.Name, expr.Symbol("max_methods"), int64(3)}, "!not ported yet: setfield! of a TypeName's max_methods"},
+		{"setfield! of a TypeName's constprop_heuristic", "setfield!", []any{mut.Name, expr.Symbol("constprop_heuristic"), uint8(2)}, "0x02"},
+		{"getfield of a TypeName's constprop_heuristic", "getfield", []any{mut.Name, expr.Symbol("constprop_heuristic")}, "0x02"},
+		{"setfield! of a TypeName's cache_entry_count", "setfield!", []any{mut.Name, expr.Symbol("cache_entry_count"), uint8(1), expr.Symbol("monotonic")}, "0x01"},
+		{"getfield of a TypeName's cache_entry_count", "getfield", []any{mut.Name, expr.Symbol("cache_entry_count")}, "0x01"},
 		{"setfield! not atomic", "setfield!", []any{m1, expr.Symbol("x"), int64(2), expr.Symbol("not_atomic")}, "2"},
 		{"setfield! of a module", "setfield!", []any{vm.Core, expr.Symbol("x"), int64(1)}, "!cannot assign variables in other modules"},
 		{"setfield! of an immutable", "setfield!", []any{ex, int64(1), "n"}, "!setfield!: immutable struct of type ErrorException cannot be changed"},
@@ -215,7 +231,7 @@ func TestIntrinsicsWidths(t *testing.T) {
 		{"trunc_int", []any{int64(1), int64(1)}, "!TypeError(:trunc_int, \"\", DataType, 1)"},
 		{"trunc_int", []any{core.IntegerType, int64(1)}, "!trunc_int: target type not a leaf primitive type"},
 		{"trunc_int", []any{core.Int8Type, expr.Symbol("a")}, "!trunc_int: value is not a primitive type"},
-		{"zext_int", []any{core.Int128Type, int64(1)}, "!not ported yet: zext_int to Int128"},
+		{"zext_int", []any{core.Int128Type, int64(1)}, "1"},
 		{"bitcast", []any{core.Float64Type, int64(0)}, "0.0"},
 		{"bitcast", []any{core.Float32Type, uint32(0x3f800000)}, "1.0f0"},
 		{"bitcast", []any{core.CharType, uint32(0x61000000)}, "'a'"},
@@ -233,7 +249,6 @@ func TestIntrinsicsWidths(t *testing.T) {
 		{"bitcast", []any{core.IntegerType, int64(1)}, "!bitcast: target type not a leaf primitive type"},
 		{"bitcast", []any{core.Int64Type, expr.Symbol("a")}, "!bitcast: value not a primitive type"},
 		{"bitcast", []any{core.Int32Type, int64(1)}, "!bitcast: argument size does not match size of target type"},
-		{"bitcast", []any{core.Float16Type, int16(1)}, "!not ported yet: bitcast to Float16"},
 		{"neg_float", []any{float32(1)}, ""},
 		{"neg_float", []any{expr.Symbol("a")}, "!neg_float_withtype: value is not a primitive type"},
 	}
@@ -244,7 +259,7 @@ func TestIntrinsicsWidths(t *testing.T) {
 	if v, _ := vm.apply(intrinsic(t, vm, "add_float"), []any{float32(1.5), float32(2.25)}); v != float32(3.75) {
 		t.Errorf("Float32 add: %v", v)
 	}
-	if fromBits(float64(0), 7) != uint64(7) {
+	if fromBits("s", from64(7)) != uint64(7) {
 		t.Error("fromBits of a non-integer kept the bits")
 	}
 }
@@ -355,7 +370,7 @@ func TestMethodDefinition(t *testing.T) {
 		{"a method of a callable Int", def(svec(svec(gr("Core", "Int")), svec()), body), "nothing"},
 		{"body not a CodeInfo", def(svec(svec(expr.SSAValue(3)), svec()), int64(1)), "!method: invalid declaration"},
 		{"Vararg not last", def(svec(svec(expr.SSAValue(3), gr("Core", "Vararg"), gr("Core", "Int")), svec()), body), "!ErrorException("},
-		{"tvar not a TypeVar", def(svec(svec(expr.SSAValue(3)), svec(int64(1))), body), "!TypeError(:method signature"},
+		{"tvar not a TypeVar", def(svec(svec(expr.SSAValue(3)), svec(int64(1))), body), "!TypeError(Symbol(\"method signature\")"},
 		{"body that does not prepare", def(svec(svec(expr.SSAValue(3)), svec()), &expr.CodeInfo{SSAValueTypes: "x"}), "!not ported"},
 		{"defined", def(svec(svec(expr.SSAValue(3)), svec()), body), "nothing"},
 		{"defined with a static parameter", def(svec(svec(expr.SSAValue(3), expr.QuoteNode{Value: tvT}),
@@ -418,7 +433,11 @@ func TestNewStruct(t *testing.T) {
 	}{
 		{"not a type", int64(1), nil, "!TypeError(:new, \"\", DataType, 1)"},
 		{"abstract", core.IntegerType, nil, "!TypeError(:new"},
-		{"tuple type", core.EmptyTupleType, nil, "!not ported"},
+		// julia 1.12.6's jl_new_structv of tuple types
+		{"tuple type", core.EmptyTupleType, nil, "()"},
+		{"Tuple{Int64}", must(core.Apply(core.AnyTupleType, core.Int64Type)), []any{int64(1)}, "(1,)"},
+		{"Tuple{Int64} of a Float64", must(core.Apply(core.AnyTupleType, core.Int64Type)), []any{1.5}, `!TypeError(:new, "", Int64, 1.5)`},
+		{"Tuple{Int64} of two", must(core.Apply(core.AnyTupleType, core.Int64Type)), []any{int64(1), int64(2)}, "!invalid struct allocation"},
 		{"primitive type", core.Int64Type, nil, "!not ported"},
 		{"too many fields", vm.tError, []any{"a", "b"}, "!invalid struct allocation"},
 		{"field of the wrong type", vm.tError, []any{int64(1)}, "!TypeError(:new, \"\", AbstractString, 1)"},
@@ -436,7 +455,7 @@ func TestNewStruct(t *testing.T) {
 func TestGlobals(t *testing.T) {
 	s := New().NewSession()
 	for _, c := range []struct{ src, want string }{
-		{"import Core.Intrinsics: add_int\nadd_int = 1", "!cannot assign a value to imported variable L.add_int"},
+		{"import Core.Intrinsics: add_int\nadd_int = 1", "!cannot assign a value to imported variable Intrinsics.add_int from module L"},
 		{"const k = 1\nk = 2", "!invalid assignment to constant L.k."},
 	} {
 		v, err := s.Eval(c.src)
@@ -451,19 +470,23 @@ func TestGlobals(t *testing.T) {
 func TestToplevel(t *testing.T) {
 	for _, c := range []struct{ src, want string }{
 		{"1 +", "!syntax:"},
-		{"@m x", "!UndefVarError(:@m,"},
+		{"@m x", "!UndefVarError(Symbol(\"@m\"),"},
 		{strings.Repeat("(", 5000) + "1" + strings.Repeat(")", 5000), "!syntax:"},
 		{"import Core.Intrinsics\nIntrinsics", "Core.Intrinsics"},
 		{"using Core.Intrinsics\nadd_int", "Core.Intrinsics.add_int"},
 		{"import Core.Intrinsics\nimport Intrinsics: add_int\nadd_int", "Core.Intrinsics.add_int"},
-		{"import Core.Intrinsics: nope", "!UndefVarError(:nope,"},
-		{"import Core.Nope", "!UndefVarError(:Nope,"},
-		{"import Core.Int", "!invalid import path: \\\"Int\\\" does not name a module"},
+		// an undeclared name is imported, with a warning (module.c:1261-1266)
+		{"import Core.Intrinsics: nope", "nothing"},
+		{"import Core.Nope", "nothing"},
+		{"import Core.Int\nInt", "Int64"},
+		{"import Core.Int.x", "!invalid import path: \\\"Int\\\" does not name a module"},
 		{"import Pkg", "!not ported yet: loading the package Pkg"},
-		{"import .Rel", "!UndefVarError(:Rel,"},
-		{"import .Core.Rel", "!UndefVarError(:Rel,"},
-		{"import Core.Intrinsics: add_int as plus", "!not ported yet: the import item"},
-		{"import Core.Intrinsics as CI", "!not ported yet: the import form"},
+		{"import .Rel", "nothing"},
+		{"import .Core.Rel", "nothing"},
+		{"import Core.Intrinsics\nimport ..Intrinsics", "nothing"},
+		{"import Core.Intrinsics: add_int as plus\nplus", "Core.Intrinsics.add_int"},
+		{"import Core.Intrinsics as CI\nCI", "Core.Intrinsics"},
+		{"import Core: Intrinsics.add_int", "!not ported yet: the import item"},
 		{"export q\nq", "!UndefVarError(:q,"},
 		{"Core.Int", "!UndefVarError(:getproperty,"},
 	} {
@@ -495,13 +518,18 @@ func TestToplevel(t *testing.T) {
 		{"import with a short colon", expr.New("import", expr.New(":", expr.New(".", expr.Symbol("Core")))), "!syntax: malformed"},
 		{"import from a bad path", expr.New("import", expr.New(":", int64(1), expr.New(".", expr.Symbol("x")))), "!syntax: malformed"},
 		{"import of a non-symbol", expr.New("import", expr.New(":", expr.New(".", expr.Symbol("Core")), expr.New(".", int64(1)))), "!syntax: malformed"},
-		{"import of an empty path", expr.New("import", expr.New(".")), "!syntax: malformed"},
+		{"import of an empty path", expr.New("import", expr.New(".")), "!malformed \\\"import\\\" statement"},
+		{"using of an empty path", expr.New("using", expr.New(".")), "!malformed \\\"using\\\" statement"},
+		{"using of dots only", expr.New("using", expr.New(".", expr.Symbol("."), expr.Symbol("."))), "!invalid module path"},
+		{"using of a relative non-symbol", expr.New("using", expr.New(".", expr.Symbol("."), int64(1))), "!TypeError(:using, \"\", Symbol, 1)"},
+		{"using of a dot inside a path", expr.New("using", expr.New(".", expr.Symbol("Core"), expr.Symbol("."))), "!invalid using path: \\\".\\\" in identifier path"},
+		{"import of a module into a bare module", expr.New("module", false, expr.Symbol("B2"), expr.New("block", expr.New("import", expr.New(".", expr.Symbol("Core"))))), "Main.L.B2"},
 		{"import from a bad first path", expr.New("import", expr.New(".", expr.Symbol("Core")), expr.New(".", expr.Symbol("Nope"))), "!not ported"},
 		// relative paths (toplevel.c:537-570)
 		{"import of dots only", expr.New("import", expr.New(".", expr.Symbol("."), expr.Symbol("."))), "!invalid module path"},
 		{"import of a relative non-symbol", expr.New("import", expr.New(".", expr.Symbol("."), int64(1))), "!TypeError(:import, \"\", Symbol, 1)"},
 		{"import of a dot inside a path", expr.New("import", expr.New(".", expr.Symbol("Core"), expr.Symbol("."))), "!invalid import path: \\\".\\\" in identifier path"},
-		{"import past the top module", expr.New("import", expr.New(".", expr.Symbol("."), expr.Symbol("."), expr.Symbol("."), expr.Symbol("."), expr.Symbol("Nope"))), "!UndefVarError(:Nope,"},
+		{"import past the top module", expr.New("import", expr.New(".", expr.Symbol("."), expr.Symbol("."), expr.Symbol("."), expr.Symbol("."), expr.Symbol("Nope"))), "nothing"},
 		// module expressions (toplevel.c:114-198)
 		{"module of two arguments", expr.New("module", true, expr.Symbol("M")), "!syntax: malformed module expression"},
 		{"module of a non-Expr body", expr.New("module", true, expr.Symbol("M"), int64(1)), "!syntax: malformed module expression"},

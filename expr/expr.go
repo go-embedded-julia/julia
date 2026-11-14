@@ -60,10 +60,14 @@ type QuoteNode struct {
 	Value any
 }
 
-// GlobalRef names a global binding in a module.
+// GlobalRef names a global binding in a module. Mod is the module's name, as
+// the front end writes it; Obj, when set, is the module itself (the runtime's
+// object, opaque here), which is what julia's GlobalRef.mod is. Two modules
+// can share a name, so a reference that must not mean the other one carries Obj.
 type GlobalRef struct {
 	Mod  Symbol
 	Name Symbol
+	Obj  any
 }
 
 // ParseError is the payload of Expr(:error) and Expr(:incomplete) nodes

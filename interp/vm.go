@@ -11,6 +11,7 @@ package interp
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,16 @@ type VM struct {
 
 	Core, Base, Main *Module
 	modules          map[expr.Symbol]*Module
+	// topModule is jl_top_module, the top module of every module without
+	// an enclosing one. In julia it is Core (init.c:593) until a primary
+	// Base sets itself (jl_set_istopmod). A VM that has not booted models
+	// the Main of a running julia, whose top module is Base: there it is
+	// the Base New makes, and Boot sets Core, as after julia's boot.jl.
+	topModule *Module
+	// baseModule is jl_base_module: the Base standard imports use, nil
+	// from Boot until Base_compiler.jl's `module Base` (toplevel.c:177-180).
+	// A VM that has not booted has the Base New makes.
+	baseModule *Module
 
 	// MaxDepth bounds the nesting of calls and of try blocks; past it a
 	// call or an EnterNode raises StackOverflowError instead of exhausting
@@ -56,24 +67,170 @@ type VM struct {
 	// structs), the callee's type first in each signature.
 	others *dispatch.Table
 
-	// shims are the Go functions ccalls reach (ccall.go); sessions the
-	// lowering state of each module code is evaluated in.
+	// shims are the Go functions ccalls reach (ccall.go), libShims those a
+	// library-qualified ccall reaches, by library; sessions the lowering
+	// state of each module code is evaluated in.
 	shims    map[expr.Symbol]shim
-	sessions map[*Module]*Session
+	libShims map[string]map[expr.Symbol]shim
+	// libCglobals are the C variables a library defines, by library
+	// (cglobal((:name, lib), T))
+	libCglobals map[string]map[expr.Symbol]*ptrSlot
+	// dynLibs are the libraries jl_load_dynamic_library opened, by name
+	// (dlload.go)
+	dynLibs map[string]*Pointer
+	// lbt is libblastrampoline's state (lbt.go)
+	lbt lbtState
+	// deferSignal is the thread's defer_signal count (jl_sigatomic_begin)
+	deferSignal int
+	// finalizerRNG is the GC's finalizer random state (taskswitch.go)
+	finalizerRNG [5]uint64
+	sessions     map[*Module]*Session
+	// GeneratingOutput is jl_generating_output(): set while the VM builds
+	// Base as julia builds its system image, module initializers wait
+	// (modinit.go, RunModuleInitializers).
+	GeneratingOutput bool
+	// openModules are the modules whose definition is under way
+	// (jl_current_modules), moduleInitOrder those defined whose __init__
+	// waits for the outermost open one (jl_module_init_order); modinit.go
+	openModules     map[*Module]int
+	moduleInitOrder []*Module
+	// mpfr is libmpfr's global state: the exponent range and the flags
+	mpfr mpfrEnv
 
 	// Sources holds the files include reads (load.go): julia's own sources
 	// by default, rooted as julia's base/ is.
 	Sources fs.FS
+
+	// Host selects the filesystem mode (vfs.go): false, the sandbox, where
+	// only julia's own tree exists and no path leaves it; true, the host,
+	// where that tree stays mounted at its paths and every other path is the
+	// real filesystem. Stdlib is the tree of the stdlibs mounted at Sys.STDLIB,
+	// julia's own by default. Stdlib and BinDir (where the tree is mounted)
+	// are read when the first file is touched; Host and WorkDir at each use.
+	Host   bool
+	Stdlib fs.FS
+	// vfs is the filesystem the file shims share; ios the IOStreams open
+	// (fsshims.go, by the memory of the ios_t Base allocates), reqs the libuv
+	// requests live (by the memory of the uv_fs_t), errno the C errno.
+	vfs *vfs
+	ios map[*Memory]*iosState
+	// iolock is how many times the (recursive) libuv lock is held
+	iolock int
+	reqs   map[*Memory]*uvReq
+	errno  int32
+
+	// Env is the environment julia code sees (Base's ENV): empty unless the
+	// embedder fills it; the host's is never read.
+	Env map[string]string
+	// HomeDir is the home directory when Env holds no HOME, WorkDir the
+	// current directory (pwd()): names only
+	HomeDir, WorkDir string
+
+	// BinDir is what Base takes for julia's bin directory (Sys.BINDIR,
+	// jl_get_julia_bindir), a name only: nothing here reads the host's
+	// filesystem through it.
+	BinDir string
+
+	// Args is the command line after julia's options, the program file
+	// first, which Boot makes Core.ARGS (jl_set_ARGS, jlapi.c:53-74).
+	Args []string
+
+	// RunCompilerBootstrap runs Base_compiler.jl's Compiler.bootstrap!()
+	// (Base_compiler.jl:380), which infers the compiler's own entry points
+	// and then turns code generation on (Compiler/src/bootstrap.jl). There
+	// is no code generation here, so unless this is set only the last step,
+	// activate_codegen!(), runs: it records the inference world.
+	RunCompilerBootstrap bool
+
+	// typeinfFunc and typeinfWorld are jl_typeinf_func and
+	// jl_typeinf_world (gf.c:954-961).
+	typeinfFunc  any
+	typeinfWorld uint64
+
+	// gsCtr is gs_ctr (symbol.c:125), Base.gensym's counter.
+	gsCtr uint32
+	// typeinfTiming is the task's reentrant_timing bit 0 (gf.c:4944-4958).
+	typeinfTiming bool
+
+	// tTask is Core.Task, task the root task (task.go)
+	tTask *core.DataType
+	task  *Struct
+
+	// MaxTasks bounds the tasks that are started and have not finished, each
+	// of which holds a goroutine; past it a switch to a new task stops with
+	// ErrTaskLimit. Zero means DefaultMaxTasks.
+	MaxTasks int
+	// the tasks (taskswitch.go): cur is the task that runs and curRec its
+	// record, rootRec the root task's, nextTask is ptls->next_task, exitTo
+	// the task a finished task hands over to, running the records of the
+	// started tasks that have not ended, wakeup whether jl_wakeup_thread was
+	// called, threaded the depth of jl_enter_threaded_region, ptlsRng
+	// ptls->rngseed
+	cur, nextTask, exitTo *Struct
+	curRec, rootRec       *taskRec
+	running               map[*taskRec]struct{}
+	liveTasks, taskSeq    int
+	wakeup                bool
+	threaded              int
+	ptlsRng               uint64
+	peekCond              any // the handle jl_set_peek_cond was given
+	// MaxHandles bounds the libuv handles; past it a handle is refused with
+	// ErrHandleLimit. Zero means DefaultMaxHandles. loop is the event loop
+	// (uvloop.go), made on first use.
+	MaxHandles int
+	loop       *uvLoop
+	// taskRecs holds each task's record, weakly: a task nothing refers to
+	// goes with its record. A cleanup runs on another goroutine, so
+	// taskMu guards the map.
+	taskMu   sync.Mutex
+	taskRecs map[weak.Pointer[Struct]]*taskRec
+	// finalizersInhibited is ptls->finalizers_inhibited
+	finalizersInhibited int
+	// mtBackedges is jl_method_table->backedges (mtbackedge.go)
+	mtBackedges map[*core.TypeName][]any
 
 	// MaxMemoryElems bounds the elements of one memorynew; past it the
 	// allocation stops with ErrMemoryLimit instead of exhausting the host.
 	// emptyMemory holds each memory type's zero-length instance.
 	MaxMemoryElems int
 	emptyMemory    map[*core.DataType]*Memory
+	// singletons are the instances of singleton types (singleton.go).
+	singletons map[*core.DataType]any
+	// intrinsics are the intrinsics by number (intrinsicid.go).
+	intrinsics []*Intrinsic
+	// reflected are the Method objects reflection made, by method and by
+	// object (reflect.go).
+	reflected                                             map[*dispatch.Method]*reflected
+	reflectedOf                                           map[*Struct]*reflected
+	tMethod, tMethodInstance, tMethodMatch, tCodeInstance *core.DataType
+	tBinding, tBindingPartition                           *core.DataType
+	// reservations are jl_engine_reserve's leases (codeinst.go)
+	reservations []reservation
+	// methodTable is Core.methodtable, julia's one method table; the VM
+	// keeps methods in per-function tables (methodTableOf)
+	methodTable *Struct
+	// irTags are the compressed IR's tag tables (ircode.go), made on first
+	// use
+	irTags *irTables
+
+	// Stdout and Stderr receive what Julia code prints (Core.println,
+	// print): io.Discard unless the embedder sets them. Stdin is what julia
+	// reads from standard input, nil meaning an empty input. All three are
+	// descriptors 0, 1 and 2 of the VM's filesystem (vfs.go). cglobals are
+	// the C globals cglobal can name (vptr.go).
+	Stdin          io.Reader
+	Stdout, Stderr io.Writer
+	cglobals       map[expr.Symbol]*ptrSlot
+	addrs          addrSpace
 
 	// argVectors is each Expr's args vector (exprargs.go).
 	argMu      sync.Mutex
 	argVectors map[weak.Pointer[expr.Expr]]*Struct
+
+	// strBufs are the bytes of the Strings jl_alloc_string made, which
+	// Julia code may write (strbuf.go).
+	strMu   sync.Mutex
+	strBufs map[uintptr]strBuf
 
 	builtinType, intrinsicType  *core.DataType
 	tError, tUndefVar           *core.DataType
@@ -82,6 +239,7 @@ type VM struct {
 	tBounds, tUndefRef          *core.DataType
 	tDivide, tLoadError         *core.DataType
 	tAtomicError                *core.DataType
+	tFieldError                 *core.DataType
 	tExpr, tQuoteNode           *core.DataType
 	tSSAValue, tSlotNumber      *core.DataType
 	tArgument, tGotoNode        *core.DataType
@@ -100,12 +258,19 @@ const DefaultMaxDepth = 4000
 func New() *VM {
 	vm := &VM{modules: map[expr.Symbol]*Module{}, MaxDepth: DefaultMaxDepth,
 		funcs: map[*core.DataType]*Function{}, ctors: map[*core.TypeName]*dispatch.Table{},
-		sessions: map[*Module]*Session{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources,
-		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{},
-		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}}
+		sessions: map[*Module]*Session{}, openModules: map[*Module]int{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources, BinDir: "/julia/bin", HomeDir: "/julia/home", WorkDir: "/julia/home",
+		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{}, singletons: map[*core.DataType]any{},
+		reflected: map[*dispatch.Method]*reflected{}, reflectedOf: map[*Struct]*reflected{},
+		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard,
+		addrs: addrSpace{byTarget: map[any]uint64{}, byID: map[uint64]any{}}}
 	vm.world.Store(1)
+	vm.typeinfWorld = 1 // jl_typeinf_world's initial value (gf.c:955)
 	vm.Core = vm.addModule("Core", nil)
+	// Core lowers against itself, as boot.jl needs (it marks Core a top
+	// module itself at its end)
+	vm.Core.istopmod = true
 	vm.Base = vm.addModule("Base", nil)
+	vm.topModule, vm.baseModule = vm.Base, vm.Base
 	vm.Main = vm.addModule("Main", nil)
 	vm.Base.usings = []*Module{vm.Core}
 	vm.Main.usings = []*Module{vm.Core, vm.Base}
@@ -117,7 +282,9 @@ func New() *VM {
 
 func (vm *VM) addModule(name expr.Symbol, parent *Module) *Module {
 	m := newModule(name, parent)
-	vm.modules[name] = m
+	if parent == nil {
+		vm.modules[name] = m // the root modules only: see modref.go
+	}
 	return m
 }
 
@@ -145,7 +312,8 @@ func (vm *VM) newWorld() uint64 { return vm.world.Add(1) }
 // coreExports are the names Core exports (boot.jl:207-243) that this
 // version defines; ifelse, svec, Typeof and the rest stay qualified.
 var coreExports = map[expr.Symbol]bool{
-	"Any": true, "DataType": true, "Vararg": true, "Tuple": true, "Type": true, "UnionAll": true,
+	"Core": true, // every module exports its own name (jl_add_default_names)
+	"Any":  true, "DataType": true, "Vararg": true, "Tuple": true, "Type": true, "UnionAll": true,
 	"TypeVar": true, "Union": true, "Nothing": true, "Cvoid": true, "Function": true, "Module": true,
 	"Symbol": true, "Number": true, "Real": true, "Integer": true, "Bool": true, "AbstractFloat": true,
 	"Float16": true, "Float32": true, "Float64": true, "Signed": true, "Int": true, "Int8": true,
@@ -171,6 +339,14 @@ func (vm *VM) setCore(name expr.Symbol, v any) {
 // (builtins.c:2487-2573), the builtins and intrinsics, and the parts of
 // boot.jl this first version needs, built in Go.
 func (vm *VM) bootCore() {
+	// Core and Main name themselves, exported (jl_add_default_names), and
+	// Core names Main (jl_init_main_module, toplevel.c:49-53)
+	for _, m := range []*Module{vm.Core, vm.Main} {
+		self := m.declare(m.Name, 0)
+		self.Value, self.Const, self.Exports = m, true, true
+	}
+	cm := vm.Core.declare("Main", 0)
+	cm.Value, cm.Const = vm.Main, true
 	for name, t := range map[expr.Symbol]any{
 		"Any": core.AnyType, "Type": core.TypeType, "Nothing": core.NothingType, "nothing": nil,
 		"TypeName": core.TypeNameType, "DataType": core.DataTypeType, "TypeVar": core.TypeVarType,
@@ -181,6 +357,7 @@ func (vm *VM) bootCore() {
 		"UInt": core.UInt64Type, "Cvoid": core.NothingType,
 		"Int8": core.Int8Type, "UInt8": core.UInt8Type, "Int16": core.Int16Type, "UInt16": core.UInt16Type,
 		"Int32": core.Int32Type, "UInt32": core.UInt32Type, "Int64": core.Int64Type, "UInt64": core.UInt64Type,
+		"Int128": core.Int128Type, "UInt128": core.UInt128Type,
 		"Float16": core.Float16Type, "Float32": core.Float32Type, "Float64": core.Float64Type,
 		"Number": core.NumberType, "Real": core.RealType, "AbstractFloat": core.AbstractFloatType,
 		"Integer": core.IntegerType, "Signed": core.SignedType, "Unsigned": core.UnsignedType,
@@ -196,10 +373,10 @@ func (vm *VM) bootCore() {
 	}
 	vm.builtinType = mustType("Core", "Builtin", core.FunctionType, true, nil, nil)
 	vm.setCore("Builtin", vm.builtinType)
-	// primitive type IntrinsicFunction <: Builtin 32 end (boot.jl): many
-	// instances, one per intrinsic, so not a singleton
-	vm.intrinsicType = mustType("Core", "IntrinsicFunction", vm.builtinType, false, nil, nil)
-	vm.intrinsicType.Name.Singleton = false
+	// primitive type IntrinsicFunction <: Builtin 32 end (jltypes.c): one
+	// value per intrinsic, its number
+	vm.intrinsicType = core.NewIncompletePrimitive("Core", "IntrinsicFunction", nil, 32)
+	must(0, vm.intrinsicType.SetSuper(vm.builtinType))
 	vm.setCore("IntrinsicFunction", vm.intrinsicType)
 
 	// boot.jl:368-446, the exceptions the interpreter itself raises
@@ -227,8 +404,12 @@ func (vm *VM) bootCore() {
 	vm.tQuoteNode = mustType("Core", "QuoteNode", core.AnyType, false, []expr.Symbol{"value"}, []any{core.AnyType})
 	vm.tLineNumberNode = mustType("Core", "LineNumberNode", core.AnyType, false,
 		[]expr.Symbol{"line", "file"}, []any{core.Int64Type, core.TypeUnion(core.SymbolType, core.NothingType)})
+	// julia clears mayinlinealloc of GlobalRef by hand: "not at all
+	// worthwhile, since the only constructor returns a boxed object"
+	// (jltypes.c:3289)
 	vm.tGlobalRef = mustType("Core", "GlobalRef", core.AnyType, false,
 		[]expr.Symbol{"mod", "name", "binding"}, []any{core.ModuleType, core.SymbolType, core.AnyType})
+	vm.tGlobalRef.Name.MayInlineAlloc = false
 	for name, t := range map[expr.Symbol]*core.DataType{"Expr": vm.tExpr, "QuoteNode": vm.tQuoteNode,
 		"LineNumberNode": vm.tLineNumberNode, "GlobalRef": vm.tGlobalRef} {
 		vm.setCore(name, t)
@@ -239,6 +420,8 @@ func (vm *VM) bootCore() {
 	vm.bootTypedefs()
 	vm.bootIntrinsics()
 	vm.bootMemory()
+	vm.bootBuiltins2()
+	vm.bootPointers()
 	vm.bootShims()
 
 	// Base.iterate, the iterate lowering passes to Core._apply_iterate for
@@ -279,7 +462,8 @@ func mustType(module, name string, super *core.DataType, abstract bool, fields [
 // named #f under Function (jl_declare_const_gf, jl_new_generic_function).
 func (vm *VM) newFunction(m *Module, name expr.Symbol) *Function {
 	t := mustType(string(m.Name), "#"+string(name), core.FunctionType, false, nil, nil)
-	fn := &Function{Name: name, Type: t, Table: &dispatch.Table{Name: string(name)}}
+	t.Name.ModuleRef = m
+	fn := &Function{Name: name, Type: t, Table: &dispatch.Table{Name: string(name), Head: t}}
 	vm.funcs[t] = fn
 	return fn
 }
@@ -303,10 +487,18 @@ func (vm *VM) typeOf(v any) any {
 		return core.UInt32Type
 	case uint64:
 		return core.UInt64Type
+	case Int128:
+		return core.Int128Type
+	case UInt128:
+		return core.UInt128Type
 	case float32:
 		return core.Float32Type
 	case float64:
 		return core.Float64Type
+	case Float16:
+		return core.Float16Type
+	case BFloat16:
+		return core.BFloat16Type
 	case string:
 		return core.StringType
 	case expr.Char:
@@ -324,6 +516,10 @@ func (vm *VM) typeOf(v any) any {
 	case *Memory:
 		return x.Type
 	case *MemoryRef:
+		return x.Type
+	case *Pointer:
+		return x.Type
+	case PrimValue:
 		return x.Type
 	case *Intrinsic:
 		return vm.intrinsicType
@@ -355,6 +551,8 @@ func (vm *VM) typeOf(v any) any {
 		return vm.tNewvarNode
 	case *expr.CodeInfo:
 		return vm.tCodeInfo
+	case *Binding:
+		return vm.tBinding
 	}
 	if t := core.TypeOf(v); t != nil {
 		return t

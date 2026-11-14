@@ -9,6 +9,8 @@ package core
 import (
 	"strings"
 	"testing"
+
+	"github.com/go-embedded-julia/julia/expr"
 )
 
 func mk(t *testing.T, tc any, ps ...any) any {
@@ -167,10 +169,10 @@ func TestWhiteboxInstType(t *testing.T) {
 	}); err == nil {
 		t.Error("NTuple{-1,Int} did not raise")
 	}
-	if try(func() { tupletypeFill(2, VarargType, true) }) == nil {
+	if try(func() { tupletypeFill(2, VarargType, true, 0) }) == nil {
 		t.Error("NTuple{2,Vararg} did not raise")
 	}
-	if try(func() { tupletypeFill(maxTupleFill+1, Int64Type, false) }) == nil {
+	if try(func() { tupletypeFill(maxTupleFill+1, Int64Type, false, 0) }) == nil {
 		t.Error("tupletypeFill over the bound did not raise")
 	}
 	if _, err := Apply(AnyTupleType, Int64Type, &Vararg{T: Int64Type, N: int64(maxTupleFill + 1)}); err == nil {
@@ -225,11 +227,11 @@ func TestWhiteboxCache(t *testing.T) {
 	// the stack of types under construction answers first
 	T := fresh("T")
 	ref := mk(t, RefType, T).(*DataType)
-	if instDatatypeInner(RefType.Body.(*DataType), []any{T}, &typeStack{ref, nil}, nil, false) != ref {
+	if instDatatypeInner(RefType.Body.(*DataType), []any{T}, &typeStack{ref, nil}, nil, false, 0) != ref {
 		t.Error("type stack lookup")
 	}
 	// zero parameters outside a check: the empty tuple (jltypes.c:2188-2192)
-	if instDatatypeInner(RefType.Body.(*DataType), []any{}, nil, nil, false) != any(EmptyTupleType) {
+	if instDatatypeInner(RefType.Body.(*DataType), []any{}, nil, nil, false, 0) != any(EmptyTupleType) {
 		t.Error("empty parameter list")
 	}
 	if hasConcreteSupertype(int64(1)) {
@@ -288,16 +290,55 @@ func TestWhiteboxShowAndTypes(t *testing.T) {
 	if TypeOf(Int64Type.Name) != any(TypeNameType) {
 		t.Error("TypeOf of a TypeName")
 	}
+	if !Int64Type.IsBits() || StringType.IsBits() {
+		t.Error("IsBits")
+	}
+	if ft, ok := TypeVarType.FieldTypes(); !ok || len(ft) != 3 || len(TypeNameType.Name.FieldNames) != 18 {
+		t.Error("the kinds' layouts")
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("layout of mismatched names and types did not panic")
+			}
+		}()
+		d, _ := NewType("Main", "L1", nil, false, true, nil, nil)
+		layout(d, []Symbol{"a"})
+	}()
 	if TypeOf(CoreModule) != any(ModuleType) || Show(CoreModule) != "Core" || CoreModule.ModuleName() != "Core" {
 		t.Error("CoreModule")
 	}
 	if p := NewIncompletePrimitive("Main", "P24", nil, 24); p.Name.Bits != 24 || !p.Name.Isbits {
 		t.Errorf("NewIncompletePrimitive: %+v", p.Name)
 	}
-	if TypeOf(&Instance{Type: Int64Type}) != any(Int64Type) || TypeOf(3.5) != nil {
+	if TypeOf(&Instance{Type: Int64Type}) != any(Int64Type) || TypeOf(struct{}{}) != nil {
 		t.Error("TypeOf")
 	}
+	for v, want := range map[any]*DataType{
+		nil: NothingType, int8(1): Int8Type, int16(1): Int16Type, int32(1): Int32Type,
+		uint8(1): UInt8Type, uint16(1): UInt16Type, uint32(1): UInt32Type, uint64(1): UInt64Type,
+		float32(1): Float32Type, 3.5: Float64Type, expr.Char('a'): CharType, "s": StringType,
+		typedValue{}: Float16Type,
+	} {
+		if TypeOf(v) != any(want) {
+			t.Errorf("TypeOf(%#v) = %v, want %s", v, TypeOf(v), Show(want))
+		}
+	}
+	// T{x} takes any isbits x (jl_valid_type_param, builtins.c:1543)
+	for _, v := range []any{nil, 1.5, uint8(1), expr.Char('a'), typedValue{}} {
+		if !ValidTypeParam(v) {
+			t.Errorf("%#v is no valid type parameter", v)
+		}
+	}
+	if ValidTypeParam("s") {
+		t.Error("a String is a valid type parameter")
+	}
 }
+
+// typedValue is a runtime value that names its type, a Float16 here.
+type typedValue struct{}
+
+func (typedValue) JuliaType() any { return Float16Type }
 
 func TestWhiteboxFreeVars(t *testing.T) {
 	T := fresh("T")
@@ -496,7 +537,7 @@ func TestWhiteboxVars(t *testing.T) {
 		t.Error("a variable in a bound")
 	}
 	// unalias_unionall through innervars (subtype.c:936-944)
-	e = &stenv{vars: &varBinding{v: B, lb: B.LB, ub: B.UB, innervars: []*TypeVar{C}}}
+	e = &stenv{vars: &varBinding{v: B, lb: B.LB, ub: B.UB, innervars: &[]*TypeVar{C}}}
 	u := &UnionAll{Var: C, Body: mk(t, RefType, C)}
 	if e.unaliasUnionAll(u) == u {
 		t.Error("an inner variable was not renamed")

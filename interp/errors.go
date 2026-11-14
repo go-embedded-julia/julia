@@ -12,7 +12,18 @@ import (
 // handler stack of eval.go rather than an unwinding of Go frames.
 type Thrown struct {
 	Value any
+	// Trace is the method bodies the exception unwound, innermost first,
+	// each "file:line, statement n" (the definition's line and the
+	// statement that raised): the beginning of julia's backtrace, bounded
+	// to maxTrace frames
+	Trace []string
+	// rethrown is an exception already on top of the exception stack
+	// (jl_rethrow's throw_internal(ct, NULL), task.c:800-821): the handler
+	// that catches it does not push it again
+	rethrown bool
 }
+
+const maxTrace = 64
 
 func (t *Thrown) Error() string { return "julia exception: " + showValue(t.Value) }
 

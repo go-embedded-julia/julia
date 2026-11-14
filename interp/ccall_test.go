@@ -30,7 +30,7 @@ func TestForeignCall(t *testing.T) {
 		{"a return type error", fc("nope", gr("Nope", "x"), at()), "!not ported"},
 		{"an argtypes error", fc("nope", anyT, gr("Nope", "x")), "!not ported"},
 		{"an argument error", fc("nope", anyT, at(core.AnyType), gr("Nope", "x")), "!not ported"},
-		{"a computed callee", []any{expr.New("foreigncall", int64(1), anyT, at(), int64(0), int64(0)), ret(nil)}, "!not ported yet: a ccall to a computed"},
+		{"a computed callee that is no Symbol", []any{expr.New("foreigncall", int64(1), anyT, at(), int64(0), int64(0)), ret(nil)}, "!not ported yet: a ccall to 1"},
 	} {
 		v, err := runIR(New().NewSession(), codeInfo(c.code), true)
 		check(t, c.name, v, err, c.want)
@@ -61,8 +61,9 @@ func TestBootFailures(t *testing.T) {
 		name, src, want string
 	}{
 		{"a form that raises", "x = 1\nthrow(x)\n", "boot.jl:2:"},
-		{"no ConcurrencyViolationError", "x = 1\n", "post_boot_hooks: Core.ConcurrencyViolationError is not defined"},
-		{"a ConcurrencyViolationError that is not a type", "ConcurrencyViolationError = 1\n", "post_boot_hooks: Core.ConcurrencyViolationError is not a DataType"},
+		// the first of post_boot_hooks' types that boot.jl defines
+		{"no FieldError", "x = 1\n", "post_boot_hooks: Core.FieldError is not defined"},
+		{"a FieldError that is not a type", "FieldError = 1\n", "post_boot_hooks: Core.FieldError is not a DataType"},
 	} {
 		vm := New()
 		vm.Sources = fstest.MapFS{"boot.jl": {Data: []byte(c.src)}}
