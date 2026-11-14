@@ -99,6 +99,14 @@ func TestCValueRefusals(t *testing.T) {
 			t.Errorf("%s: no error", c.name)
 		}
 	}
+	// a field that cannot be built
+	st, err := vm.NewSession().Eval("struct CVField; a::Int32; end; CVField")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vm.cValue(st, cStruct{cArray{}}); err == nil {
+		t.Error("a struct with an array for an Int32 field: no error")
+	}
 }
 
 // jl_ptr_to_array_1d wraps the elements a pointer into a memory reaches,

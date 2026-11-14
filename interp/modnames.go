@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"cmp"
 	"slices"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -72,14 +73,6 @@ func sortedBindings(m *Module) []*Binding {
 		bs = append(bs, b)
 	}
 	m.mu.RUnlock()
-	slices.SortFunc(bs, func(x, y *Binding) int {
-		switch {
-		case x.Name < y.Name:
-			return -1
-		case x.Name > y.Name:
-			return 1
-		}
-		return 0
-	})
+	slices.SortFunc(bs, func(x, y *Binding) int { return cmp.Compare(x.Name, y.Name) })
 	return bs
 }

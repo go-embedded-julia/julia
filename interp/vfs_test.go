@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -352,7 +353,7 @@ func TestReadSeek(t *testing.T) {
 		t.Errorf("fstat: %+v %d", st, code)
 	}
 	// a read is bounded
-	if b, _ := v.read(fd, 1<<40); len(b) > maxReadChunk {
+	if b, _ := v.read(fd, math.MaxInt); len(b) > maxReadChunk {
 		t.Errorf("a read of %d bytes", len(b))
 	}
 	// a directory: open works, read fails

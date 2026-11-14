@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -148,7 +147,7 @@ func (f *vfile) read(p []byte) (int, error) {
 		return r.Read(p)
 	}
 	if f.wr != nil {
-		return 0, syscall.EBADF // a descriptor open for writing only
+		return 0, errBADF // a descriptor open for writing only
 	}
 	if f.h != nil {
 		return f.h.Read(p)
@@ -160,7 +159,7 @@ func (f *vfile) read(p []byte) (int, error) {
 // the tree or the host (opened read-only here) refuses them.
 func (f *vfile) write(p []byte) (int, error) {
 	if f.wr == nil {
-		return 0, syscall.EBADF
+		return 0, errBADF
 	}
 	w := f.wr()
 	if w == nil {
@@ -178,7 +177,7 @@ func (stdInfo) IsDir() bool       { return false }
 
 func (f *vfile) seek(off int64, whence int) (int64, error) {
 	if f.rd != nil || f.wr != nil {
-		return 0, syscall.ESPIPE
+		return 0, errSPIPE
 	}
 	if f.h != nil {
 		return f.h.Seek(off, whence)
@@ -186,7 +185,7 @@ func (f *vfile) seek(off int64, whence int) (int64, error) {
 	if s, ok := f.f.(io.Seeker); ok {
 		return s.Seek(off, whence)
 	}
-	return 0, syscall.ESPIPE
+	return 0, errSPIPE
 }
 
 func (f *vfile) stat() (fs.FileInfo, error) {
@@ -284,7 +283,7 @@ func (i synthInfo) Sys() any           { return nil }
 
 func (d *synthDir) Stat() (fs.FileInfo, error) { return synthInfo{path.Base(d.name)}, nil }
 func (d *synthDir) Read([]byte) (int, error) {
-	return 0, &fs.PathError{Op: "read", Path: d.name, Err: syscall.EISDIR}
+	return 0, &fs.PathError{Op: "read", Path: d.name, Err: errISDIR}
 }
 func (d *synthDir) Close() error { return nil }
 func (d *synthDir) ReadDir(n int) ([]fs.DirEntry, error) {
@@ -344,7 +343,7 @@ func (v *vfs) treeOpen(name string) (fs.File, error) {
 				fi, serr := pf.Stat()
 				pf.Close()
 				if serr == nil && !fi.IsDir() {
-					return nil, syscall.ENOTDIR
+					return nil, errNOTDIR
 				}
 				break
 			}
@@ -425,22 +424,26 @@ func genericStat(fi fs.FileInfo) uvStat {
 	return s
 }
 
-// uvErr is err as a libuv error code.
+// errnoCode is an error and the libuv code it maps to.
+type errnoCode struct {
+	target error
+	code   int32
+}
+
+// portableErrnos are the errors every platform has (package fs, io).
+var portableErrnos = []errnoCode{
+	{fs.ErrNotExist, uvENOENT}, {fs.ErrPermission, uvEACCES}, {fs.ErrExist, uvEEXIST},
+	{fs.ErrInvalid, uvEINVAL}, {io.EOF, uvEOF},
+}
+
+// uvErr is err as a libuv error code: the host's errno values first
+// (errno_posix.go, errno_plan9.go), then the portable errors.
 func uvErr(err error) int32 {
-	for _, e := range []struct {
-		target error
-		code   int32
-	}{
-		{syscall.ENOENT, uvENOENT}, {syscall.EACCES, uvEACCES}, {syscall.EPERM, uvEPERM},
-		{syscall.EEXIST, uvEEXIST}, {syscall.ENOTDIR, uvENOTDIR}, {syscall.EISDIR, uvEISDIR},
-		{syscall.EINVAL, uvEINVAL}, {syscall.EMFILE, uvEMFILE}, {syscall.EROFS, uvEROFS},
-		{syscall.ESPIPE, uvESPIPE}, {syscall.ENAMETOOLONG, uvENAMETOOLONG},
-		{syscall.ELOOP, uvELOOP}, {syscall.ENOTEMPTY, uvENOTEMPTY}, {syscall.EBADF, uvEBADF},
-		{fs.ErrNotExist, uvENOENT}, {fs.ErrPermission, uvEACCES}, {fs.ErrExist, uvEEXIST},
-		{fs.ErrInvalid, uvEINVAL}, {io.EOF, uvEOF},
-	} {
-		if errors.Is(err, e.target) {
-			return e.code
+	for _, table := range [][]errnoCode{hostErrnos, portableErrnos} {
+		for _, e := range table {
+			if errors.Is(err, e.target) {
+				return e.code
+			}
 		}
 	}
 	return uvEIO
