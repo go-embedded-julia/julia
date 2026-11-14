@@ -801,6 +801,8 @@ func (vm *VM) callMethod(m *dispatch.Method, env []any, self any, args []any) (a
 	switch body := m.Def.(type) {
 	case goMethod:
 		return body(vm, args)
+	case *goBody:
+		return body.fn(vm, args)
 	case *lambda:
 		return vm.callLambda(body, self, args, env)
 	}

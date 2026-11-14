@@ -103,7 +103,7 @@ var imageKinds = map[string]string{
 	"*interp.Pointer": kindSaved, "*interp.ptrSlot": kindSaved, "*interp.outStream": kindSaved,
 	"interp.PrimValue": kindSaved, "interp.Float16": kindSaved, "interp.BFloat16": kindSaved,
 	"interp.Int128": kindSaved, "interp.UInt128": kindSaved,
-	"*core.bottomType": kindStatic, "*core.instanceBox": kindSaved, "interp.goMethod": kindSaved,
+	"*core.bottomType": kindStatic, "*core.instanceBox": kindSaved, "interp.goMethod": kindSaved, "*interp.goBody": kindSaved,
 	"*struct { _ uint8 }": kindStatic, // undef, one per process (value.go:19)
 	"*interp.Session":     kindSaved, "*lower.State": kindSaved,
 	"interp.cfunc":      kindSaved,                               // a CodeInstance's fptr name (codeinst.go:41)
@@ -116,7 +116,8 @@ var imageKinds = map[string]string{
 var imageFuncs = map[string]string{
 	"interp.Intrinsic.Fn": "rebound by ID from the loading VM's New()",
 	"interp.Builtin.Fn":   "rebound by name from the loading VM's New()",
-	"dispatch.Method.Def": "goMethod: rebound by name (a registry for those with captures)",
+	"dispatch.Method.Def": "a goMethod boot made: a boot object, comes with New()",
+	"interp.goBody.fn":    "made again by newGoBody from the saved name and capture (gobodies.go)",
 	"interp.outStream.w":  "host writer, rebound by New()",
 }
 
@@ -606,7 +607,11 @@ func TestImageWalkBase(t *testing.T) {
 	inRange(t, "*interp.Module", st.Kinds["*interp.Module"], 84, 15)
 	inRange(t, "moduleInitOrder", len(vm.moduleInitOrder), 75, 15)
 	inRange(t, "Go funcs", st.Funcs["interp.Intrinsic.Fn"]+st.Funcs["interp.Builtin.Fn"]+
-		st.Funcs["dispatch.Method.Def"]+st.Funcs["interp.outStream.w"], 165, 15)
+		st.Funcs["dispatch.Method.Def"]+st.Funcs["interp.goBody.fn"]+st.Funcs["interp.outStream.w"], 165, 15)
+	// the two bodies made while Base is built are goBodies, the nine boot
+	// made are goMethods
+	inRange(t, "goBody.fn", st.Funcs["interp.goBody.fn"], 2, 0)
+	inRange(t, "goMethod", st.Funcs["dispatch.Method.Def"], 9, 0)
 	inRange(t, "Struct.exprOwner", st.Weaks["interp.Struct.exprOwner"], 35551, 15)
 	inRange(t, "argVectors keys", st.Weaks["interp.VM.argVectors[key]"], 5277, 15)
 }

@@ -39,7 +39,7 @@ func (vm *VM) replaceCompilerDependencyLoop(form any, base *Module) any {
 	if isCompilerDependencyLoop(e) {
 		fn := vm.newFunction(base, "#record_compiler_dependencies")
 		m := must(fn.Table.Define(core.EmptyTupleType, vm.newWorld(), nil))
-		m.Def = goMethod(func(vm *VM, args []any) (any, error) { return nil, vm.recordCompilerDependencies(base) })
+		m.Def = mustGoBody("record_compiler_dependencies", base)
 		return expr.New("call", fn)
 	}
 	for i, a := range e.Args {
