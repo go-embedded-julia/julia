@@ -692,7 +692,8 @@ func (v *vfs) realpath(name string) (string, int32) {
 	if err != nil {
 		return "", uvErr(err)
 	}
-	return filepath.ToSlash(r), 0
+	// as libuv answers: the system's spelling (backslashes on Windows)
+	return r, 0
 }
 
 // caseName is the name a path is stored under in its directory: on a
@@ -701,6 +702,9 @@ func (v *vfs) realpath(name string) (string, int32) {
 func (v *vfs) caseName(name string) string {
 	base := path.Base(v.clean(name))
 	tn, on, inTree := v.route(name)
+	if !inTree {
+		base = filepath.Base(filepath.Clean(on)) // the system's separators
+	}
 	var es []fs.DirEntry
 	if inTree {
 		d, err := v.treeOpen(path.Dir(tn))

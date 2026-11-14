@@ -23,6 +23,9 @@ func (f *pcreFixture) iosOpen(name string) *Pointer {
 	if err != nil || v.(*Pointer).Target == nil {
 		f.t.Fatalf("ios_file %s: %v %v", name, showValue(v), err)
 	}
+	// a host file held open cannot be removed on Windows, so the stream is
+	// closed before the temporary directory goes (cleanups run last first)
+	f.t.Cleanup(func() { f.sh("ios_close", s) })
 	return s
 }
 

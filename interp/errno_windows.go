@@ -2,15 +2,20 @@
 
 package interp
 
-import "syscall"
+import (
+	"errors"
+	"syscall"
+)
 
-// The errors the VFS returns itself, as the errno values package syscall
-// invents for Windows; hostErrnos maps them like the system's own.
+// The errors the VFS returns itself. They cannot be package syscall's errno
+// values: on Windows syscall.ENOTDIR is ERROR_PATH_NOT_FOUND and ENOENT
+// ERROR_FILE_NOT_FOUND, so a host error and the tree's would map alike (the
+// sandbox's ENOTDIR below a file came out ENOENT).
 var (
-	errBADF   error = syscall.EBADF
-	errSPIPE  error = syscall.ESPIPE
-	errISDIR  error = syscall.EISDIR
-	errNOTDIR error = syscall.ENOTDIR
+	errBADF   = errors.New("bad file descriptor")
+	errSPIPE  = errors.New("illegal seek")
+	errISDIR  = errors.New("is a directory")
+	errNOTDIR = errors.New("not a directory")
 )
 
 // The Win32 error codes libuv translates (uv_translate_sys_error, libuv
@@ -48,9 +53,5 @@ var hostErrnos = []errnoCode{
 	{errorTooManyOpenFiles, uvEMFILE}, {errorInvalidHandle, uvEBADF},
 	{errorFilenameExcedRng, uvENAMETOOLONG}, {errorDirNotEmpty, uvENOTEMPTY},
 	{errorCantResolveFile, uvELOOP},
-	{syscall.ENOENT, uvENOENT}, {syscall.EACCES, uvEACCES}, {syscall.EPERM, uvEPERM},
-	{syscall.EEXIST, uvEEXIST}, {syscall.ENOTDIR, uvENOTDIR}, {syscall.EISDIR, uvEISDIR},
-	{syscall.EINVAL, uvEINVAL}, {syscall.EMFILE, uvEMFILE}, {syscall.EROFS, uvEROFS},
-	{syscall.ESPIPE, uvESPIPE}, {syscall.ENAMETOOLONG, uvENAMETOOLONG},
-	{syscall.ELOOP, uvELOOP}, {syscall.ENOTEMPTY, uvENOTEMPTY}, {syscall.EBADF, uvEBADF},
+	{errBADF, uvEBADF}, {errSPIPE, uvESPIPE}, {errISDIR, uvEISDIR}, {errNOTDIR, uvENOTDIR},
 }

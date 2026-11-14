@@ -510,7 +510,13 @@ func TestHostPaths(t *testing.T) {
 	}
 	// the host's files
 	st, code := v.stat(filepath.Join(dir, "Hello.txt"), true)
-	if code != 0 || st.size != 5 || st.mode != 0o100644 || st.nlink != 1 || st.blksize != 4096 || st.blocks != 8 { // julia: 5 100644 1 4096 8
+	// Windows: libuv's uv__stat_impl gives a writable file 0666 (the read
+	// bits copied to group and other, the write bit with them; no exec bit)
+	mode := uint64(0o100644)
+	if runtime.GOOS == "windows" {
+		mode = 0o100666
+	}
+	if code != 0 || st.size != 5 || st.mode != mode || st.nlink != 1 || st.blksize != 4096 || st.blocks != 8 { // julia: 5 100644 1 4096 8
 		t.Errorf("stat: %+v %d", st, code)
 	}
 	if st, code = v.stat(dir, true); code != 0 || st.mode&0o170000 != 0o040000 {
