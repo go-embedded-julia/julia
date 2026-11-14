@@ -585,6 +585,7 @@ func (vm *VM) bootShims() {
 	vm.bootDynLibs()
 	vm.shims["jl_ptr_to_array_1d"] = func(vm *VM, a []any) (any, error) { return vm.ptrToArray1d(a) }
 	vm.shims["uv_random"] = func(vm *VM, a []any) (any, error) { return vm.uvRandom(a) }
+	vm.shims["jl_module_names"] = func(vm *VM, a []any) (any, error) { return vm.moduleNames(a) }
 	vm.shims["jl_gc_init_finalizer_rng_state"] = func(vm *VM, a []any) (any, error) { vm.gcInitFinalizerRNG(); return nil, nil }
 	vm.bootUtf8proc()
 	vm.bootEnvShims()

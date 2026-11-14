@@ -100,6 +100,14 @@ type Binding struct {
 	// implicit kind, which a read resolves through the module's usings
 	// until the name is assigned or declared.
 	implicit bool
+	// stdName marks the Core and Base names addStandardImports binds, which
+	// julia 1.12 resolves through `using Base` instead (toplevel.c:39-46):
+	// Base.names does not list them
+	stdName bool
+	// constImport marks a module's name `import A` (or `using A` in Main)
+	// bound: julia's PARTITION_KIND_CONST_IMPORT, which Base.names lists
+	// with imported only
+	constImport bool
 	// backedges are the code that reads it from another module (a
 	// Vector{Any}, nil until the first), flags julia's BINDING_FLAG_* bits
 	// (jl_binding_t): kept, not yet used to invalidate

@@ -158,7 +158,18 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 				b = m.declare(name, vm.newWorld())
 				b.implicit = true
 			}
-			b.Exports = b.Exports || e.Head == "export"
+			// jl_module_public_ (module.c:1445-1464): a name declared public
+			// cannot become exported, nor the reverse
+			exported := e.Head == "export"
+			if b.isPublic() && b.Exports != exported {
+				was, now := "exported", "public"
+				if exported {
+					was, now = "public", "exported"
+				}
+				return nil, vm.errorf("cannot declare %s.%s %s; it is already declared %s", m.Name, name, now, was)
+			}
+			b.flags |= bindingFlagPublicP
+			b.Exports = exported
 		}
 		return nil, nil
 	case "global":
@@ -222,7 +233,7 @@ func (vm *VM) addStandardImports(m *Module) *Module {
 	m.usings = append(m.usings, base)
 	for _, std := range []*Module{vm.Core, base} {
 		b := m.declare(std.Name, 0)
-		b.Value, b.Const = std, true
+		b.Value, b.Const, b.stdName = std, true, true
 	}
 	return base
 }
@@ -428,7 +439,8 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 			// `import A`, `import A as B`
 			b := m.declare(asname, vm.newWorld())
 			if b.Value == undef {
-				b.Value, b.Const = mod, true
+				// PARTITION_KIND_CONST_IMPORT (import_module, toplevel.c:657)
+				b.Value, b.Const, b.constImport = mod, true, true
 			}
 			continue
 		}
@@ -444,6 +456,10 @@ func (vm *VM) evalImport(m *Module, e *expr.Expr) error {
 		b := m.declare(mod.Name, vm.newWorld())
 		if b.Value == undef {
 			b.Value, b.Const = mod, true
+			// julia binds the name of a used module in Main only, as an
+			// import (toplevel.c:845-849); elsewhere it resolves through
+			// the using
+			b.constImport, b.stdName = m == vm.Main, m != vm.Main
 		}
 	}
 	return nil
