@@ -247,12 +247,14 @@ func (vm *VM) putMpz(f []any, v *big.Int) error {
 
 // putMpzAlloc is putMpz with a memory of at least alloc limbs, the BigInt's
 // own only when reuse says so.
-func (vm *VM) putMpzAlloc(f []any, v *big.Int, alloc int, reuse bool) error {
+func (vm *VM) putMpzAlloc(f []any, v *big.Int, alloc int64, reuse bool) error {
 	l := intToLimbs(v)
-	if len(l) > vm.MaxMemoryElems || alloc > vm.MaxMemoryElems {
-		return fmt.Errorf("%w: an integer of %d limbs (VM.MaxMemoryElems is %d)", ErrMemoryLimit, max(len(l), alloc), vm.MaxMemoryElems)
+	// alloc is an int64 so that a count past a 32-bit int is refused, not
+	// truncated
+	if len(l) > vm.MaxMemoryElems || alloc > int64(vm.MaxMemoryElems) {
+		return fmt.Errorf("%w: an integer of %d limbs (VM.MaxMemoryElems is %d)", ErrMemoryLimit, max(int64(len(l)), alloc), vm.MaxMemoryElems)
 	}
-	need := max(len(l), alloc, 1)
+	need := max(len(l), int(alloc), 1)
 	var m *Memory
 	if d, ok := f[2].(*Pointer); ok && reuse {
 		if mem, ok := d.Target.(*Memory); ok && mem.Type == memUInt64Type && d.Off == 0 && len(mem.Elems) >= need {
@@ -822,7 +824,7 @@ func (vm *VM) gmpFunctions() map[string]gmpFn {
 		if err := vm.gmpGuard("mpz_init2", satMul(limbs, 64)); err != nil {
 			return nil, err
 		}
-		return nil, vm.putMpzAlloc(a[0].(*Struct).Fields[:3], new(big.Int), int(limbs), false)
+		return nil, vm.putMpzAlloc(a[0].(*Struct).Fields[:3], new(big.Int), int64(limbs), false)
 	}}
 	fns["__gmpz_realloc2"] = gmpFn{"zu", func(vm *VM, a []any) (any, error) {
 		f := a[0].(*Struct).Fields[:3]
@@ -837,7 +839,7 @@ func (vm *VM) gmpFunctions() map[string]gmpFn {
 		if uint64(len(intToLimbs(v))) > limbs {
 			v = new(big.Int) // the value does not fit: set to 0
 		}
-		return nil, vm.putMpzAlloc(f, v, int(max(limbs, 1)), false)
+		return nil, vm.putMpzAlloc(f, v, int64(max(limbs, 1)), false)
 	}}
 	fns["__gmpz_limbs_write"] = gmpFn{"zi", func(vm *VM, a []any) (any, error) {
 		f, n := a[0].(*Struct).Fields[:3], a[1].(int64)
@@ -846,7 +848,7 @@ func (vm *VM) gmpFunctions() map[string]gmpFn {
 		}
 		// the old value is discarded; the space is kept when it is enough
 		if alloc, ok := f[0].(int32); !ok || int64(alloc) < n {
-			if err := vm.putMpzAlloc(f, new(big.Int), int(n), false); err != nil {
+			if err := vm.putMpzAlloc(f, new(big.Int), n, false); err != nil {
 				return nil, err
 			}
 		}

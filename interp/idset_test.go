@@ -89,7 +89,8 @@ func idKeyString(k any) string {
 // dump is testdata/idset.jl's dump.
 func (s *goIdSet) dump(name string) string {
 	n := len(s.list.Elems)
-	ks := 0
+	// int64: the checksum of 70000 keys passes 2^31
+	ks := int64(0)
 	var parts []string
 	for i, k := range s.list.Elems {
 		if k == undef {
@@ -97,7 +98,7 @@ func (s *goIdSet) dump(name string) string {
 			continue
 		}
 		if x, ok := k.(int64); ok {
-			ks += (i + 1) * int(x)
+			ks += int64(i+1) * x
 		}
 		parts = append(parts, idKeyString(k))
 	}
