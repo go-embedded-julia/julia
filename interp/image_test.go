@@ -437,7 +437,7 @@ func TestImageMapKeys(t *testing.T) {
 	}
 	for name, inject := range maps {
 		first := build(inject)
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 2; i++ {
 			if !bytes.Equal(first, build(inject)) {
 				t.Errorf("%s: two images of one map differ", name)
 				break

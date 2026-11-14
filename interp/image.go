@@ -920,6 +920,7 @@ func (e *imgEnc) roots() {
 // tier b). Maps and slices are not named: a loader writes the saved content
 // of the boot objects, which holds them.
 func (vm *VM) enumerateBoot() {
+	defer vm.lockWeakTables()()
 	e := newImgEnc(vm, &vmImageSpec, SaveOptions{})
 	e.boot = true
 	e.cur = -1
@@ -959,10 +960,22 @@ func (vm *VM) checkCut() error {
 	return nil
 }
 
+// lockWeakTables holds the locks of the tables whose entries a cleanup
+// deletes from another goroutine when their key's object is collected.
+func (vm *VM) lockWeakTables() (unlock func()) {
+	vm.argMu.Lock()
+	vm.addrs.mu.Lock()
+	return func() {
+		vm.addrs.mu.Unlock()
+		vm.argMu.Unlock()
+	}
+}
+
 func (vm *VM) saveImage(w io.Writer, opts SaveOptions, spec *imageSpec) (err error) {
 	if err := vm.checkCut(); err != nil {
 		return err
 	}
+	defer vm.lockWeakTables()()
 	e := newImgEnc(vm, spec, opts)
 	defer func() {
 		if r := recover(); r != nil {
