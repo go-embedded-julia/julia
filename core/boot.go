@@ -285,4 +285,6 @@ func init() {
 	UnionAllType.Name.MayInlineAlloc = false
 	UnionType.Name.MayInlineAlloc = false
 	TypeofVarargType.Name.MayInlineAlloc = false
+
+	buildStatics()
 }

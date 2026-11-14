@@ -153,6 +153,10 @@ type VM struct {
 	// VM has its own, so that the same program gives the same ids. moduleCtr
 	// numbers the modules this VM made (newModule: module.c:510, mcounter).
 	idCtr, moduleCtr uint64
+	// bootIdx numbers the objects New made (image.go, enumerateBoot);
+	// bootErr is why it could not.
+	bootIdx map[imgKey]int32
+	bootErr error
 	// typeinfTiming is the task's reentrant_timing bit 0 (gf.c:4944-4958).
 	typeinfTiming bool
 
@@ -281,6 +285,7 @@ func New() *VM {
 	vm.bootCore()
 	// the task starts in the newest world, after boot's definitions
 	vm.taskWorld = vm.World()
+	vm.enumerateBoot()
 	return vm
 }
 
