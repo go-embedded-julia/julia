@@ -63,7 +63,8 @@ type Table struct {
 	// cache_method): for a concrete argument tuple type, its answers, each
 	// with the world range ml_matches found it valid in
 	leaf    map[*core.DataType][]leafEntry
-	changes uint64 // counts the calls of changed
+	canon   map[leafKey]*core.DataType // see canonical
+	changes uint64                     // counts the calls of changed
 	// clips[i] is the oldest world of the changes i, i+1, …: an entry cached
 	// after i changes holds up to clips[i]-1 at most
 	clips []uint64
@@ -245,6 +246,7 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 	if leaf == nil || !leaf.IsDispatchTuple {
 		return t.lookup(tt, w)
 	}
+	leaf = t.canonical(leaf)
 	t.mu.RLock()
 	gen := t.changes
 	for _, e := range t.leaf[leaf] {
@@ -276,6 +278,51 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 		t.mu.Unlock()
 	}
 	return m, env, err
+}
+
+// leafKey names an argument tuple by the identity of its parameters.
+type leafKey struct {
+	n int
+	p [maxKeyed]*core.DataType
+}
+
+// maxKeyed is the longest tuple canonical names; a longer one is its own key.
+const maxKeyed = 6
+
+// canonical is the one DataType the leaf cache keeps for the argument tuple
+// leaf. julia's leaf cache finds an entry by the types of the arguments
+// (jl_typemap_assoc_exact, gf.c lookup_leafcache), not by the identity of
+// the tuple type. Here the cache is keyed by pointer, and a tuple holding a
+// Type{X} is not concrete, hence never interned by the type cache: every call
+// built a new DataType, missed, ran ml_matches and added an entry that
+// nothing would find again (on julia's `[@async i^2 for i in 1:4]` run
+// interpreted, 51 of 186 million calls, and the entries were most of a
+// heap of tens of GB). Equal parameter pointers are the same types, so the
+// parameters name the tuple; parameters that are not DataTypes keep the
+// pointer as the key, as before.
+func (t *Table) canonical(leaf *core.DataType) *core.DataType {
+	ps := leaf.Parameters
+	if len(ps) > maxKeyed {
+		return leaf
+	}
+	k := leafKey{n: len(ps)}
+	for i, p := range ps {
+		d, ok := p.(*core.DataType)
+		if !ok {
+			return leaf
+		}
+		k.p[i] = d
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if c := t.canon[k]; c != nil {
+		return c
+	}
+	if t.canon == nil {
+		t.canon = map[leafKey]*core.DataType{}
+	}
+	t.canon[k] = leaf
+	return leaf
 }
 
 // lookupML is jl_mt_assoc_by_type's miss path (gf.c:1848-1877,

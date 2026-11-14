@@ -158,3 +158,46 @@ func TestLeafCacheSkipsARacedAnswer(t *testing.T) {
 		t.Fatalf("cached %d answers", len(tab.leaf))
 	}
 }
+
+// A tuple holding a Type{X} is no concrete type, so the type cache does not
+// intern it and each call builds a new DataType: equal ones must still share
+// one cache entry, as julia's leaf cache finds entries by the argument types.
+func TestLeafCacheFindsEqualTuplesBuiltAnew(t *testing.T) {
+	tab := &Table{Name: "f"}
+	anyT := mustApply(t, core.AnyTupleType, core.AnyType, core.AnyType)
+	m1, _ := tab.Add(anyT)
+	build := func() *core.DataType {
+		ty := mustApply(t, core.TypeType, core.Int64Type)
+		return mustApply(t, core.AnyTupleType, ty, core.Int64Type).(*core.DataType)
+	}
+	a, b := build(), build()
+	if a == b || !a.IsDispatchTuple {
+		t.Skipf("the type cache interns Tuple{Type{Int64}, Int64} (same %v) or it is no dispatch tuple", a == b)
+	}
+	for _, c := range []*core.DataType{a, b, build()} {
+		if m, _, err := tab.Lookup(c, tab.World()); err != nil || m != m1 {
+			t.Fatalf("%v, %v", m, err)
+		}
+	}
+	if len(tab.leaf) != 1 || len(tab.canon) != 1 {
+		t.Fatalf("%d cached tuples, %d keys; want 1 and 1", len(tab.leaf), len(tab.canon))
+	}
+}
+
+// canonical leaves a tuple with a parameter that is no DataType, or one with
+// more parameters than a key holds, as its own key.
+func TestCanonicalKeepsWhatItCannotName(t *testing.T) {
+	tab := &Table{Name: "f"}
+	u := mustApply(t, core.AnyTupleType, core.TypeUnion(core.Int64Type, core.AnyTupleType)).(*core.DataType)
+	if tab.canonical(u) != u || len(tab.canon) != 0 {
+		t.Error("a Union parameter")
+	}
+	ps := make([]any, maxKeyed+1)
+	for i := range ps {
+		ps[i] = core.Int64Type
+	}
+	long := mustApply(t, core.AnyTupleType, ps...).(*core.DataType)
+	if tab.canonical(long) != long || len(tab.canon) != 0 {
+		t.Error("a long tuple")
+	}
+}
