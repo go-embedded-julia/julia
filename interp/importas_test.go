@@ -41,7 +41,7 @@ func TestModuleUUID(t *testing.T) {
 	// 0 (module.c:512-515)
 	bid := vm.shims["jl_module_build_id"]
 	ids := map[uint64]bool{}
-	for _, m := range []*Module{vm.Core, vm.Main, vm.Base, newModule("X", nil)} {
+	for _, m := range []*Module{vm.Core, vm.Main, vm.Base, vm.newModule("X", nil)} {
 		v, err := bid(vm, []any{m})
 		if err != nil {
 			t.Fatal(err)

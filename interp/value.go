@@ -2,7 +2,6 @@ package interp
 
 import (
 	"sync"
-	"sync/atomic"
 	"weak"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -30,6 +29,9 @@ type Struct struct {
 	// setting its ref or size points the Expr at the new elements. Weak, so
 	// that the table of vectors does not keep the Expr alive.
 	exprOwner weak.Pointer[expr.Expr]
+	// id is the object id of a mutable struct, assigned by the VM on the
+	// first objectid (objectid.go); 0 until then.
+	id uint64
 }
 
 // Function is a generic function: the single instance of its type, and the
@@ -38,6 +40,7 @@ type Function struct {
 	Name  expr.Symbol
 	Type  *core.DataType
 	Table *dispatch.Table
+	id    uint64 // its object id (objectid.go)
 }
 
 // Builtin is a function implemented in Go, a Core.Builtin: the single
@@ -46,6 +49,7 @@ type Builtin struct {
 	Name expr.Symbol
 	Type *core.DataType
 	Fn   func(vm *VM, args []any) (any, error)
+	id   uint64 // its object id (objectid.go)
 }
 
 // SVec is a Core.SimpleVector.
@@ -56,6 +60,7 @@ type Intrinsic struct {
 	Name expr.Symbol
 	ID   int32 // its number in enum intrinsic, its bits (intrinsicid.go)
 	Fn   func(vm *VM, args []any) (any, error)
+	id   uint64 // its object id (objectid.go)
 }
 
 // Module is a Julia module: its bindings, and the modules whose exported
@@ -75,6 +80,8 @@ type Module struct {
 	buildID [2]uint64
 	// opts are the module's compiler options (modopts.go)
 	opts moduleOpts
+	// id is its object id (objectid.go); julia keeps it in the module's hash
+	id uint64
 }
 
 // Binding is a module's global variable. julia 1.12 partitions a binding by
@@ -143,9 +150,10 @@ func (b *Binding) resolve() *Binding {
 	return b
 }
 
-func newModule(name expr.Symbol, parent *Module) *Module {
+func (vm *VM) newModule(name expr.Symbol, parent *Module) *Module {
+	vm.moduleCtr++
 	return &Module{Name: name, Parent: parent, bindings: map[expr.Symbol]*Binding{}, opts: newModuleOpts(),
-		buildID: [2]uint64{^uint64(0), moduleCounter.Add(1)}}
+		buildID: [2]uint64{^uint64(0), vm.moduleCtr}}
 }
 
 // ModuleName makes a module a core.ModuleValue, which core takes as a type
@@ -154,12 +162,12 @@ func newModule(name expr.Symbol, parent *Module) *Module {
 // V{Main.Outer.Inner}.
 func (m *Module) ModuleName() string { return showValue(m) }
 
-// moduleCounter numbers the modules made (module.c:510, mcounter): a
-// module's build id is ~0 and its number, unique and never 0 as julia's;
-// julia also mixes in the time and a random number (module.c:512), which
-// only Base's comparisons of ids for identity read, and which would make
-// two runs differ.
-var moduleCounter atomic.Uint64
+// A module's build id is ~0 and its number from the VM's moduleCtr
+// (module.c:510, mcounter), unique in the VM and never 0 as julia's; julia
+// also mixes in the time and a random number (module.c:512), which only
+// Base's comparisons of ids for identity read, and which would make two runs
+// differ. The counter is the VM's, not the process's: what another VM of the
+// process made before must not change this one's ids.
 
 // own returns the binding m itself holds for name, nil when it has none.
 func (m *Module) own(name expr.Symbol) *Binding {

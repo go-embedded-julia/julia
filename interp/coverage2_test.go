@@ -72,7 +72,8 @@ func TestBindingBackedges(t *testing.T) {
 // An exported, implicit binding that no module declares resolves to nothing,
 // and two modules that use each other for it do not loop.
 func TestLookupThroughUsingsCycle(t *testing.T) {
-	a, b, m := newModule("A", nil), newModule("B", nil), newModule("M", nil)
+	vm := New()
+	a, b, m := vm.newModule("A", nil), vm.newModule("B", nil), vm.newModule("M", nil)
 	a.usings, b.usings, m.usings = []*Module{b}, []*Module{a}, []*Module{a}
 	for _, mod := range []*Module{a, b} {
 		x := mod.declare("x", 0)

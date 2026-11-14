@@ -99,9 +99,9 @@ end`)
 	check(t, "jl_init_restored_module of 1", nil, err, "!TypeError(:ccall")
 	// a module defined elsewhere stays waiting when another one's
 	// initializers run
-	other := newModule("Other", nil)
+	other := vm.newModule("Other", nil)
 	vm.moduleInitOrder = []*Module{other}
-	if err := vm.moduleDefined(newModule("Fresh", vm.Main)); err != nil || len(vm.moduleInitOrder) != 1 || vm.moduleInitOrder[0] != other {
+	if err := vm.moduleDefined(vm.newModule("Fresh", vm.Main)); err != nil || len(vm.moduleInitOrder) != 1 || vm.moduleInitOrder[0] != other {
 		t.Errorf("the waiting module: %v %v", vm.moduleInitOrder, err)
 	}
 	// before Core has InitError (boot.jl), the error as it is
@@ -151,12 +151,12 @@ func TestCompilerDependencies(t *testing.T) {
 			"    _include_dependency!(_compiler_require_dependencies, true, i)\nend\n" +
 			"end\n")},
 	}
-	base := newModule("Base", vm.Main)
+	base := vm.newModule("Base", vm.Main)
 	base.usings = []*Module{vm.Core}
 	vm.baseModule = base
 	vm.replaceBase(base)
-	compiler := newModule("Compiler", base)
-	sub := newModule("Sub", compiler)
+	compiler := vm.newModule("Compiler", base)
+	sub := vm.newModule("Sub", compiler)
 	set := func(name expr.Symbol, v any) {
 		b := base.declare(name, vm.newWorld())
 		b.Value, b.Const = v, true
@@ -191,7 +191,7 @@ func TestCompilerDependencies(t *testing.T) {
 	if _, err := vm.jlLoad([]any{base, "loop.jl"}); err == nil || !strings.Contains(err.Error(), "not among the VM's") {
 		t.Errorf("a missing Compiler source: %v", err)
 	}
-	if err := vm.recordCompilerDependencies(newModule("Bare", vm.Main)); err == nil {
+	if err := vm.recordCompilerDependencies(vm.newModule("Bare", vm.Main)); err == nil {
 		t.Error("a Base without _included_files")
 	}
 	// Base.jl:418's loop over the dependencies, in the let after it,
@@ -216,7 +216,7 @@ func TestJuliaSyntaxInBase(t *testing.T) {
 		"other.jl": {Data: []byte("include(@__MODULE__, string(BUILDROOT, \"x.jl\"))\n")},
 	}
 	// the bootstrap's Base, as `module Base` in Main makes it (toplevel.go)
-	base := newModule("Base", vm.Main)
+	base := vm.newModule("Base", vm.Main)
 	base.usings = []*Module{vm.Core}
 	vm.baseModule = base
 	vm.replaceBase(base)

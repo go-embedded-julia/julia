@@ -17,7 +17,7 @@ import (
 // runtime_intrinsics.c:1174-1211).
 
 func (vm *VM) bootIntrinsics() {
-	im := newModule("Intrinsics", vm.Core)
+	im := vm.newModule("Intrinsics", vm.Core)
 	vm.modules["Intrinsics"] = im
 	b := vm.Core.declare("Intrinsics", 0)
 	b.Value, b.Const = im, true

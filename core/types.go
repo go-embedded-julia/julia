@@ -114,6 +114,21 @@ type DataType struct {
 
 type instanceBox struct{ v any }
 
+// Hash is jl_typename_t.hash: a hash of the module and the name, the same in
+// every process (no address goes into it). A name nothing has hashed yet is
+// hashed here without being stored, so that reading it races with nothing.
+func (n *TypeName) Hash() uint32 {
+	if h := n.hash; h != 0 {
+		return h
+	}
+	return strHash(n.Module+"."+n.Name) | 1
+}
+
+// Hash is jl_datatype_t.hash: a hash of the name and the parameters, the same
+// in every process; 0 when the parameters do not hash (a Union, or a type
+// whose own hash failed: jl_precompute_memoized_dt).
+func (d *DataType) Hash() uint32 { return d.hash }
+
 // CachedInstance is the instance SetCachedInstance recorded, and whether
 // one was: a recorded nil is the instance nothing.
 func (d *DataType) CachedInstance() (any, bool) {

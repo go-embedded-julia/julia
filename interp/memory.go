@@ -19,6 +19,7 @@ import (
 type Memory struct {
 	Type  *core.DataType
 	Elems []any
+	id    uint64 // its object id (objectid.go)
 }
 
 // MemoryRef is a GenericMemoryRef: a memory and the 0-based index of an
