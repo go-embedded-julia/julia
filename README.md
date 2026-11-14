@@ -19,8 +19,10 @@ expectations written by hand.
 | M1 parser | Go port of JuliaSyntax → `expr.Expr` | **done** — see parity below |
 | M2 lowering | port of `src/julia-syntax.scm` → `CodeInfo` | **done** — see lowering parity below |
 | M3 Core runtime and Base | types, subtyping, dispatch, the interpreter, julia's real Base and seven stdlibs | **done** (v0.13.0): `sysimg.jl` builds the system image, `Base.__init__` and every stdlib's `__init__` run, and 16 Base-level task programs give julia's output; known limits below |
-| M4 prebuilt image | a system image a VM loads in seconds, a per-cell `Eval` for go-notebook ([#40](https://github.com/go-embedded-julia/julia/issues/40)) | planned |
-| M5 – M7 | stdlibs in Go ([#36](https://github.com/go-embedded-julia/julia/issues/36)), numerics through go-numerics ([#33](https://github.com/go-embedded-julia/julia/issues/33)), wasm playground | planned |
+| M4 Base bootstrap and image | Base evaluated (done in M3); an image writer and reader, so that a VM loads Base in seconds ([#40](https://github.com/go-embedded-julia/julia/issues/40)); a list of `test/` files passing | planned |
+| M5 numeric boundary | GMP, MPFR, PCRE2, dSFMT, LinearAlgebra and the other stdlibs in Go ([#36](https://github.com/go-embedded-julia/julia/issues/36)), numerics through go-numerics ([#33](https://github.com/go-embedded-julia/julia/issues/33)) | planned |
+| M6 notebook bridge | a per-cell `Eval` with budgets for go-notebook (#40), the Julia–Go value table | planned |
+| M7 wasm playground | a lazily loaded Julia core with its image | planned |
 
 Known limits of v0.13.0:
 - Each VM builds the system image when it boots, about 13 minutes (#40).
