@@ -30,7 +30,7 @@ var imageRoots = map[string]bool{
 	"world": true, "Core": true, "Base": true, "Main": true, "modules": true,
 	"topModule": true, "baseModule": true, "funcs": true, "ctors": true, "others": true,
 	"sessions": true, "moduleInitOrder": true, "typeinfFunc": true, "typeinfWorld": true,
-	"gsCtr": true, "tTask": true, "task": true, "mtBackedges": true, "emptyMemory": true,
+	"gsCtr": true, "idCtr": true, "moduleCtr": true, "tTask": true, "task": true, "mtBackedges": true, "emptyMemory": true,
 	"singletons": true, "intrinsics": true, "reflected": true, "reflectedOf": true,
 	"methodTable": true, "cglobals": true, "addrs": true, "argVectors": true,
 	"builtinType": true, "intrinsicType": true, "typeofFn": true,

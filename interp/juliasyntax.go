@@ -35,7 +35,7 @@ func isJuliaSyntaxInclude(form any) bool {
 // keep jl_fl_parse's String messages, where julia's JuliaSyntax hook gives
 // a Meta.ParseError.
 func (vm *VM) defineJuliaSyntax(base *Module) {
-	js := newModule("JuliaSyntax", base)
+	js := vm.newModule("JuliaSyntax", base)
 	js.usings = []*Module{vm.Core, base}
 	b := base.declare("JuliaSyntax", vm.newWorld())
 	b.Value, b.Const = js, true

@@ -149,6 +149,10 @@ type VM struct {
 
 	// gsCtr is gs_ctr (symbol.c:125), Base.gensym's counter.
 	gsCtr uint32
+	// idCtr numbers the objects that were given an id (objectid.go); each
+	// VM has its own, so that the same program gives the same ids. moduleCtr
+	// numbers the modules this VM made (newModule: module.c:510, mcounter).
+	idCtr, moduleCtr uint64
 	// typeinfTiming is the task's reentrant_timing bit 0 (gf.c:4944-4958).
 	typeinfTiming bool
 
@@ -281,7 +285,7 @@ func New() *VM {
 }
 
 func (vm *VM) addModule(name expr.Symbol, parent *Module) *Module {
-	m := newModule(name, parent)
+	m := vm.newModule(name, parent)
 	if parent == nil {
 		vm.modules[name] = m // the root modules only: see modref.go
 	}

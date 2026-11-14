@@ -33,6 +33,10 @@ type Symbol string
 type Expr struct {
 	Head Symbol
 	Args []any
+	// ObjID is the object id the running VM gave this Expr on its first
+	// objectid, 0 until then. It is the VM's to write: an Expr is a mutable
+	// julia object whose identity must not be its address.
+	ObjID uint64
 }
 
 // New returns an Expr with the given head and arguments.
