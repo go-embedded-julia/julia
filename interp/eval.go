@@ -823,6 +823,11 @@ func (vm *VM) callMethod(m *dispatch.Method, env []any, self any, args []any) (a
 // its arguments, the last a tuple of the rest when the method is vararg
 // (jl_fptr_interpret_call).
 func (vm *VM) callLambda(l *lambda, self any, args []any, sparams []any) (any, error) {
+	if fn := nativeOf(l); fn != nil {
+		if v, handled, err := fn(vm, args); handled || err != nil {
+			return v, err
+		}
+	}
 	f := vm.newFrame(l.c, l.mod)
 	f.sparams, f.spenv = sparams, l.sig
 	all := append([]any{self}, args...)
