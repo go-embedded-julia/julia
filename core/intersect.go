@@ -1474,7 +1474,7 @@ func (e *stenv) intersect(x, y any, param int) any {
 	if e.calls > maxSubtypeCalls {
 		throwf("type intersection exceeded %d steps", maxSubtypeCalls)
 	}
-	if x == y {
+	if sameParam(x, y) {
 		return y
 	}
 	if xv, ok := x.(*TypeVar); ok {

@@ -52,6 +52,53 @@ func TestFloatTypeParameters(t *testing.T) {
 	}
 }
 
+// Subtyping compares float parameters by their bits: Host{0.0} is no subtype of
+// Host{-0.0}, Host{NaN} is one of Host{NaN}, not of a NaN of another payload;
+// in a Union, a Tuple, an invariant parameter and under a UnionAll.
+func TestFloatParameterSubtyping(t *testing.T) {
+	tn, _ := internHost("FloatSub")
+	outer, _ := internHost("FloatSubOuter")
+	host := func(p any) *DataType { return mustApply(tn.Wrapper, p).(*DataType) }
+	negZero := math.Copysign(0, -1)
+	nan := math.Float64frombits(0x7ff8000000000000)
+	nanb := math.Float64frombits(0x7ff8000000000001)
+	pairs := []struct {
+		name string
+		a, b any
+		want bool
+	}{{"0.0 and -0.0", 0.0, negZero, false}, {"-0.0 and 0.0", negZero, 0.0, false}, {"0.0", 0.0, 0.0, true},
+		{"NaN", nan, nan, true}, {"NaN and a payload", nan, nanb, false}, {"a payload and NaN", nanb, nan, false},
+		{"Float32 0.0 and -0.0", float32(0), float32(negZero), false}, {"Float32 NaN", float32(nan), float32(nan), true}}
+	for _, c := range pairs {
+		x, y := host(c.a), host(c.b)
+		if got := Subtype(x, y); got != c.want {
+			t.Errorf("%s: Host{a} <: Host{b} is %v", c.name, got)
+		}
+		if got := Subtype(TypeUnion(x, Int64Type), TypeUnion(y, Int64Type)); got != c.want {
+			t.Errorf("%s: in a Union: %v", c.name, got)
+		}
+		if got := Subtype(TupleType(x), TupleType(y)); got != c.want {
+			t.Errorf("%s: in a Tuple: %v", c.name, got)
+		}
+		if got := Subtype(mustApply(outer.Wrapper, x), mustApply(outer.Wrapper, y)); got != c.want {
+			t.Errorf("%s: in an invariant parameter: %v", c.name, got)
+		}
+		tv := &TypeVar{Name: "T", LB: Bottom, UB: AnyType}
+		// the intersection of two types differing in a float parameter is empty
+		// exactly when the floats are two values
+		if is, err := TypeIntersection(x, y); err != nil || (is == any(Bottom)) == c.want {
+			t.Errorf("%s: Host{a} and Host{b} intersect in %v, %v", c.name, is, err)
+		}
+		if got := obviouslyDisjoint(x, y, false); got == c.want {
+			t.Errorf("%s: obviouslyDisjoint is %v", c.name, got)
+		}
+		sameVar := TypeUnionAll(tv, TupleType(mustApply(outer.Wrapper, tv), mustApply(outer.Wrapper, tv)))
+		if got := Subtype(TupleType(mustApply(outer.Wrapper, x), mustApply(outer.Wrapper, y)), sameVar); got != c.want {
+			t.Errorf("%s: under a UnionAll, both bound to T: %v", c.name, got)
+		}
+	}
+}
+
 // Floats are egal (===) when their bits are: NaN === NaN, 0.0 !== -0.0, and a
 // Float32 is no Float64.
 func TestEgalFloats(t *testing.T) {
