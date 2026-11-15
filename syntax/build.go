@@ -569,6 +569,10 @@ type exprEntry struct {
 	ex          any
 }
 
+// dropsTrivia is the Expr build's test for the nodes that leave no Expr:
+// trivia other than errors.
+func dropsTrivia(h SyntaxHead) bool { return h.isTrivia() && !isError(h.Kind) }
+
 // buildExpr is build_tree(Expr, stream; filename, first_line).
 func (s *parseStream) buildExpr(filename string, firstLine int) any {
 	source := s.sourceFile(filename, firstLine)
@@ -576,8 +580,8 @@ func (s *parseStream) buildExpr(filename string, firstLine int) any {
 	// Identifiers repeat: each distinct name is converted (and boxed as an
 	// Expr argument) once per parse.
 	symbols := map[string]any{}
-	entry := buildTree(s, func(h SyntaxHead, first, last int, children []exprEntry, leaf bool) (exprEntry, bool) {
-		if h.isTrivia() && !isError(h.Kind) {
+	entry := buildTree(s, dropsTrivia, func(h SyntaxHead, first, last int, children []exprEntry, leaf bool) (exprEntry, bool) {
+		if dropsTrivia(h) {
 			return exprEntry{}, false
 		}
 		if leaf {
