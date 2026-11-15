@@ -106,6 +106,11 @@ func biMemorynew(vm *VM, args []any) (any, error) {
 	if n > int64(vm.MaxMemoryElems) {
 		return nil, fmt.Errorf("%w: GenericMemory of %d elements (VM.MaxMemoryElems is %d)", ErrMemoryLimit, n, vm.MaxMemoryElems)
 	}
+	if vm.allocMax > 0 {
+		if vm.allocs += n; vm.allocs > vm.allocMax {
+			return nil, fmt.Errorf("%w: the cell allocated more than %d elements", ErrMemoryLimit, vm.allocMax)
+		}
+	}
 	m := &Memory{Type: mt, Elems: make([]any, n)}
 	zero := vm.zeroElem(eltype)
 	for i := range m.Elems {

@@ -41,14 +41,34 @@ func TestBuildImage(t *testing.T) {
 	if os.Getenv("JLGO_BASE") != "1" || out == "" {
 		t.Skip("set JLGO_BASE=1, JLGO_IMAGE_OUT and JLGO_IMAGE_VERSION (the release workflow does)")
 	}
+	img := buildBaseImage(t, tag)
+	if err := os.WriteFile(out, img, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("image %s %s/%s: %d bytes, sha256 %x", tag, runtime.GOOS, runtime.GOARCH, len(img), sha256.Sum256(img))
+	fmt.Printf("IMAGE_SHA256=%x\n", sha256.Sum256(img))
+}
+
+// fakeReleaseVersion makes this test binary present itself, for the key of an
+// image, as julia built as the main module at the tag.
+func fakeReleaseVersion(t testing.TB, tag string) {
+	t.Helper()
 	if err := CheckImageVersion(tag); err != nil {
 		t.Fatal(err)
 	}
 	old := readBuildInfo
-	defer func() { readBuildInfo = old }()
+	t.Cleanup(func() { readBuildInfo = old })
 	readBuildInfo = func() (*debug.BuildInfo, bool) {
 		return &debug.BuildInfo{Main: debug.Module{Path: modulePathOfJulia, Version: tag}}, true
 	}
+}
+
+// buildBaseImage builds Base to the cut where julia writes sys.so, keyed for
+// tag (see fakeReleaseVersion, which stays in force), and returns the image,
+// which it has checked loads.
+func buildBaseImage(t testing.TB, tag string) []byte {
+	t.Helper()
+	fakeReleaseVersion(t, tag)
 	vm := New()
 	vm.Args = []string{"Base_compiler.jl"}
 	if err := vm.Boot(); err != nil {
@@ -66,13 +86,9 @@ func TestBuildImage(t *testing.T) {
 	if err := vm.SaveImage(&img, SaveOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(out, img.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	// the image must load, and be the one the key of a consumer asks for
 	if _, err := LoadImage(bytes.NewReader(img.Bytes()), LoadOptions{}); err != nil {
 		t.Fatalf("the image does not load: %v", err)
 	}
-	t.Logf("image %s %s/%s: %d bytes, sha256 %x", tag, runtime.GOOS, runtime.GOARCH, img.Len(), sha256.Sum256(img.Bytes()))
-	fmt.Printf("IMAGE_SHA256=%x\n", sha256.Sum256(img.Bytes()))
+	return img.Bytes()
 }

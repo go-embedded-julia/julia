@@ -336,6 +336,10 @@ func (vm *VM) bootShims() {
 		// it answers as julia does there, so that require loads a stdlib's
 		// source instead of precompiling it (loading.jl:2652-2653)
 		"jl_generating_output": func(vm *VM, a []any) (any, error) { return cbool(vm.GeneratingOutput), nil },
+		// jl_is_in_pure_context (julia.h): ct->ptls->in_pure_callback, which
+		// only a @generated function's body sets; showerror of an
+		// UndefVarError asks (errorshow.jl)
+		"jl_is_in_pure_context": func(vm *VM, a []any) (any, error) { return cbool(false), nil },
 		// jl_set_precompile_field_replace (staticdata.c:2925-2928) does
 		// nothing when no output is generated
 		"jl_set_precompile_field_replace": func(vm *VM, a []any) (any, error) { return nil, nil },

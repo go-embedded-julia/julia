@@ -312,8 +312,13 @@ func (vm *VM) uvIterate(block bool) error {
 			}
 			select {
 			case <-l.wake:
+			case <-vm.intrCh:
 			case <-time.After(time.Duration(timeout) * time.Millisecond):
 			}
+			if vm.takeInterrupt() {
+				return vm.interruptError()
+			}
+			vm.deliverInterrupt()
 		}
 	}
 	for _, h := range l.takePending() {
