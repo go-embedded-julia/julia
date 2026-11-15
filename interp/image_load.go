@@ -33,17 +33,24 @@ import (
 // (ErrImageTruncated), when a section declares more than the image holds or
 // more than the limits allow (ErrImageLimit), or when a record does not fit
 // the kinds it names (ErrImageCorrupt). The key and the checksum are not a
-// signature: an image binds itself to an interpreter and detects damage, and
-// an image from an untrusted source must not be loaded into a process that
-// runs other VMs, since loading interns its types in the process-wide caches.
+// signature: an image binds itself to an interpreter and detects damage.
+//
+// A load is atomic with respect to what the VMs of the process share (the type
+// caches of core's names, their hints, the cached instances of their types):
+// the image is decoded and validated against structures of its own, and every
+// write to shared state is made in one step at the end (commit), after every
+// conflict has been looked for. A refused image changes none of it
+// (ErrImageConflict when a hint or an instance differs from the process's). A
+// valid image from an untrusted source still adds its types to the caches and
+// sets hints a process had not set: pin its digest (LoadOptions.Digest).
 func LoadImage(r io.Reader, opts LoadOptions) (*VM, error) {
 	// read and framed before any VM is made: what is refused there costs no VM
 	fr, err := readImage(r, opts, &vmImageSpec)
 	if err != nil {
 		return nil, err
 	}
-	vm := New()
-	if err := vm.decodeImage(fr, &vmImageSpec); err != nil {
+	vm, err := decodeCommitted(fr, &vmImageSpec)
+	if err != nil {
 		return nil, err
 	}
 	return vm, nil
@@ -348,7 +355,10 @@ type imgDec struct {
 	types  []reflect.Type // by index in the image's table; nil for the nulled Ptr
 	nulled int
 	objs   []reflect.Value
-	redir  map[uint32]bool // objects replaced by the type the process already holds
+	// in holds the types the image made that the process does not: they are
+	// put in core's caches by commit, when nothing can fail
+	in    *core.Interner
+	redir map[uint32]bool // objects replaced by the type the process already holds
 	// replaced pairs each type of the image with the one the process holds
 	replaced [][2]*core.DataType
 
@@ -377,7 +387,7 @@ func (vm *VM) loadImage(r io.Reader, opts LoadOptions, spec *imageSpec) error {
 
 // decodeImage writes the image over a fresh VM.
 func (vm *VM) decodeImage(fr *imgFrame, spec *imageSpec) (err error) {
-	d := &imgDec{vm: vm, spec: spec, fr: fr, redir: map[uint32]bool{}, fields: map[reflect.Type][]encField{}}
+	d := &imgDec{vm: vm, spec: spec, fr: fr, redir: map[uint32]bool{}, fields: map[reflect.Type][]encField{}, in: core.NewInterner()}
 	defer func() {
 		if r := recover(); r != nil {
 			if f, ok := r.(imgFail); ok {
@@ -399,11 +409,33 @@ func (vm *VM) decodeImage(fr *imgFrame, spec *imageSpec) (err error) {
 	d.intern()
 	d.records()
 	d.roots()
-	d.transferInstances()
 	d.finishTask()
-	d.applyHints(hints)
 	d.rebuild()
+	// the image is decoded and valid, against structures of its own; the
+	// writes to what the process shares are made now, all or none
+	imageDecoded()
+	d.commit(hints)
 	return nil
+}
+
+// imageDecoded is called when an image has been decoded whole and has not
+// committed yet: the place a test makes another goroutine's change.
+var imageDecoded = func() {}
+
+// maxCommitTries is how many times a load decodes its image again when a type
+// cache it read grew before it could commit.
+const maxCommitTries = 4
+
+// decodeCommitted decodes fr into a fresh VM, again into another when a
+// cache another goroutine grew made the commit refuse.
+func decodeCommitted(fr *imgFrame, spec *imageSpec) (vm *VM, err error) {
+	for try := 0; try < maxCommitTries; try++ {
+		vm = New()
+		if err = vm.decodeImage(fr, spec); !core.IsInternChanged(err) {
+			break
+		}
+	}
+	return vm, err
 }
 
 func (d *imgDec) resolveTypes() {

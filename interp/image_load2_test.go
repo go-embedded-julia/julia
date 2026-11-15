@@ -226,7 +226,7 @@ func TestImageInternParametersFirst(t *testing.T) {
 	}
 	for _, c := range cases {
 		a := &core.DataType{Name: outer.Name, Super: core.AnyType, Parameters: []any{c.param}}
-		d := &imgDec{objs: []reflect.Value{reflect.ValueOf(c.param), reflect.ValueOf(a)}, redir: map[uint32]bool{}}
+		d := &imgDec{objs: []reflect.Value{reflect.ValueOf(c.param), reflect.ValueOf(a)}, redir: map[uint32]bool{}, in: core.NewInterner()}
 		st := &internState{done: map[uint32]bool{}, set: map[uint32]bool{0: true, 1: true},
 			id: map[*core.DataType]uint32{c.param: 0, a: 1}, redirect: map[*core.DataType]*core.DataType{}}
 		d.internOne(st, 1)
@@ -245,27 +245,64 @@ func TestImageInternParametersFirst(t *testing.T) {
 }
 
 // The cached instance of a type the image made goes to the type the process
-// holds in its place when that has none, and never replaces one it has.
+// holds in its place when that has none, is left when the process's is equal,
+// and is refused when the process's is another; instanceTransfers writes
+// nothing, and commit gives them.
 func TestImageTransferInstances(t *testing.T) {
 	mk := func(name string) *core.DataType {
 		return must(core.NewType("Main", name, core.AnyType, false, false, nil, nil))
 	}
 	s1, c1 := mk("XferS1"), mk("XferC1") // the image's has an instance, the process's none
-	s2, c2 := mk("XferS2"), mk("XferC2") // both have
+	s2, c2 := mk("XferS2"), mk("XferC2") // both have, equal
 	s3, c3 := mk("XferS3"), mk("XferC3") // the image's has none
+	s4, c4 := mk("XferS4"), mk("XferC4") // both have, another
+	s5 := mk("XferS5")                   // a second type of the image replaced by c1
 	s1.SetCachedInstance("from the image")
-	s2.SetCachedInstance("from the image")
-	c2.SetCachedInstance("the process's")
-	d := &imgDec{replaced: [][2]*core.DataType{{s1, c1}, {s2, c2}, {s3, c3}}}
-	d.transferInstances()
-	for name, c := range map[string]struct {
-		dt   *core.DataType
-		want any
-		has  bool
-	}{"given": {c1, "from the image", true}, "kept": {c2, "the process's", true}, "none to give": {c3, nil, false}} {
-		got, has := c.dt.CachedInstance()
-		if has != c.has || got != c.want {
-			t.Errorf("%s: instance %v, %v", name, got, has)
+	s2.SetCachedInstance("same")
+	c2.SetCachedInstance("same")
+	s4.SetCachedInstance("from the image")
+	c4.SetCachedInstance("the process's")
+	s5.SetCachedInstance("from the image")
+	d := &imgDec{vm: &VM{}, replaced: [][2]*core.DataType{{s1, c1}, {s5, c1}, {s2, c2}, {s3, c3}}}
+	xfers := d.instanceTransfers()
+	for name, dt := range map[string]*core.DataType{"given": c1, "kept": c2, "none to give": c3} {
+		if _, has := dt.CachedInstance(); has != (dt == c2) {
+			t.Errorf("%s: instanceTransfers wrote an instance", name)
+		}
+	}
+	if len(xfers) != 1 || xfers[0].to != c1 || xfers[0].v != "from the image" {
+		t.Fatalf("transfers %v: want one, to the type that has none", xfers)
+	}
+	for _, x := range xfers {
+		x.to.SetCachedInstance(x.v)
+	}
+	if got, has := c1.CachedInstance(); !has || got != "from the image" {
+		t.Errorf("given: instance %v, %v", got, has)
+	}
+	if got, has := c2.CachedInstance(); !has || got != "same" {
+		t.Errorf("kept: instance %v, %v", got, has)
+	}
+	if _, has := c3.CachedInstance(); has {
+		t.Error("none to give: an instance")
+	}
+	// another value than the process's, or than another type of the image gave
+	s5.SetCachedInstance("another")
+	for name, pairs := range map[string][][2]*core.DataType{
+		"the process holds another": {{s4, c4}},
+		"two of the image differ":   {{s1, c3}, {s5, c3}},
+	} {
+		d := &imgDec{vm: &VM{}, replaced: pairs}
+		err := func() (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					err = imgRecover(r)
+				}
+			}()
+			d.instanceTransfers()
+			return nil
+		}()
+		if !errors.Is(err, ErrImageConflict) || !strings.Contains(err.Error(), "instance of") {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }
@@ -422,7 +459,13 @@ func FuzzLoadImage(f *testing.F) {
 	f.Add(seedBody(f))
 	f.Add([]byte{})
 	f.Add([]byte{0, 0, 0, 0, 0, 0, 0})
+	// an image that is valid until the last step of decoding, with types that
+	// are new to the process: refused, and the process as it was
+	img := atomicImage(f)
+	f.Add(failingLate(f, img).body())
+	growth := vmGrowth()
 	f.Fuzz(func(t *testing.T, body []byte) {
+		before := snapshotShared()
 		prev := debug.SetMemoryLimit(512 << 20)
 		defer debug.SetMemoryLimit(prev)
 		type result struct {
@@ -446,6 +489,11 @@ func FuzzLoadImage(f *testing.F) {
 				t.Fatal("no VM and no error")
 			}
 			return
+		}
+		// a load that fails leaves what the process shares as it was (the VM it
+		// made for itself aside)
+		if d := before.diff(snapshotShared(), growth); d != "" {
+			t.Fatalf("a refused image changed what the process shares: %s (%v)", d, err)
 		}
 		for _, k := range imageErrors {
 			if errors.Is(err, k) {

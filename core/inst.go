@@ -617,6 +617,33 @@ func lookupType(tn *TypeName, key []any) *DataType {
 	return findIn(snap, key)
 }
 
+// typeofWrapperOf is the wrapper's name's holder when dt is Type{Wrapper}:
+// the DataType whose name caches dt as its Type{Wrapper}, else nil.
+func typeofWrapperOf(dt *DataType) *DataType {
+	if dt.Name == TypeTypeName {
+		if uw, ok := UnwrapUnionAll(dt.Parameters[0]).(*DataType); ok && dt.Parameters[0] == uw.Name.Wrapper {
+			return uw
+		}
+	}
+	return nil
+}
+
+// insertLocked appends dt to the cache of tn it belongs to (bucket hv) and,
+// for Type{Wrapper}, caches it on the wrapper's name. The caller holds tn.mu.
+func insertLocked(tn *TypeName, hv uint32, dt *DataType) {
+	if hv == 0 {
+		tn.linear = append(tn.linear, dt)
+	} else {
+		if tn.hashed == nil {
+			tn.hashed = map[uint32][]*DataType{}
+		}
+		tn.hashed[hv] = append(tn.hashed[hv], dt)
+	}
+	if uw := typeofWrapperOf(dt); uw != nil {
+		uw.Name.typeofWrapper = dt
+	}
+}
+
 // cacheOrGet inserts dt in its name's cache (jl_cache_type_,
 // jltypes.c:1254-1280) unless an equal entry is already there, which it
 // returns instead.
@@ -629,19 +656,7 @@ func cacheOrGet(dt *DataType) *DataType {
 		tn.mu.Lock()
 		cur := tn.cacheSlot(hv)
 		if len(cur) == seen {
-			if hv == 0 {
-				tn.linear = append(tn.linear, dt)
-			} else {
-				if tn.hashed == nil {
-					tn.hashed = map[uint32][]*DataType{}
-				}
-				tn.hashed[hv] = append(tn.hashed[hv], dt)
-			}
-			if tn == TypeTypeName {
-				if uw, ok := UnwrapUnionAll(key[0]).(*DataType); ok && key[0] == uw.Name.Wrapper {
-					uw.Name.typeofWrapper = dt
-				}
-			}
+			insertLocked(tn, hv, dt)
 			tn.mu.Unlock()
 			return dt
 		}
