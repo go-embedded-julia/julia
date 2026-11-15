@@ -3,6 +3,7 @@ package interp
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"weak"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -82,7 +83,8 @@ func (vm *VM) newFrame(c *code, mod *Module) *frame {
 			*c = *p
 		}
 	}
-	f := &frame{vm: vm, c: c, mod: mod}
+	f := framePool.Get().(*frame)
+	f.vm, f.c, f.mod = vm, c, mod
 	if n := c.nslots + c.nssa; n <= frameInline {
 		f.locals = f.inline[:n]
 	} else {
@@ -92,6 +94,20 @@ func (vm *VM) newFrame(c *code, mod *Module) *frame {
 		f.locals[i] = undef
 	}
 	return f
+}
+
+// framePool holds the frames of calls that have returned: a frame is about
+// 300 bytes, one per call, and the garbage of a loop was mostly frames (#71).
+// A frame is given back only by callLambda, when the body has returned and
+// nothing can hold it: no closure captures a frame (the evaluator's methods
+// take it as a receiver and return), the locals' values are copied out by the
+// return, and a Thrown keeps strings of it, not the frame.
+var framePool = sync.Pool{New: func() any { return new(frame) }}
+
+// freeFrame clears f and gives it back.
+func freeFrame(f *frame) {
+	*f = frame{}
+	framePool.Put(f)
 }
 
 // evalBody is eval_body (interpreter.c:470-712).
@@ -927,6 +943,7 @@ func (vm *VM) callLambda(l *lambda, self any, args []any, sparams []any) (any, e
 		}
 		t.Trace = append(t.Trace, fmt.Sprintf("%s:%d, statement %d: %s", l.file, l.line, f.ip+1, at))
 	}
+	freeFrame(f)
 	return v, err
 }
 
