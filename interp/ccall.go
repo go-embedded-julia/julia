@@ -707,6 +707,7 @@ func (vm *VM) bootShims() {
 		}
 	}
 	vm.bootBindingShims()
+	vm.bootUtf8proc()
 }
 
 // sessionFor is the session that evaluates code in module m: its lowering

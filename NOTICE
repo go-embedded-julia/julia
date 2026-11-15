@@ -71,9 +71,10 @@ src/ast.c and src/method.c), Julia 1.12.6
 > WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ------------------------------------------------------------------------------
-utf8proc v2.10.0 (internal/unitab: the grapheme-break state machine of
-utf8proc.c; the generated tables hold utf8proc's properties as reported by
-the reference julia)
+utf8proc v2.10.0 (internal/utf8proc: a Go port of utf8proc.c, and tables
+generated from utf8proc_data.c; internal/unitab: the grapheme-break state
+machine of utf8proc.c, its generated tables holding utf8proc's properties as
+reported by the reference julia)
 
 > Copyright (c) 2014-2021 by Steven G. Johnson, Jiahao Chen, Tony Kelman,
 > Jonas Fonseca, and other contributors listed in the git history.
@@ -101,4 +102,6 @@ The tables derive from the Unicode Character Database:
 
 > Copyright (c) 1991-2024 Unicode, Inc. Distributed under the Terms of Use in
 > https://www.unicode.org/copyright.html. The data in internal/unitab has
-> been modified (reduced to run-length tables of the properties used).
+> been modified (reduced to run-length tables of the properties used); the
+> tables of internal/utf8proc are utf8proc_data.c's arrays, as utf8proc
+> derived them from the Unicode data files, rewritten as Go.
