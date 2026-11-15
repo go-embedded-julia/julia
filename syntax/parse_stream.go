@@ -115,9 +115,13 @@ type parseStream struct {
 
 func newParseStream(text []byte, index int, version [2]int, limits Limits) *parseStream {
 	sentinel := syntaxToken{head: SyntaxHead{kTombstone, emptyFlags}, origKind: kTombstone, nextByte: index}
-	// Julia source runs at about one token per three bytes and one range
-	// per two tokens: sizing the output arrays up front saves their growth.
-	tokens := make([]syntaxToken, 2, 16+len(text)/2)
+	// Whitespace is a token, so source runs at about one token per byte for
+	// short names (`a+a+a`, `x = f(y)`), not one per three: the token array is
+	// sized from a count of the runs of the text (estimateTokens), where a
+	// guess per byte left a chain `a+a+...` growing it (3.8 MB of its
+	// 16.5 MB). One range per six bytes: a chain has three ranges, a line of
+	// calls one per two tokens.
+	tokens := make([]syntaxToken, 2, estimateTokens(text))
 	tokens[1] = sentinel
 	ranges := make([]taggedRange, 1, 16+len(text)/6)
 	return &parseStream{
@@ -129,6 +133,39 @@ func newParseStream(text []byte, index int, version [2]int, limits Limits) *pars
 		version:   version,
 		limits:    limits,
 	}
+}
+
+// byteClass sorts the bytes of a text for estimateTokens: 0 other (a token
+// of its own: punctuation, newline), 1 blank (a run is one token), 2 word
+// (letters, digits, underscore and the bytes of non-ASCII characters; a run
+// is about one token).
+var byteClass = func() (t [256]uint8) {
+	for c := 0; c < 256; c++ {
+		switch {
+		case c == ' ' || c == '\t':
+			t[c] = 1
+		case c == '_' || c >= 0x80 || '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z':
+			t[c] = 2
+		}
+	}
+	return
+}()
+
+// estimateTokens is the capacity of the token array for a text: the number of
+// runs (a blank run, a word run, each other byte) with an eighth more and 16
+// to spare. It is a guess, an exact one for a chain `a+a+...`; the array grows
+// when the guess is short.
+func estimateTokens(text []byte) int {
+	runs := 0
+	prev := uint8(0)
+	for _, c := range text {
+		cl := byteClass[c]
+		if cl == 0 || cl != prev {
+			runs++
+		}
+		prev = cl
+	}
+	return 16 + runs + runs/8
 }
 
 // pushToken appends to the output, doubling the array when it is full: append
@@ -599,20 +636,80 @@ func (s *parseStream) validateTokens() {
 	})
 }
 
+// stackPeak walks the output as buildTree does and keeps only the first token
+// of each stack entry. It returns that stack, emptied, with room for the
+// deepest the stack gets, and that depth. The stack of first tokens doubles
+// when full (append would grow it by a quarter each time).
+func (s *parseStream) stackPeak(drops func(SyntaxHead) bool) ([]int, int) {
+	tokens := s.tokens
+	ranges := s.ranges
+	firsts := make([]int, 0, len(tokens)/4+16)
+	peak := 0
+	push := func(first int) {
+		if len(firsts) == cap(firsts) {
+			firsts = slices.Grow(firsts, len(firsts))
+		}
+		firsts = append(firsts, first)
+		peak = max(peak, len(firsts))
+	}
+	i := 1
+	j := 1
+	for {
+		lastToken := len(tokens) - 1
+		if j <= len(ranges)-1 {
+			lastToken = ranges[j].lastToken
+		}
+		for ; i <= lastToken; i++ {
+			h := tokens[i].head
+			if h.Kind != kTombstone && (drops == nil || !drops(h)) {
+				push(i)
+			}
+		}
+		if j > len(ranges)-1 {
+			break
+		}
+		for ; j <= len(ranges)-1; j++ {
+			r := ranges[j]
+			if r.lastToken != lastToken {
+				break
+			}
+			if r.head.Kind == kTombstone {
+				continue
+			}
+			k := len(firsts)
+			for k > 0 && r.firstToken <= firsts[k-1] {
+				k--
+			}
+			firsts = firsts[:k]
+			if drops == nil || !drops(r.head) {
+				push(r.firstToken)
+			}
+		}
+	}
+	return firsts[:0], peak
+}
+
 // buildTree is build_tree(make_node, stream): a depth-first postorder walk of
 // the output ranges. makeNode returns ok=false to drop a node. The children
-// slice it receives is reused from call to call: a node that keeps its
+// slice it receives, and firsts (the first token of each child, nil for a
+// leaf: a child's first byte is tokens[first-1].nextByte, so the stack entry
+// need not carry it), are reused from call to call: a node that keeps its
 // children must copy them.
-func buildTree[T any](s *parseStream, makeNode func(h SyntaxHead, first, last int, children []T, leaf bool) (T, bool)) T {
-	// The stack holds at most one entry per token, and in a long flat node (a
-	// chain `a+a+...`) about that many: it starts at a quarter of the token
-	// count and doubles when full (append would grow it by a quarter each time).
-	//
+//
+// drops reports the heads whose nodes makeNode always drops (nil: none). It
+// is used only to size the stack: build_tree grows its stack with push!, and a
+// long flat node (a chain `a+a+...` is one node of 100 000 children) copied the
+// stack at each doubling, 4.8 MB of its 16.5 MB; the peak depth is counted by
+// a first walk over the ranges that keeps only the first tokens (stackPeak), so
+// the stack of nodes, the wide one, is allocated once at its final size. A
+// makeNode that drops other nodes than drops says only leaves the stack shorter
+// than its capacity; one that keeps what drops names grows it as before.
+func buildTree[T any](s *parseStream, drops func(SyntaxHead) bool, makeNode func(h SyntaxHead, first, last int, children []T, firsts []int, leaf bool) (T, bool)) T {
 	// The stack is two parallel slices, the first token of each entry and its
 	// node, so that the children of a node are a view of the nodes (no copy, no
 	// buffer as wide as the widest node).
-	firsts := make([]int, 0, len(s.tokens)/4+16)
-	nodes := make([]T, 0, len(s.tokens)/4+16)
+	firsts, peak := s.stackPeak(drops)
+	nodes := make([]T, 0, peak)
 	tokens := s.tokens
 	ranges := s.ranges
 	i := 1
@@ -630,11 +727,7 @@ func buildTree[T any](s *parseStream, makeNode func(h SyntaxHead, first, last in
 				i++
 				continue // Ignore removed tokens
 			}
-			if node, ok := makeNode(t.head, tokens[i-1].nextByte, tokens[i].nextByte-1, nil, true); ok {
-				if len(nodes) == cap(nodes) {
-					nodes = slices.Grow(nodes, len(nodes))
-					firsts = slices.Grow(firsts, len(firsts))
-				}
+			if node, ok := makeNode(t.head, tokens[i-1].nextByte, tokens[i].nextByte-1, nil, nil, true); ok {
 				firsts = append(firsts, i)
 				nodes = append(nodes, node)
 			}
@@ -658,7 +751,7 @@ func buildTree[T any](s *parseStream, makeNode func(h SyntaxHead, first, last in
 			for k > 0 && r.firstToken <= firsts[k-1] {
 				k--
 			}
-			node, ok := makeNode(r.head, tokens[r.firstToken-1].nextByte, tokens[r.lastToken].nextByte-1, nodes[k:], false)
+			node, ok := makeNode(r.head, tokens[r.firstToken-1].nextByte, tokens[r.lastToken].nextByte-1, nodes[k:], firsts[k:], false)
 			clear(nodes[k:]) // the dropped entries hold nothing alive
 			nodes, firsts = nodes[:k], firsts[:k]
 			if ok {
@@ -671,6 +764,6 @@ func buildTree[T any](s *parseStream, makeNode func(h SyntaxHead, first, last in
 	if len(nodes) == 1 {
 		return nodes[0]
 	}
-	node, _ := makeNode(SyntaxHead{kWrapper, emptyFlags}, tokens[1].nextByte, tokens[len(tokens)-1].nextByte-1, nodes, false)
+	node, _ := makeNode(SyntaxHead{kWrapper, emptyFlags}, tokens[1].nextByte, tokens[len(tokens)-1].nextByte-1, nodes, firsts, false)
 	return node
 }

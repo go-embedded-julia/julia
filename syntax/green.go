@@ -23,7 +23,7 @@ type greenNode struct {
 
 // buildGreen is build_tree(GreenNode, stream).
 func (s *parseStream) buildGreen() *greenNode {
-	return buildTree(s, func(h SyntaxHead, first, last int, children []*greenNode, leaf bool) (*greenNode, bool) {
+	return buildTree(s, nil, func(h SyntaxHead, first, last int, children []*greenNode, _ []int, leaf bool) (*greenNode, bool) {
 		if leaf {
 			return &greenNode{head: h, span: last - first + 1, leaf: true}, true
 		}

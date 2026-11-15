@@ -94,10 +94,10 @@ func TestWrapperExpr(t *testing.T) {
 func TestInternalNodeOddities(t *testing.T) {
 	src := NewSourceFile("x", "f", 1, 1)
 	h := func(k Kind) SyntaxHead { return SyntaxHead{k, emptyFlags} }
-	if got := internalNodeToExpr(src, 1, 1, h(kInert), nil, []any{expr.Symbol("x")}); got != (expr.QuoteNode{Value: expr.Symbol("x")}) {
+	if got := internalNodeToExpr(src, 1, 1, h(kInert), nil, nil, []any{expr.Symbol("x")}); got != (expr.QuoteNode{Value: expr.Symbol("x")}) {
 		t.Fatalf("inert: %v", got)
 	}
-	if got := expr.Serialize(internalNodeToExpr(src, 1, 1, h(kWrapper), nil, []any{expr.Symbol("x")})); got != "(:block :x)" {
+	if got := expr.Serialize(internalNodeToExpr(src, 1, 1, h(kWrapper), nil, nil, []any{expr.Symbol("x")})); got != "(:block :x)" {
 		t.Fatalf("wrapper: %s", got)
 	}
 	if symbolString("s") != "s" || symbolString(int64(1)) != "1" {
