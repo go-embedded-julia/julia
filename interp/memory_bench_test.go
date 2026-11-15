@@ -40,7 +40,7 @@ func BenchmarkMemoryLoops(b *testing.B) {
 	}
 	for _, c := range []struct{ name, src string }{
 		{"field write loop (mutable struct)", "mutable struct Cnt; x::Int; end; c = Cnt(0); for i in 1:" + n + "; c.x += 1; end; c.x"},
-		{"string bytes loop UInt8","t = 0; for b in codeunits(str); t += b; end; t"},
+		{"string bytes loop UInt8", "t = 0; for b in codeunits(str); t += b; end; t"},
 		{"sum codeunits UInt8", "sum(codeunits(str))"},
 		{"read loop Float64", "s = 0.0; for i in eachindex(v); s += v[i]; end; s"},
 		{"write loop Float64", "for i in eachindex(v); v[i] = v[i] + 1.0; end; nothing"},
