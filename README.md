@@ -181,6 +181,29 @@ input both ways — `ErrParserFailed` exactly where JuliaSyntax throws, the
 same `Expr` everywhere else (200 002 inputs: 7 failures on both sides,
 0 differences; CI runs 50 000 on every pull request).
 
+## The system image
+
+`SaveImage` / `LoadImage` write and read a booted VM (Base built to the cut
+where julia writes `sys.so`). Each release publishes its image as the asset
+`julia-image-vX.Y.Z.bin`, with `julia-image-vX.Y.Z.sha256`; the workflow
+`.github/workflows/image.yml` builds it when the release is published and
+writes the SHA-256 in the release notes. The key of an image holds the module
+version (`ImageVersion`: a clean tag only, never `(devel)`, a pseudo-version
+or `+dirty`), so the builder and a program that imports `julia@vX` ask for
+the same image.
+
+An image is not authenticated by its key or its trailer, and loading one
+writes state the whole process shares, so the consumer pins the digest as
+`go.sum` does (the digest of a version cannot be in that version's own
+source): `interp.FetchImage(ctx, "vX.Y.Z", digest, interp.FetchOptions{})`
+downloads over https within a size bound, refuses any other digest with
+`ErrImageDigest` before the bytes reach `LoadImage`, and keeps the verified
+file in the user cache directory (hashed again at every use). `images.sum`
+at the root lists the digest of each release; a pull request after the
+release adds its line. A manual build of the asset: `JLGO_BASE=1
+JLGO_IMAGE_VERSION=vX.Y.Z JLGO_IMAGE_OUT=out.bin go test ./interp -run
+TestBuildImage`.
+
 ## The oracle
 
 `internal/oracle` runs the reference julia as a persistent process speaking a

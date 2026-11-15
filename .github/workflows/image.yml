@@ -1,0 +1,49 @@
+name: image
+
+# The system image of a release (#40): built when a release is published, from
+# the tag, uploaded as an asset with its SHA-256, and the digest written in
+# the release notes. A consumer pins that digest (interp.FetchImage); images.sum
+# keeps the ledger. The key of the image holds the module version, so the
+# builder presents itself as julia at the tag (TestBuildImage).
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.3'
+      - name: Build the image
+        env:
+          JLGO_BASE: '1'
+          JLGO_IMAGE_VERSION: ${{ github.event.release.tag_name }}
+          JLGO_IMAGE_OUT: ${{ github.workspace }}/julia-image-${{ github.event.release.tag_name }}.bin
+        run: go test ./interp -run '^TestBuildImage$' -count=1 -v -timeout 80m
+      - name: Digest
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          sha256sum "julia-image-${TAG}.bin" > "julia-image-${TAG}.sha256"
+          cat "julia-image-${TAG}.sha256"
+      - name: Upload the assets and write the digest in the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          gh release upload "$TAG" "julia-image-${TAG}.bin" "julia-image-${TAG}.sha256" --clobber
+          digest="$(cut -d' ' -f1 "julia-image-${TAG}.sha256")"
+          gh release view "$TAG" --json body --jq .body > notes.md
+          printf '\n\nSystem image SHA-256 (pin it with interp.FetchImage): `%s`\n' "$digest" >> notes.md
+          gh release edit "$TAG" --notes-file notes.md

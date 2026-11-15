@@ -1,0 +1,11 @@
+# The SHA-256 of the system image of each release, one line per version:
+#
+#     vMAJOR.MINOR.PATCH <64 hexadecimal digits>
+#
+# The release workflow (.github/workflows/image.yml) builds the image of a
+# tag, uploads it as the asset julia-image-<version>.bin with a .sha256 file,
+# and writes the digest in the release notes. This file is the ledger of those
+# digests; a pull request after the release adds its line (copy it from the
+# release notes, and check it against the .sha256 asset). A program that
+# imports julia pins the digest itself (interp.FetchImage): the digest of a
+# version cannot be in that version's own source, the image depends on it.
