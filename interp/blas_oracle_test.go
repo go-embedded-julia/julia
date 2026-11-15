@@ -23,12 +23,12 @@ import (
 // its OpenBLAS, to go-blas' stated bound and not to the bit.
 //
 // The Base image is built (about 6 minutes) when JLGO_BASE=1; JLGO_BASE_IMAGE
-// names one built by TestBuildImage with JLGO_IMAGE_VERSION=v0.17.0 to reuse.
+// names one built by TestBuildImage with JLGO_IMAGE_VERSION=v0.0.1 (the tag of the other kernel tests) to reuse.
 
 //go:embed testdata/blas_stdlib.jl
 var blasStdlibCases string
 
-const baseImageTag = "v0.17.0"
+const baseImageTag = "v0.0.1"
 
 func baseKernel(t *testing.T) *Kernel {
 	t.Helper()

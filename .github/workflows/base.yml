@@ -1,0 +1,170 @@
+name: base
+
+# The tests that need julia's Base (JLGO_BASE=1): the Kernel's value table, the
+# natives against the julia bodies, utf8proc on Base, the image round trips and
+# oracles. ci.yml never runs them (building Base takes minutes), so a change
+# that breaks them was invisible until someone ran them by hand.
+#
+# Two jobs:
+#   pr   the tests that use the prebuilt image (a few minutes of tests after
+#        one image build): on pull requests that touch the interpreter, on
+#        pushes to main and nightly. Target: 20 minutes.
+#   full every JLGO_BASE=1 test, among them the ones that build their own Base
+#        (TestBase, the image round trips): on pushes to main and nightly only.
+#
+# Each test runs in its OWN process. go-embedded-julia/julia#92: a LoadImage
+# after another VM of the process has run code can fail ("object N is a
+# *core.instanceBox, the image says *core.DataType"), and in one `go test`
+# process a test that ran cells hid every image-loading test after it (the
+# first run of this workflow: 11 failures). One process per test lets one
+# failure be one failure. Without -race: the suite is minutes without it and
+# the best part of an hour with it.
+#
+# One image, v0.0.1, the tag the Base tests present themselves as. It is cached
+# under the hash of every .go file, go.mod and interp/boot/**: the key of an
+# image holds a hash of the embedded julia sources (sourcesHash) but not of the
+# Go code that builds it, so it cannot say whether a cached image is still what
+# the interpreter would build; the hash of the Go code can. It helps the re-run
+# of one commit, and nothing else.
+#
+# First run (PR 91, one process for all tests): the two images (v0.0.1 and
+# v0.17.0, which is no longer needed) took 1 231 s, the suite 3 965 s.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * *'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'interp/**'
+      - 'core/**'
+      - 'syntax/**'
+      - 'lower/**'
+      - 'expr/**'
+      - 'internal/**'
+      - 'go.mod'
+      - '.github/workflows/base.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  pr:
+    name: base tests (prebuilt image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.4'
+      - name: Cache key
+        id: key
+        run: echo "hash=${{ hashFiles('**/*.go', 'go.mod', 'interp/boot/**') }}" >> "$GITHUB_OUTPUT"
+      - name: Cached image
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: base-image
+          key: base-image-${{ steps.key.outputs.hash }}
+      - name: Build the image
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          JLGO_BASE: '1'
+        run: |
+          mkdir -p base-image
+          start=$(date +%s)
+          JLGO_IMAGE_VERSION=v0.0.1 JLGO_IMAGE_OUT="$PWD/base-image/kernel.img" \
+            go test ./interp -run '^TestBuildImage$' -count=1 -v -timeout 30m
+          echo "image built in $(( $(date +%s) - start )) s"
+      # saved as soon as it exists, so that a failing test does not lose it
+      - name: Save the image
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: base-image
+          key: base-image-${{ steps.key.outputs.hash }}
+      - name: The tests that use the image, one process each
+        env:
+          JLGO_BASE: '1'
+          JLGO_IMAGE_VERSION: v0.0.1
+        run: |
+          export JLGO_KERNEL_IMAGE="$PWD/base-image/kernel.img" JLGO_BASE_IMAGE="$PWD/base-image/kernel.img"
+          go test -c -o "$PWD/interp.test" ./interp
+          cd interp
+          start=$(date +%s)
+          failed=""
+          for t in TestKernelBase TestKernelValuesBase TestMethodErrorText TestNativesAgainstTheJuliaBodies TestUtf8procBase TestFrameSafetyOnBase TestBLASOnBase TestEgalFloatsOnBase; do
+            if ! "$PWD/../interp.test" -test.list "^${t}\$" | grep -qx "$t"; then
+              echo "::notice::$t is not in this tree"
+              continue
+            fi
+            s=$(date +%s)
+            if "$PWD/../interp.test" -test.run "^${t}\$" -test.v -test.timeout 30m > "../$t.txt" 2>&1; then
+              echo "ok   $t $(( $(date +%s) - s )) s"
+            else
+              echo "FAIL $t $(( $(date +%s) - s )) s"
+              tail -n 40 "../$t.txt"
+              failed="$failed $t"
+            fi
+          done
+          echo "tests ran in $(( $(date +%s) - start )) s"
+          test -z "$failed" || { echo "::error::failed:$failed"; exit 1; }
+
+  full:
+    name: base tests (every JLGO_BASE=1 test)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.4'
+      - name: Cache key
+        id: key
+        run: echo "hash=${{ hashFiles('**/*.go', 'go.mod', 'interp/boot/**') }}" >> "$GITHUB_OUTPUT"
+      - name: Cached image
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: base-image
+          key: base-image-${{ steps.key.outputs.hash }}
+      - name: Build the image
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          JLGO_BASE: '1'
+        run: |
+          mkdir -p base-image
+          JLGO_IMAGE_VERSION=v0.0.1 JLGO_IMAGE_OUT="$PWD/base-image/kernel.img" \
+            go test ./interp -run '^TestBuildImage$' -count=1 -v -timeout 30m
+      - name: Save the image
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: base-image
+          key: base-image-${{ steps.key.outputs.hash }}
+      - name: Every test, one process each
+        env:
+          JLGO_BASE: '1'
+          JLGO_IMAGE_VERSION: v0.0.1
+        run: |
+          export JLGO_KERNEL_IMAGE="$PWD/base-image/kernel.img" JLGO_BASE_IMAGE="$PWD/base-image/kernel.img"
+          go test -c -o "$PWD/interp.test" ./interp
+          cd interp
+          start=$(date +%s)
+          failed=""
+          for t in $("$PWD/../interp.test" -test.list '^Test'); do
+            s=$(date +%s)
+            if "$PWD/../interp.test" -test.run "^${t}\$" -test.v -test.timeout 120m > "../$t.txt" 2>&1; then
+              echo "ok   $t $(( $(date +%s) - s )) s"
+            else
+              echo "FAIL $t $(( $(date +%s) - s )) s"
+              tail -n 40 "../$t.txt"
+              failed="$failed $t"
+            fi
+          done
+          echo "tests ran in $(( $(date +%s) - start )) s"
+          test -z "$failed" || { echo "::error::failed:$failed"; exit 1; }
