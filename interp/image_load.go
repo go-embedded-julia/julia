@@ -55,6 +55,13 @@ type LoadOptions struct {
 	// MaxBytes bounds the image read, MaxObjects the objects of its table.
 	MaxBytes   int64
 	MaxObjects int
+	// Digest, when set, pins the SHA-256 of the whole image: the input is read
+	// (within MaxBytes) and hashed, and any other bytes are refused with
+	// ErrImageDigest before the key, the framing or any object is looked at.
+	// A pointer, so that unset (nil, the image is not pinned) cannot be a
+	// pinned all-zero digest by accident. An image from an untrusted source
+	// must be loaded with its digest (FetchImage and FetchKernel do).
+	Digest *[32]byte
 }
 
 var (
@@ -201,6 +208,20 @@ func readImage(r io.Reader, opts LoadOptions, spec *imageSpec) (*imgFrame, error
 	}
 	if opts.MaxObjects <= 0 {
 		opts.MaxObjects = DefaultMaxImageObjects
+	}
+	// a pinned image is read whole and hashed before anything else is looked at
+	if opts.Digest != nil {
+		all, err := io.ReadAll(io.LimitReader(r, opts.MaxBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(all)) > opts.MaxBytes {
+			return nil, fmt.Errorf("%w: more than %d bytes", ErrImageLimit, opts.MaxBytes)
+		}
+		if got := sha256.Sum256(all); got != *opts.Digest {
+			return nil, fmt.Errorf("%w: the image is %x, pinned %x", ErrImageDigest, got, *opts.Digest)
+		}
+		r = bytes.NewReader(all)
 	}
 	// the header first: a stream that is not this interpreter's image is
 	// refused after 76 bytes, however long it goes on

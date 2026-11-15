@@ -202,6 +202,7 @@ func FetchKernel(ctx context.Context, version string, digest [32]byte, fo FetchO
 	if err != nil {
 		return nil, err
 	}
+	lo.Digest = &digest // the load checks it again over the bytes it is given
 	return LoadKernel(bytes.NewReader(img), lo, ko)
 }
 

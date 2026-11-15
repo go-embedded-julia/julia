@@ -234,7 +234,11 @@ writes state the whole process shares, so the consumer pins the digest as
 source): `interp.FetchImage(ctx, "vX.Y.Z", digest, interp.FetchOptions{})`
 downloads over https within a size bound, refuses any other digest with
 `ErrImageDigest` before the bytes reach `LoadImage`, and keeps the verified
-file in the user cache directory (hashed again at every use). `images.sum`
+file in the user cache directory (hashed again at every use). A program that
+holds the image itself (a static asset, bytes it was given) pins it the same
+way: `LoadOptions{Digest: &digest}` makes `LoadImage` and `LoadKernel` hash the
+whole input first and refuse any other bytes with `ErrImageDigest`, before the
+key, the framing or an object is read; `nil` (the default) does not pin. `images.sum`
 at the root lists the digest of each release; a pull request after the
 release adds its line. A manual build of the asset: `JLGO_BASE=1
 JLGO_IMAGE_VERSION=vX.Y.Z JLGO_IMAGE_OUT=out.bin go test ./interp -run
