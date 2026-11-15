@@ -6,6 +6,7 @@
 package syntax
 
 import (
+	"math"
 	"strings"
 
 	"github.com/go-embedded-julia/julia/expr"
@@ -242,7 +243,7 @@ func pushFirstArg(v any, a any) {
 
 // internalNodeToExpr converts an internal node of the parse tree to an Expr.
 func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
-	children []exprEntry, args []any) any {
+	children []exprEntry, childFirst func(i int) int, args []any) any {
 	k := head.Kind
 	if (k == kVar || k == kCharNode) && len(args) == 1 {
 		return args[0]
@@ -289,7 +290,7 @@ func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
 			out := make([]any, 2*len(args))
 			for i := len(children) - 1; i >= 0; i-- {
 				out[2*i+1] = args[i]
-				out[2*i] = lineNode(source, children[i].first)
+				out[2*i] = lineNode(source, childFirst(i))
 			}
 			args = out
 		}
@@ -449,7 +450,7 @@ func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
 						if e, ok := a111.(*expr.Expr); ok && e.Head == "kw" {
 							assgn = expr.New("=", e.Args...)
 						}
-						argloc := lineNode(source, children[0].last)
+						argloc := lineNode(source, int(children[0].last))
 						args[0] = expr.New("block", a1.Args[1], argloc, assgn)
 					}
 				}
@@ -562,12 +563,23 @@ func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
 	return expr.New(headsym, args...)
 }
 
-// exprEntry is the stack entry of the Expr build.
+// exprEntry is the stack entry of the Expr build: 24 bytes, where first, last
+// and head as ints made 40. A node's first byte is not kept (buildTree hands
+// internalNodeToExpr the first tokens of the children); its last byte is, as
+// an int32, which ParseRule's limit keeps in range (maxInputBytes).
 type exprEntry struct {
-	first, last int
-	head        SyntaxHead
-	ex          any
+	ex   any
+	last int32
+	head SyntaxHead
 }
+
+// maxInputBytes is the largest input the Expr build accepts: byte positions
+// are kept as int32 in exprEntry.
+const maxInputBytes = math.MaxInt32
+
+// dropsTrivia is the Expr build's test for the nodes that leave no Expr:
+// trivia other than errors.
+func dropsTrivia(h SyntaxHead) bool { return h.isTrivia() && !isError(h.Kind) }
 
 // buildExpr is build_tree(Expr, stream; filename, first_line).
 func (s *parseStream) buildExpr(filename string, firstLine int) any {
@@ -576,8 +588,8 @@ func (s *parseStream) buildExpr(filename string, firstLine int) any {
 	// Identifiers repeat: each distinct name is converted (and boxed as an
 	// Expr argument) once per parse.
 	symbols := map[string]any{}
-	entry := buildTree(s, func(h SyntaxHead, first, last int, children []exprEntry, leaf bool) (exprEntry, bool) {
-		if h.isTrivia() && !isError(h.Kind) {
+	entry := buildTree(s, dropsTrivia, func(h SyntaxHead, first, last int, children []exprEntry, firsts []int, leaf bool) (exprEntry, bool) {
+		if dropsTrivia(h) {
 			return exprEntry{}, false
 		}
 		if leaf {
@@ -588,15 +600,16 @@ func (s *parseStream) buildExpr(filename string, firstLine int) any {
 					v = leafToExpr(source, txtbuf, h, first, last)
 					symbols[string(text)] = v
 				}
-				return exprEntry{first, last, h, v}, true
+				return exprEntry{v, int32(last), h}, true
 			}
-			return exprEntry{first, last, h, leafToExpr(source, txtbuf, h, first, last)}, true
+			return exprEntry{leafToExpr(source, txtbuf, h, first, last), int32(last), h}, true
 		}
 		args := make([]any, len(children))
 		for i, c := range children {
 			args[i] = c.ex
 		}
-		return exprEntry{first, last, h, internalNodeToExpr(source, first, last, h, children, args)}, true
+		childFirst := func(i int) int { return s.tokens[firsts[i]-1].nextByte }
+		return exprEntry{internalNodeToExpr(source, first, last, h, children, childFirst, args), int32(last), h}, true
 	})
 	args := []any{entry.ex}
 	fixupExprChildren(SyntaxHead{kNone, emptyFlags}, args)

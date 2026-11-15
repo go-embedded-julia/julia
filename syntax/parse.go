@@ -38,8 +38,8 @@ func ParseAllLimits(src []byte, filename string, lim Limits) (any, error) {
 // end, and the 0-based offset where it stopped; a syntax error is the
 // expression, as ParseAll's are, the toplevel form only for "all".
 func ParseRule(src []byte, filename string, line, offset int, rule string, lim Limits) (any, int, error) {
-	if len(src) > lim.MaxBytes {
-		return nil, 0, fmt.Errorf("%w: %d bytes, the limit is %d", ErrLimit, len(src), lim.MaxBytes)
+	if maxBytes := min(lim.MaxBytes, maxInputBytes); len(src) > maxBytes {
+		return nil, 0, fmt.Errorf("%w: %d bytes, the limit is %d", ErrLimit, len(src), maxBytes)
 	}
 	if rule != "all" && rule != "statement" && rule != "atom" {
 		return nil, 0, fmt.Errorf("unknown grammar rule %s", rule)

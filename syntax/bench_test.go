@@ -89,7 +89,10 @@ func TestThroughputAgainstJulia(t *testing.T) {
 // A chain of 100 000 terms is one node of 200 000 children: parsing it must
 // not allocate in proportion to the growth of its arrays (#46: 53.8 MB when
 // append grew each of them by a quarter and the children were copied out of
-// the stack; 16.5 MB now). Allocation is exact under load, unlike a time.
+// the stack; 16.5 MB after the first pass; 11.6 MB with the token array
+// and the stack allocated once at their final size; 10.0 MB now, with a stack
+// entry of 24 bytes instead of 40). Allocation is exact under load, unlike a
+// time.
 func TestLongChainAllocation(t *testing.T) {
 	src := []byte(strings.Repeat("a+", 100000) + "a")
 	ParseAll(src, "warm")
@@ -97,9 +100,68 @@ func TestLongChainAllocation(t *testing.T) {
 	runtime.ReadMemStats(&before)
 	ParseAll(src, "chain")
 	runtime.ReadMemStats(&after)
-	const limit = 24 << 20
+	const limit = 10<<20 + 512<<10
 	if got := after.TotalAlloc - before.TotalAlloc; got > limit {
 		t.Errorf("a 100 000-term chain allocated %d bytes, want at most %d", got, limit)
+	}
+}
+
+// stackPeak is the deepest buildTree's stack gets, to the entry: the stack of
+// nodes is allocated at that size and never grows. It is compared with the
+// depth the callback sees, for a flat node (the chain), a stream of statements,
+// nested nodes, trivia that is dropped and trivia that is kept (the green tree:
+// drops is nil).
+func TestStackPeakIsTheDepthOfTheBuild(t *testing.T) {
+	for _, src := range []string{
+		strings.Repeat("a+", 1000) + "a",
+		strings.Repeat("x = f(y, 2.5) + z[1]\n", 200),
+		strings.Repeat("f(", 50) + "1" + strings.Repeat(")", 50),
+		"begin\n  a; b\n  # note\nend\n",
+		"",
+		"a b\n(c",
+	} {
+		for _, drops := range []func(SyntaxHead) bool{dropsTrivia, nil} {
+			s := newParseStream([]byte(src), 1, SyntaxVersion, DefaultLimits)
+			newParseState(s).parseToplevel()
+			s.validateTokens()
+			_, peak := s.stackPeak(drops)
+			depth, seen := 0, 0
+			buildTree(s, drops, func(h SyntaxHead, first, last int, children []struct{}, _ []int, leaf bool) (struct{}, bool) {
+				if drops != nil && drops(h) {
+					return struct{}{}, false
+				}
+				if !leaf {
+					depth -= len(children)
+				}
+				depth++
+				seen = max(seen, depth)
+				return struct{}{}, true
+			})
+			if seen != peak {
+				t.Errorf("%.30q (drops %v): the stack got %d deep, stackPeak says %d", src, drops != nil, seen, peak)
+			}
+		}
+	}
+}
+
+// The token array is sized from the text: a chain `a+a+...` and a text of
+// statements fit it without growing (cap unchanged), and a text that has more
+// tokens than runs (`1x` is two tokens in one run of word bytes) grows it.
+func TestTokenArrayIsSizedFromTheText(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		grow bool
+	}{
+		{strings.Repeat("a+", 5000) + "a", false},
+		{strings.Repeat("x = f(y, 2.5) + z[1]\n", 500), false},
+		{strings.Repeat("1x,", 500), true},
+	} {
+		s := newParseStream([]byte(tc.src), 1, SyntaxVersion, DefaultLimits)
+		initial := cap(s.tokens)
+		newParseState(s).parseToplevel()
+		if grew := cap(s.tokens) != initial; grew != tc.grow {
+			t.Errorf("%.20q: the token array grew: %v (cap %d, then %d, %d tokens), want %v", tc.src, grew, initial, cap(s.tokens), len(s.tokens), tc.grow)
+		}
 	}
 }
 
