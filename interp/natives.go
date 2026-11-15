@@ -37,7 +37,8 @@ import (
 // built from another julia gets none of them. It answers the cases it covers and
 // says it has not handled anything else (handled false), in which case the julia
 // body runs as before: an error to throw, an element type that needs clearing, an
-// argument of another type.
+// argument of another type. The args a native is given are BORROWED from the
+// caller's frame (callFunction): it may read them and must not keep the slice.
 type nativeFn func(vm *VM, args []any) (res any, handled bool, err error)
 
 type nativeSpec struct {

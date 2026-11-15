@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
+	"unsafe"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -258,15 +258,22 @@ func (vm *VM) tupleTypeOf(vals []any) *core.DataType {
 // jltypes.c:2487-2490); it dispatches on its kind, typeof(a), instead.
 // Neither step can fail on the values of a call.
 func (vm *VM) argTupleType(args []any) *core.DataType {
-	key, keyed := vm.argKeyOf(args)
+	key, keep, keyed := vm.argKeyOf(args)
 	if keyed {
-		if t, ok := argTupleCache.Load(key); ok {
-			return t.(*core.DataType)
+		argTupleMu.RLock()
+		e, ok := argTupleCache[key]
+		argTupleMu.RUnlock()
+		if ok {
+			return e.t
 		}
 	}
 	t := vm.buildArgTupleType(args)
-	if keyed && argTupleCacheLen.Add(1) <= argTupleCacheMax {
-		argTupleCache.Store(key, t)
+	if keyed {
+		argTupleMu.Lock()
+		if len(argTupleCache) < argTupleCacheMax {
+			argTupleCache[key] = argTupleEntry{t, keep}
+		}
+		argTupleMu.Unlock()
 	}
 	return t
 }
@@ -277,14 +284,18 @@ func (vm *VM) argTupleType(args []any) *core.DataType {
 // is built once and found again, instead of building (core.Apply, and a new
 // DataType for every Type{a}, which the type cache does not intern) on each of
 // the millions of calls a loop makes (#71).
-type argKey struct {
-	n int
-	e [maxArgKey]argKeyElem
-}
+//
+// The key is the addresses of those DataTypes (the low bit tells a type
+// argument from the type of a value): hashing six plain words is a fraction of
+// hashing six interfaces, which a first version did and which was 15 % of a
+// plain loop. The addresses are stable (Go does not move heap objects), and
+// the entry keeps the types alive (keep), so that an address is never
+// reused while its entry is in the table.
+type argKey [maxArgKey + 1]uintptr
 
-type argKeyElem struct {
-	isType bool
-	p      any
+type argTupleEntry struct {
+	t    *core.DataType
+	keep [maxArgKey]*core.DataType
 }
 
 const (
@@ -295,28 +306,32 @@ const (
 )
 
 var (
-	argTupleCache    sync.Map // argKey -> *core.DataType
-	argTupleCacheLen atomic.Int64
+	argTupleMu    sync.RWMutex
+	argTupleCache = map[argKey]argTupleEntry{}
 )
 
-// argKeyOf is the key of args, false when there are too many arguments or one
-// whose identity is not a pointer (so that it cannot be a map key).
-func (vm *VM) argKeyOf(args []any) (argKey, bool) {
-	var k argKey
+// argKeyOf is the key of args and the types it stands for, false when there
+// are too many arguments, or one that is a Union, UnionAll or TypeVar (built
+// as before, not cached).
+func (vm *VM) argKeyOf(args []any) (k argKey, keep [maxArgKey]*core.DataType, ok bool) {
 	if len(args) > maxArgKey {
-		return k, false
+		return k, keep, false
 	}
-	k.n = len(args)
+	k[0] = uintptr(len(args))
 	for i, a := range args {
-		if d, ok := a.(*core.DataType); ok {
-			k.e[i] = argKeyElem{true, d}
+		if d, isDT := a.(*core.DataType); isDT {
+			keep[i] = d
+			k[i+1] = uintptr(unsafe.Pointer(d)) | 1
 		} else if core.IsType(a) {
-			return k, false // a Union, a UnionAll, a TypeVar: not keyed
+			return k, keep, false
 		} else {
-			k.e[i] = argKeyElem{false, vm.typeOf(a)}
+			// the type of a value is a DataType (jl_typeof)
+			d := vm.typeOf(a).(*core.DataType)
+			keep[i] = d
+			k[i+1] = uintptr(unsafe.Pointer(d))
 		}
 	}
-	return k, true
+	return k, keep, true
 }
 
 // buildArgTupleType is argTupleType without the cache.
