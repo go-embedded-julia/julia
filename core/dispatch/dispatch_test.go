@@ -166,6 +166,13 @@ func TestStaticParameters(t *testing.T) {
 	if err != nil || len(env) != 1 || env[0] != any(core.Int64Type) {
 		t.Fatalf("sparams %v, %v; want [Int64]", env, err)
 	}
+	// a repeated lookup finds the static parameters in the cache, the same
+	// slice each time (no copy per call) with the same contents
+	m2, env2, err := tab.Lookup(call, tab.World())
+	m3, env3, err3 := tab.Lookup(call, tab.World())
+	if err != nil || err3 != nil || m2 != m || m3 != m || len(env2) != 1 || env2[0] != any(core.Int64Type) || &env2[0] != &env3[0] {
+		t.Errorf("cached sparams: %v %v, %v, %v", env2, env3, err, err3)
+	}
 	// Env: a method's parameters for another tuple, false outside its
 	// signature (what invoke asks once it has chosen by a declared tuple)
 	call8 := mustApply(t, core.AnyTupleType, mustApply(t, core.ArrayType, core.Int8Type, int64(1)), core.Int8Type)

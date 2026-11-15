@@ -281,6 +281,11 @@ func moreSpecific(a, b *Method) (bool, error) { return core.MoreSpecific(a.Sig, 
 // type variables makes it hold a kind instead, which julia also looks up
 // through jl_mt_assoc_by_type. The candidates are the methods tt is a
 // subtype of.
+//
+// The environment it returns for a dispatch tuple that has been looked up
+// before is the cache's own: it is shared by every later lookup of that tuple
+// and MUST NOT BE MODIFIED. (Its readers, the interpreter's frames, only read
+// it.)
 func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 	if !core.IsTupleType(tt) {
 		return nil, nil, fmt.Errorf("dispatch on %s: the argument tuple is not a Tuple type", core.Show(tt))
@@ -296,7 +301,10 @@ func (t *Table) Lookup(tt any, w uint64) (*Method, []any, error) {
 	for _, e := range t.leaf[leaf] {
 		if t.answers(e, w) {
 			t.mu.RUnlock()
-			return e.m, append([]any(nil), e.env...), nil
+			// the cached slice, not a copy of it: a call of a method with
+			// static parameters used to allocate one per call (6.6 M of the
+			// 49 M allocations of a 100 000-iteration loop, #71)
+			return e.m, e.env, nil
 		}
 	}
 	t.mu.RUnlock()
