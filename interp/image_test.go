@@ -212,6 +212,65 @@ func TestImageSchemaHash(t *testing.T) {
 	}
 }
 
+// The key's module version is the one string for the CI job that builds the
+// image (julia is the main module, stamped from the tag, with a revision and a
+// modified flag) and for a consumer (julia is a dependency, with neither): an
+// image keyed by what only the first has would load nowhere.
+func TestImageKeyIsTheSameForTheBuilderAndAConsumer(t *testing.T) {
+	old := readBuildInfo
+	defer func() { readBuildInfo = old }()
+	asMain := &debug.BuildInfo{Main: debug.Module{Path: modulePathOfJulia, Version: "v0.14.0"}, Settings: []debug.BuildSetting{
+		{Key: "vcs.revision", Value: "0123456789abcdef"}, {Key: "vcs.modified", Value: "false"}}}
+	asDep := &debug.BuildInfo{Main: debug.Module{Path: "example.com/notebook", Version: "(devel)"}, Deps: []*debug.Module{
+		{Path: "golang.org/x/text", Version: "v0.44.0"}, {Path: modulePathOfJulia, Version: "v0.14.0", Sum: "h1:abc"}}}
+	asDirtyMain := &debug.BuildInfo{Main: debug.Module{Path: modulePathOfJulia, Version: "v0.14.0"}, Settings: []debug.BuildSetting{
+		{Key: "vcs.revision", Value: "fedcba9876543210"}, {Key: "vcs.modified", Value: "true"}}}
+	key := func(bi *debug.BuildInfo) [32]byte {
+		readBuildInfo = func() (*debug.BuildInfo, bool) { return bi, true }
+		return imageKey(vmImageSpec.schemaHash())
+	}
+	if key(asMain) != key(asDep) || key(asMain) != key(asDirtyMain) {
+		t.Error("the key of the builder and of a consumer differ")
+	}
+	for name, c := range map[string]struct {
+		bi   *debug.BuildInfo
+		want string
+	}{
+		"main":              {asMain, "v0.14.0"},
+		"dependency":        {asDep, "v0.14.0"},
+		"a test binary":     {&debug.BuildInfo{Main: debug.Module{Path: modulePathOfJulia}}, "(devel)"},
+		"replaced by a dir": {&debug.BuildInfo{Main: debug.Module{Path: "x"}, Deps: []*debug.Module{{Path: modulePathOfJulia, Version: "v0.14.0", Replace: &debug.Module{Path: "../julia"}}}}, "(devel)"},
+		"replaced by a tag": {&debug.BuildInfo{Main: debug.Module{Path: "x"}, Deps: []*debug.Module{{Path: modulePathOfJulia, Version: "v0.14.0", Replace: &debug.Module{Path: "fork", Version: "v0.14.1"}}}}, "v0.14.1"},
+		"not there":         {&debug.BuildInfo{Main: debug.Module{Path: "x"}}, "unknown"},
+	} {
+		if got := versionIn(c.bi); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+	// only a tag is a version of an image
+	for _, v := range []string{"v0.14.0", "v1.0.0", "v2.10.3-rc.1"} {
+		if err := CheckImageVersion(v); err != nil {
+			t.Errorf("%s: %v", v, err)
+		}
+	}
+	for _, v := range []string{"", "(devel)", "unknown", "v0.14", "0.14.0", "v0.14.0+dirty", "v0.14.0+incompatible", "v0.14.1-0.20260101120000-0123456789ab",
+		"v0.14.1-20260101120000-0123456789ab", "v0.14.0-pre.0.20260101120000-0123456789ab", "v01.2.3", "v1.2.3/../x", "v1.2.3 "} {
+		if err := CheckImageVersion(v); !errors.Is(err, ErrImageVersion) {
+			t.Errorf("%q: %v", v, err)
+		}
+	}
+	readBuildInfo = func() (*debug.BuildInfo, bool) { return asMain, true }
+	if v, err := ImageVersion(); v != "v0.14.0" || err != nil {
+		t.Errorf("ImageVersion of a tag: %q, %v", v, err)
+	}
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{Main: debug.Module{Path: modulePathOfJulia, Version: "v0.14.1-0.20260101120000-0123456789ab+dirty"}}, true
+	}
+	if _, err := ImageVersion(); !errors.Is(err, ErrImageVersion) {
+		t.Errorf("ImageVersion of a dirty pseudo-version: %v", err)
+	}
+}
+
 func TestImageKeyParts(t *testing.T) {
 	if sourcesHash() == ([32]byte{}) || sourcesHash() != sourcesHash() {
 		t.Error("the sources hash is empty or unstable")
@@ -224,11 +283,11 @@ func TestImageKeyParts(t *testing.T) {
 	}
 	k0 := imageKey([32]byte{})
 	readBuildInfo = func() (*debug.BuildInfo, bool) {
-		return &debug.BuildInfo{Main: debug.Module{Version: "v1.2.3"}, Settings: []debug.BuildSetting{
+		return &debug.BuildInfo{Main: debug.Module{Path: modulePathOfJulia, Version: "v1.2.3"}, Settings: []debug.BuildSetting{
 			{Key: "GOOS", Value: "x"}, {Key: "vcs.revision", Value: "abc"}, {Key: "vcs.modified", Value: "true"}}}, true
 	}
-	if v := moduleVersion(); v != "v1.2.3 vcs.revision=abc vcs.modified=true" {
-		t.Errorf("module version %q", v)
+	if v := moduleVersion(); v != "v1.2.3" {
+		t.Errorf("module version %q: the revision and the modified flag are not part of it", v)
 	}
 	if imageKey([32]byte{}) == k0 {
 		t.Error("the module version is not in the key")

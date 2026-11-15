@@ -3,9 +3,12 @@ package interp
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"hash"
 	"io/fs"
 	"reflect"
+	"regexp"
 	"runtime/debug"
 	"sort"
 	"sync"
@@ -59,7 +62,7 @@ var imageRoots = map[string]bool{
 	"taskWorld": false, "cur": false, "nextTask": false, "exitTo": false, "curRec": false,
 	"rootRec": false, "running": false, "liveTasks": false, "taskSeq": false,
 	"wakeup": false, "threaded": false, "peekCond": false, "loop": false, "taskMu": false,
-	"taskRecs": false, "finalizersInhibited": false, "typeinfTiming": false,
+	"taskRecs": false, "finalizersInhibited": false, "typeinfTiming": false, "hrtick": false,
 	"strMu": false, "strBufs": false, "argMu": false, "irTags": false,
 	"reservations": false, "openModules": false, "GeneratingOutput": false,
 	"RunCompilerBootstrap": false, "bootIdx": false, "bootList": false, "bootErr": false,
@@ -292,21 +295,68 @@ func hashFS(h hash.Hash, fsys fs.FS) error {
 // readBuildInfo is debug.ReadBuildInfo; tests replace it.
 var readBuildInfo = debug.ReadBuildInfo
 
-// moduleVersion is the version of this module as the binary records it,
-// with the revision and whether the tree was modified for a development
-// build.
+// modulePathOfJulia is this module's path, which build information names it by.
+const modulePathOfJulia = "github.com/go-embedded-julia/julia"
+
+// moduleVersion is the semver of this module as the binary records it: the
+// main module's when julia is the program (the CI job that builds the image at
+// a tag), the dependency's when it is a library (a consumer that imports
+// julia@vX). The two are the one string, "vX": nothing else of the build
+// goes in, not the VCS revision, not the modified flag, which a consumer's
+// build does not have, and an image keyed by them would load nowhere. A build
+// with no tag says "(devel)", a binary without build information "unknown".
 func moduleVersion() string {
 	bi, ok := readBuildInfo()
 	if !ok {
 		return "unknown"
 	}
-	v := bi.Main.Version
-	for _, s := range bi.Settings {
-		if s.Key == "vcs.revision" || s.Key == "vcs.modified" {
-			v += " " + s.Key + "=" + s.Value
+	return versionIn(bi)
+}
+
+func versionIn(bi *debug.BuildInfo) string {
+	v := "unknown"
+	if bi.Main.Path == modulePathOfJulia {
+		v = bi.Main.Version
+	}
+	for _, d := range bi.Deps {
+		if d.Path == modulePathOfJulia {
+			v = d.Version
+			if d.Replace != nil {
+				v = d.Replace.Version // a replacement by a directory has none
+			}
 		}
 	}
+	if v == "" {
+		return "(devel)"
+	}
 	return v
+}
+
+// ErrImageVersion is a version an image cannot be published for or fetched
+// by: only a tag, vMAJOR.MINOR.PATCH with an optional prerelease, is a
+// version of the image; "(devel)", a pseudo-version and a +dirty build are not.
+var ErrImageVersion = errors.New("interp: not a release version")
+
+var (
+	cleanTag      = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$`)
+	pseudoVersion = regexp.MustCompile(`-([0-9A-Za-z]+\.)*0\.[0-9]{14}-[0-9a-f]{12}$|-[0-9]{14}-[0-9a-f]{12}$`)
+)
+
+// CheckImageVersion refuses a version that is not a tag.
+func CheckImageVersion(v string) error {
+	if !cleanTag.MatchString(v) || pseudoVersion.MatchString(v) {
+		return fmt.Errorf("%w: %q (an image is made and fetched for a tag vMAJOR.MINOR.PATCH)", ErrImageVersion, v)
+	}
+	return nil
+}
+
+// ImageVersion is the version this binary's images are made for and fetched by
+// (the semver of the julia module in its build information), or an
+// ErrImageVersion when that is not a tag: a binary built from a working tree
+// makes images for no release.
+func ImageVersion() (string, error) {
+	v := moduleVersion()
+	return v, CheckImageVersion(v)
 }
 
 // imageKey binds an image to the interpreter that can load it: the format

@@ -16,6 +16,16 @@ import (
 // hrtimeOrigin is jl_hrtime's origin.
 var hrtimeOrigin = time.Now()
 
+// hrtime is jl_hrtime: nanoseconds since the process started, or while the VM
+// generates an image a logical clock that advances a microsecond per reading.
+func (vm *VM) hrtime() uint64 {
+	if vm.GeneratingOutput {
+		vm.hrtick += 1000
+		return vm.hrtick
+	}
+	return uint64(time.Since(hrtimeOrigin))
+}
+
 // foreigncall is where julia's interpreter gives up ("`ccall` requires the
 // compiler", interpreter.c:356-358): julia never meets it because Base is
 // compiled. Here Core and Base run in the interpreter, so every ccall they
@@ -409,7 +419,10 @@ func (vm *VM) bootShims() {
 		},
 		// jl_hrtime (sys.c, uv_hrtime): a monotonic clock in nanoseconds
 		// from an arbitrary origin, here the process's start
-		"jl_hrtime": func(vm *VM, a []any) (any, error) { return uint64(time.Since(hrtimeOrigin)), nil },
+		// (while generating an image a logical clock, a microsecond per
+		// reading, so that the readings Base keeps in the image do not
+		// depend on the machine or the day)
+		"jl_hrtime": func(vm *VM, a []any) (any, error) { return vm.hrtime(), nil },
 		// jl_typeinf_timing_begin and _end (gf.c:4944-4966): the task's
 		// reentrancy flag; compile time is not measured (it is off unless
 		// enabled), so the clock is only read
@@ -418,7 +431,7 @@ func (vm *VM) bootShims() {
 				return uint64(0), nil
 			}
 			vm.typeinfTiming = true
-			return uint64(time.Since(hrtimeOrigin)) | 1, nil
+			return vm.hrtime() | 1, nil
 		},
 		"jl_typeinf_timing_end": func(vm *VM, a []any) (any, error) {
 			if a[0] != uint64(0) {
