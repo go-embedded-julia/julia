@@ -206,6 +206,50 @@ func (t *Table) Disable(m *Method, w uint64) bool {
 	return true
 }
 
+// sameSig is TypesEqual, false when the type algebra fails its work bound.
+func sameSig(a, b any) (same bool) {
+	defer func() {
+		if recover() != nil {
+			same = false
+		}
+	}()
+	return core.TypesEqual(a, b)
+}
+
+// ResetAfterLoad makes the table answer from its methods alone: the state a
+// system image does not hold (the leaf cache, the typemap, the interference
+// sets, the log of changes the typemap replays) is dropped, and the log is
+// rebuilt from the methods, as julia's own image keeps no log: an insertion of
+// each method in index order, and after it the disabling of a method that is
+// no longer current unless a later method replaced it (the replacing
+// method's primary world follows its last world, and a replacement has no
+// event of its own). The typemap is built again, by replay, when a query first
+// needs it.
+func (t *Table) ResetAfterLoad() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.leaf, t.canon, t.clips, t.changes = nil, nil, nil, 0
+	t.tm, t.replayed, t.failed = typemap{}, 0, nil
+	t.events = t.events[:0]
+	for i, m := range t.methods {
+		m.full, m.interference, m.latestOnly = nil, nil, false
+		t.events = append(t.events, tmEvent{m: m})
+		if m.MaxWorld == ^uint64(0) {
+			continue
+		}
+		replaced := false
+		for _, later := range t.methods[i+1:] {
+			if later.PrimaryWorld == m.MaxWorld+1 && sameSig(m.Sig, later.Sig) {
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			t.events = append(t.events, tmEvent{m: m, disable: true})
+		}
+	}
+}
+
 // Methods returns the methods visible in world w, in definition order
 // (julia's methods(f) in that world).
 func (t *Table) Methods(w uint64) []*Method {

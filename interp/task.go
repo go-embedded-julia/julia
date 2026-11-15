@@ -43,16 +43,23 @@ func (vm *VM) bootTaskType() {
 // random seed (jl_init_root_task); here it is fixed, so that a program's
 // default RNG stream is the same from run to run.
 func (vm *VM) rootTask() *Struct {
-	f := newTaskFields(nil, nil, nil,
+	vm.initRootTask(&Struct{})
+	return vm.task
+}
+
+// initRootTask makes t the root task: the object rootTask makes, or the
+// placeholder a loaded image has the root task's references point at.
+func (vm *VM) initRootTask(t *Struct) {
+	t.Type = vm.tTask
+	t.Fields = newTaskFields(nil, nil, nil,
 		[5]uint64{0x7e1df2e2a3e6c1d5, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1, 0x510e527fade682d1, 0x9b05688c2b3e6c1f})
-	vm.task = &Struct{Type: vm.tTask, Fields: f}
+	vm.task = t
 	// the root task runs on thread 0, in the default pool, and has started
 	// (jl_init_root_task, task.c:1526+)
 	rec := vm.newTaskRec(0, 1)
 	rec.started = true
 	vm.addTaskRec(vm.task, rec)
 	vm.cur, vm.curRec, vm.rootRec = vm.task, rec, rec
-	return vm.task
 }
 
 // newTaskFields are the 27 fields of a runnable, sticky task with nothing in

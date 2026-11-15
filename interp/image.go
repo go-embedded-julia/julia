@@ -69,7 +69,7 @@ const (
 
 const (
 	imageMagic   = "JLGOIMG\x00"
-	imageVersion = 1
+	imageVersion = 2
 )
 
 // The tier of an object.
@@ -192,9 +192,10 @@ type imgEnc struct {
 }
 
 var (
-	structPtrType  = reflect.TypeFor[*Struct]()
-	pointerPtrType = reflect.TypeFor[*Pointer]()
-	undefAddr      = reflect.ValueOf(undef).Pointer()
+	typeNamePtrType = reflect.TypeFor[*core.TypeName]()
+	structPtrType   = reflect.TypeFor[*Struct]()
+	pointerPtrType  = reflect.TypeFor[*Pointer]()
+	undefAddr       = reflect.ValueOf(undef).Pointer()
 )
 
 const nulledPointerType = "!nulled Ptr"
@@ -807,6 +808,7 @@ func modulePath(m *Module) string {
 // whose targets turned out reachable, until none is left.
 func (e *imgEnc) discover() {
 	e.roots()
+	e.hints()
 	e.drain()
 	for e.weakRound() {
 		e.drain()
@@ -931,12 +933,16 @@ func (vm *VM) enumerateBoot() {
 	}()
 	e.discover()
 	idx := map[imgKey]int32{}
+	var list []reflect.Value
 	for _, o := range e.objs {
 		if o.v.Kind() == reflect.Pointer && o.tier == tierFull {
 			idx[o.key] = int32(len(idx))
+			// the pointer itself: o.v may be the field of the VM it was reached
+			// through, which reads as another object once the field is set
+			list = append(list, reflect.ValueOf(o.v.Interface()))
 		}
 	}
-	vm.bootIdx = idx
+	vm.bootIdx, vm.bootList = idx, list
 }
 
 // ----- the cut and the writer -----
@@ -1034,7 +1040,116 @@ func (e *imgEnc) write(w io.Writer) {
 	out.uv(uint64(len(e.buf)))
 	out.write(e.buf)
 
+	// what Base wrote on core's shared type names, then the interned types
+	e.buf = e.buf[:0]
+	e.hints()
+	out.uv(uint64(len(e.buf)))
+	out.write(e.buf)
+	e.buf = e.buf[:0]
+	ids := e.interned()
+	e.uv(uint64(len(ids)))
+	for _, id := range ids {
+		e.uv(uint64(id))
+	}
+	out.uv(uint64(len(e.buf)))
+	out.write(e.buf)
+
 	out.write(out.h.Sum(nil)) // the trailer: the hash of all before it
+}
+
+// imageHintFields are the fields Base writes on core's type names, which every
+// VM of the process shares: the hints of jl_typename_t Julia code sets, and
+// the cached Type{Wrapper} (jltypes.c:1115-1120).
+var imageHintFields = []string{"MaxArgs", "CacheEntryCount", "MaxMethods", "ConstpropHeuristic", "typeofWrapper"}
+
+// hintValue is a hint of a type name: its value, whether it is set at all, and
+// for typeofWrapper the type it holds.
+func hintValue(tn *core.TypeName, field string) (v int64, dt *core.DataType, set bool) {
+	switch field {
+	case "MaxArgs":
+		v = int64(tn.MaxArgs.Load())
+	case "CacheEntryCount":
+		v = int64(tn.CacheEntryCount.Load())
+	case "MaxMethods":
+		v = int64(tn.MaxMethods.Load())
+	case "ConstpropHeuristic":
+		v = int64(tn.ConstpropHeuristic.Load())
+	default:
+		dt = tn.TypeofWrapper()
+		return 0, dt, dt != nil
+	}
+	return v, nil, v != 0
+}
+
+// hints writes the hints set on the static type names: (index in core's table,
+// field, value). The first pass only collects the names of the fields; the
+// second leaves out a cached type that is not in the image.
+func (e *imgEnc) hints() {
+	type entry struct {
+		idx   int
+		field string
+		val   int64
+	}
+	var ents []entry
+	for i, o := range core.StaticObjects() {
+		tn, ok := o.(*core.TypeName)
+		if !ok {
+			continue
+		}
+		for _, f := range imageHintFields {
+			v, dt, set := hintValue(tn, f)
+			if !set {
+				continue
+			}
+			if !e.writing {
+				e.str(f) // the first pass only collects the names
+				continue
+			}
+			if dt != nil {
+				id, ok := e.idOf(reflect.ValueOf(dt))
+				if !ok {
+					continue
+				}
+				v = int64(id)
+			}
+			ents = append(ents, entry{i, f, v})
+		}
+	}
+	e.uv(uint64(len(ents)))
+	for _, h := range ents {
+		e.uv(uint64(h.idx))
+		e.str(h.field)
+		e.zz(h.val)
+	}
+}
+
+// interned lists the types of the image that were in the cache of their type
+// name when it was taken, in the order of the caches: the static names, then
+// the others in id order. A loader inserts them again, parameters first.
+func (e *imgEnc) interned() []uint32 {
+	var out []uint32
+	visit := func(tn *core.TypeName) {
+		for _, d := range tn.CachedTypes() {
+			if id, ok := e.idOf(reflect.ValueOf(d)); ok && e.objs[id].tier == tierFull {
+				out = append(out, id)
+			}
+		}
+	}
+	for _, o := range core.StaticObjects() {
+		if tn, ok := o.(*core.TypeName); ok {
+			visit(tn)
+		}
+	}
+	for i := range e.objs {
+		if e.objs[i].t == typeNamePtrType && e.objs[i].tier != tierStatic {
+			visit(e.objs[i].v.Interface().(*core.TypeName))
+		}
+	}
+	// in id order, not in the order of the caches: what a cache holds first
+	// depends on what the process made before (a loader orders the insertions
+	// by what depends on what)
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // sortedIndex is the keys of set in order, and in idx the position of each.

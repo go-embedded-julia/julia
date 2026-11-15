@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"weak"
@@ -155,8 +156,9 @@ type VM struct {
 	idCtr, moduleCtr uint64
 	// bootIdx numbers the objects New made (image.go, enumerateBoot);
 	// bootErr is why it could not.
-	bootIdx map[imgKey]int32
-	bootErr error
+	bootIdx  map[imgKey]int32
+	bootList []reflect.Value // the same objects, by their number
+	bootErr  error
 	// typeinfTiming is the task's reentrant_timing bit 0 (gf.c:4944-4958).
 	typeinfTiming bool
 
