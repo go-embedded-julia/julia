@@ -6,6 +6,45 @@ import (
 	"github.com/go-embedded-julia/julia/expr"
 )
 
+// A frame that a call has finished with is cleared and reused: whatever the
+// last use left in it (locals, static parameters, the argument buffer, flags)
+// is gone when the next call gets it, and a recursion that nests frames gets
+// distinct ones.
+func TestFramePoolGivesCleanFrames(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	s := vm.NewSession()
+	must(s.Eval("function pool_f(a)\n    a\nend"))
+	f0 := s.Mod.own("pool_f").Value.(*Function)
+	lam := f0.Table.Methods(f0.Table.World())[0].Def.(*lambda)
+	for i := 0; i < 20; i++ {
+		f := vm.newFrame(lam.c, lam.mod)
+		f.locals[0] = int64(i)
+		f.sparams, f.spenv = []any{int64(1)}, "env"
+		f.preevaluation, f.continueAt, f.ip, f.argBusy = true, 5, 7, true
+		f.argbuf[0] = "stale"
+		freeFrame(f)
+		g := vm.newFrame(lam.c, lam.mod)
+		if g.sparams != nil || g.spenv != nil || g.preevaluation || g.continueAt != 0 || g.ip != 0 || g.argBusy || g.argbuf[0] != nil || g.vm != vm || g.c != lam.c {
+			t.Fatalf("a reused frame is not clean: %+v", g)
+		}
+		for j, v := range g.locals {
+			if v != undef {
+				t.Fatalf("local %d of a reused frame is %v", j, v)
+			}
+		}
+		freeFrame(g)
+	}
+	// nested calls hold distinct frames
+	must(s.Eval("function pool_rec(n, acc)\n    Core.Intrinsics.slt_int(n, 1) ? acc : pool_rec(Core.Intrinsics.sub_int(n, 1), Core.Intrinsics.add_int(acc, n))\nend"))
+	for i := 0; i < 3; i++ {
+		v, err := s.Eval("pool_rec(50, 0)")
+		check(t, "pool_rec", v, err, "1275")
+	}
+}
+
 // A frame holds its locals inline when it is small, and in a slice of its own
 // when it is not; both are undefined until written, and a call builds the
 // locals from its arguments without aliasing the caller's slice.
