@@ -347,6 +347,35 @@ func (vm *VM) gfInvokeLookupMethod(a []any) (any, error) {
 	return m.Fields[2], nil
 }
 
+// methtableLookup is jl_methtable_lookup(type, world) (gf.c:289-299): the
+// Method whose signature is exactly type, visible in world, or nothing. julia
+// has one method table and finds it by jl_typemap_assoc_by_type without
+// subtyping (its own comment calls this "an odd lookup strategy"); here the
+// table of the function the signature's first parameter names, and the
+// signature compared for type equality. Base's kwarg_decl uses it to find the
+// method that holds a function's keyword names (methodshow.jl:84), which
+// showerror of a MethodError with keyword arguments prints.
+func (vm *VM) methtableLookup(a []any) (any, error) {
+	w, ok := a[1].(uint64)
+	if !ok {
+		return nil, fmt.Errorf("%w: jl_methtable_lookup of a world that is no UInt: %s", ErrUnsupported, showValue(a[1]))
+	}
+	unw, ok := core.UnwrapUnionAll(a[0]).(*core.DataType)
+	if !ok || !core.IsTupleType(unw) || len(unw.Parameters) == 0 || unw.Parameters[0] == any(core.Bottom) {
+		return nil, nil
+	}
+	tab, ft, name, ok := vm.methodTableOf(unw.Parameters[0])
+	if !ok {
+		return nil, fmt.Errorf("%w: jl_methtable_lookup of the methods of %s", ErrUnsupported, showValue(unw.Parameters[0]))
+	}
+	for _, m := range tab.Methods(w) {
+		if core.TypesEqual(fullSig(m.Sig, ft), a[0]) {
+			return vm.methodObject(tab, m, ft, name), nil
+		}
+	}
+	return nil, nil
+}
+
 // gfInvokeLookup is _gf_invoke_lookup (gf.c:4217-4230) for the two entry
 // points: the MethodMatch, nil for none, and its valid worlds.
 func (vm *VM) gfInvokeLookup(fn string, a []any) (*Struct, uint64, uint64, error) {

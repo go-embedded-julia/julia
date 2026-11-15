@@ -55,6 +55,7 @@ func (vm *VM) jlLoad(a []any) (any, error) {
 	for _, form := range top.Args {
 		if l, ok := form.(expr.LineNumberNode); ok {
 			line = l.Line
+			s.at(l)
 			continue
 		}
 		// JuliaSyntax, the parser Base includes from its Julia source

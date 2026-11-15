@@ -580,11 +580,11 @@ func TestKernelBase(t *testing.T) {
 			}
 		}
 	}
-	// showerror of a MethodError lists the candidates through
-	// jl_methtable_lookup, which is not ported: the error is a value of the
-	// right type, its message the Go repr (a stated limitation)
+	// the text of a MethodError is julia's (TestMethodErrorText compares it
+	// whole, case by case)
 	var me *JuliaError
-	if r := k.Eval(ctx, `1 + "a"`); !errors.As(r.Err, &me) || me.Type != "MethodError" || me.Message == "" {
+	if r := k.Eval(ctx, `1 + "a"`); !errors.As(r.Err, &me) || me.Type != "MethodError" ||
+		!strings.HasPrefix(me.Message, "MethodError: no method matching +(::Int64, ::String)\nThe function `+` exists") {
 		t.Errorf("a MethodError: %+v", r)
 	}
 	// the cell after an error works, and output is per cell

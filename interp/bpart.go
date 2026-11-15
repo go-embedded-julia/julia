@@ -131,7 +131,7 @@ func (vm *VM) moduleBinding(m *Module, name expr.Symbol, alloc bool) *Binding {
 // each deprecation, a guard before them; each names the older as next.
 func (vm *VM) bindingPartition(b *Binding, w uint64) *Struct {
 	if w < b.World {
-		return &Struct{Type: vm.tBindingPartition, Fields: []any{undef, uint64(0), b.World - 1, nil, uint64(bkGuard)}}
+		return &Struct{Type: vm.tBindingPartition, Fields: []any{undef, uint64(0), b.World - 1, undef, uint64(bkGuard)}}
 	}
 	start, end := b.World, ^uint64(0)
 	for _, c := range b.deprecations {
@@ -146,7 +146,10 @@ func (vm *VM) bindingPartition(b *Binding, w uint64) *Struct {
 		kind |= bkFlagExported
 	}
 	kind |= b.depFlags(w)
-	var next any // nothing
+	// the oldest partition has no next: the field is unset (NULL), so that
+	// isdefined(partition, :next) is false there, as check_world_bounded and
+	// show's partition walks (show.jl:1057-1068) stop at it
+	var next any = undef
 	if start > 0 {
 		next = vm.bindingPartition(b, start-1)
 	}

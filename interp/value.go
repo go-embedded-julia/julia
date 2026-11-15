@@ -78,6 +78,11 @@ type Module struct {
 	uuid [2]uint64
 	// buildID is jl_module_t.build_id, high half first (newModule).
 	buildID [2]uint64
+	// file and line are where its `module` form is (jl_module_t.file and
+	// .line, set by jl_eval_module_expr, toplevel.c:156-158); a module made
+	// otherwise has the empty file and line 0 (module.c:524-525).
+	file expr.Symbol
+	line int32
 	// opts are the module's compiler options (modopts.go)
 	opts moduleOpts
 	// id is its object id (objectid.go); julia keeps it in the module's hash

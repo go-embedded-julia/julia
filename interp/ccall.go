@@ -353,6 +353,34 @@ func (vm *VM) bootShims() {
 			}
 			return m.Name, nil
 		},
+		// jl_module_getloc (module.c:2029-2035): the module's file, and its
+		// line through the Ref{Int32}; Base.moduleloc, which fixup_stdlib_path
+		// asks of Core.Compiler
+		"jl_module_getloc": func(vm *VM, a []any) (any, error) {
+			m, ok := a[0].(*Module)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.ModuleType, a[0])
+			}
+			if err := vm.storeThrough("jl_module_getloc", a[1], core.Int32Type, m.line); err != nil {
+				return nil, err
+			}
+			return m.file, nil
+		},
+		// jl_type_morespecific (subtype.c): Base.morespecific, which
+		// showerror_ambiguous asks for the fix it proposes
+		"jl_type_morespecific": func(vm *VM, a []any) (any, error) {
+			more, err := core.MoreSpecific(a[0], a[1])
+			return cbool(more), err
+		},
+		// jl_types_egal (builtins.c:226-229) and jl_has_typevar (jltypes.c:273-277)
+		"jl_types_egal": func(vm *VM, a []any) (any, error) { return cbool(core.TypesEgal(a[0], a[1])), nil },
+		"jl_has_typevar": func(vm *VM, a []any) (any, error) {
+			v, ok := a[1].(*core.TypeVar)
+			if !ok {
+				return nil, vm.typeError("ccall", "", core.TypeVarType, a[1])
+			}
+			return cbool(core.HasTypeVar(a[0], v)), nil
+		},
 		// jl_module_parent (module.c)
 		"jl_module_parent": func(vm *VM, a []any) (any, error) {
 			m, ok := a[0].(*Module)
@@ -470,6 +498,7 @@ func (vm *VM) bootShims() {
 		"jl_specializations_lookup":    func(vm *VM, a []any) (any, error) { return vm.specializationsLookup(a) },
 		"jl_gf_invoke_lookup_worlds":   func(vm *VM, a []any) (any, error) { return vm.gfInvokeLookupWorlds(a) },
 		"jl_gf_invoke_lookup":          func(vm *VM, a []any) (any, error) { return vm.gfInvokeLookupMethod(a) },
+		"jl_methtable_lookup":          func(vm *VM, a []any) (any, error) { return vm.methtableLookup(a) },
 		"jl_argument_datatype":         argumentDatatype,
 		"jl_normalize_to_compilable_sig": func(vm *VM, a []any) (any, error) {
 			return vm.normalizeToCompilableSig(a)
