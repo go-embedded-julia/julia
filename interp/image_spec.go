@@ -62,7 +62,7 @@ var imageRoots = map[string]bool{
 	"taskWorld": false, "cur": false, "nextTask": false, "exitTo": false, "curRec": false,
 	"rootRec": false, "running": false, "liveTasks": false, "taskSeq": false,
 	"wakeup": false, "threaded": false, "peekCond": false, "loop": false, "taskMu": false,
-	"taskRecs": false, "finalizersInhibited": false, "typeinfTiming": false,
+	"taskRecs": false, "finalizersInhibited": false, "typeinfTiming": false, "hrtick": false,
 	"strMu": false, "strBufs": false, "argMu": false, "irTags": false,
 	"reservations": false, "openModules": false, "GeneratingOutput": false,
 	"RunCompilerBootstrap": false, "bootIdx": false, "bootList": false, "bootErr": false,

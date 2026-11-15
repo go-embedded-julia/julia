@@ -161,6 +161,11 @@ type VM struct {
 	bootErr  error
 	// typeinfTiming is the task's reentrant_timing bit 0 (gf.c:4944-4958).
 	typeinfTiming bool
+	// hrtick is the logical clock jl_hrtime reads while the VM generates an
+	// image: Base.jl keeps two clock readings (start_base_include,
+	// end_base_include) in the image, and the wall clock would make every
+	// build a different file (#40 step 7: the digest is pinned).
+	hrtick uint64
 
 	// tTask is Core.Task, task the root task (task.go)
 	tTask *core.DataType

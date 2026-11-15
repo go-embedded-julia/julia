@@ -18,6 +18,24 @@ import (
 // binary is no main module with a version): the build information it presents
 // to the key is the one of julia built as the main module at the tag, and
 // the tag must be a release version.
+// The clock Base keeps in the image is logical while an image is generated,
+// so two builds do not differ by the time they took.
+func TestHrtimeWhileGeneratingIsLogical(t *testing.T) {
+	vm := New()
+	vm.GeneratingOutput = true
+	a, b := vm.hrtime(), vm.hrtime()
+	if a != 1000 || b != 2000 {
+		t.Errorf("logical clock: %d, %d", a, b)
+	}
+	if got, _ := vm.shims["jl_typeinf_timing_begin"](vm, nil); got != uint64(3000|1) {
+		t.Errorf("typeinf timing reads the logical clock: %v", got)
+	}
+	vm.GeneratingOutput = false
+	if vm.hrtime() == 4000 && vm.hrtime() == 5000 {
+		t.Error("the wall clock is not the logical one")
+	}
+}
+
 func TestBuildImage(t *testing.T) {
 	out, tag := os.Getenv("JLGO_IMAGE_OUT"), os.Getenv("JLGO_IMAGE_VERSION")
 	if os.Getenv("JLGO_BASE") != "1" || out == "" {
