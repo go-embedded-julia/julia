@@ -233,7 +233,12 @@ r := k.Eval(ctx, `f(x) = x + 1; f(41)`)
 - **The Julia-Go value table.** `k.Get(name)` reads a global of `Main` as a Go
   value and `k.Set(name, v)` assigns one, as a cell `name = v` would (also
   over an existing binding). Both copy, never alias; both are refused with
-  `ErrKernelBusy` while a cell runs.
+  `ErrKernelBusy` while a cell runs. `Set` checks a slice's length (and a
+  `Matrix`'s `Rows*Cols`, overflow-checked, against `len(Data)`) against
+  `VM.MaxMemoryElems` before it converts anything, so a refused slice costs a
+  few KiB. `k.Has(name)` and `k.TypeOf(name)` (julia's type as text, e.g.
+  `Matrix{Float64}`, also for a type the table does not convert) answer
+  without copying; they return an error, not a bare `false`, while a cell runs.
 
   | julia | Go |
   |---|---|

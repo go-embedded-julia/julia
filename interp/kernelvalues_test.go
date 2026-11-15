@@ -428,6 +428,13 @@ func TestKernelGetSetBusyAndClosed(t *testing.T) {
 	if err := k.Set("n", int64(2)); !errors.Is(err, ErrKernelBusy) {
 		t.Errorf("Set while a cell runs: %v", err)
 	}
+	// a refusal is an error, never a plain false that would read as "not bound"
+	if has, err := k.Has("n"); has || !errors.Is(err, ErrKernelBusy) {
+		t.Errorf("Has while a cell runs: %v %v", has, err)
+	}
+	if ty, ok, err := k.TypeOf("n"); ty != "" || ok || !errors.Is(err, ErrKernelBusy) {
+		t.Errorf("TypeOf while a cell runs: %q %v %v", ty, ok, err)
+	}
 	cancel()
 	wg.Wait()
 	if got := mustGet(t, k, "n"); got != int64(1) {
@@ -439,6 +446,12 @@ func TestKernelGetSetBusyAndClosed(t *testing.T) {
 	}
 	if err := k.Set("n", int64(3)); !errors.Is(err, ErrKernelClosed) {
 		t.Errorf("Set after Close: %v", err)
+	}
+	if has, err := k.Has("n"); has || !errors.Is(err, ErrKernelClosed) {
+		t.Errorf("Has after Close: %v %v", has, err)
+	}
+	if _, _, err := k.TypeOf("n"); !errors.Is(err, ErrKernelClosed) {
+		t.Errorf("TypeOf after Close: %v", err)
 	}
 	// and the kernel is free again once a call has returned
 	k2 := bootKernel(t, KernelOptions{})
