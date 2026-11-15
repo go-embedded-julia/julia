@@ -230,6 +230,22 @@ r := k.Eval(ctx, `f(x) = x + 1; f(41)`)
   lowering's `softscope` and `defined-julia-global` (julia-syntax.scm:3233-3250,
   ast.c:172-182), checked on the cases of julia's `test/syntax.jl:2113-2221`.
   `CellOptions{HardScope: true}` gives the scope of a file instead.
+- **The Julia-Go value table.** `k.Get(name)` reads a global of `Main` as a Go
+  value and `k.Set(name, v)` assigns one, as a cell `name = v` would (also
+  over an existing binding). Both copy, never alias; both are refused with
+  `ErrKernelBusy` while a cell runs.
+
+  | julia | Go |
+  |---|---|
+  | `Int64` | `int64` (`Set` also takes an `int`) |
+  | `Float64` | `float64`, every bit kept: NaN payloads, `-0.0` |
+  | `Bool`, `String` | `bool`, `string` |
+  | `Vector{Float64}`, `Vector{Int64}` | `[]float64`, `[]int64` |
+  | `Matrix{Float64}`, `Matrix{Int64}` | `interp.Matrix[float64]`, `interp.Matrix[int64]`: `Rows`, `Cols`, `Data` column-major, `At(i, j)` |
+
+  `Get` answers `(value, ok, err)`: `ok` is false for a name that is not bound;
+  any other type is a `*ConversionError` (`ErrKernelType`) that names the julia
+  type, and `Set` of a Go type outside the table names the Go type.
 - **Without Base** (a `Boot()`-only image) the value and the error are the Go
   repr, and cells use `Core`'s names; with the Base image they are julia's.
 
