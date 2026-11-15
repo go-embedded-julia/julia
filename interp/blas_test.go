@@ -378,6 +378,7 @@ func TestBLASRefusals(t *testing.T) {
 	str := vm.stringPtrOf("abcd")
 	i, x := blasRef(vm, int64(2)), blasRef(vm, 1.0)
 	one := blasRef(vm, int64(1))
+	bad := &Pointer{Type: vm.ptrType(core.Int64Type), Target: 3}
 	for _, c := range []struct {
 		name string
 		args []any
@@ -414,9 +415,24 @@ func TestBLASRefusals(t *testing.T) {
 		{"idamax_64_", []any{i, str, one}},
 		{"idamax_64_", []any{i, d, blasRef(vm, int32(1))}},
 		{"dscal_64_", []any{i}},
+		{"dgemv_64_", []any{blasRef(vm, uint8('N')), blasRef(vm, int32(2)), i, x, d, i, d, i, x, d, i}}, // a dimension that is no BlasInt
+		{"daxpy_64_", []any{blasRef(vm, int32(2)), x, d, one, d, one}},
 	} {
 		if _, err := blasShim(vm, c.name)(vm, c.args); !errors.Is(err, ErrUnsupported) {
 			t.Errorf("%s %v: %v", c.name, c.args, err)
+		}
+	}
+	// a Ref that points at nothing readable is julia's invalid pointer error
+	for _, c := range []struct {
+		name string
+		args []any
+	}{
+		{"dscal_64_", []any{bad, x, d, one}},
+		{"dscal_64_", []any{i, bad, d, one}},
+		{"dgemm_64_", []any{bad, blasRef(vm, uint8('N')), i, i, i, x, d, i, d, i, x, d, i}},
+	} {
+		if _, err := blasShim(vm, c.name)(vm, c.args); err == nil || !strings.Contains(err.Error(), "invalid pointer") {
+			t.Errorf("%s of a bad Ref: %v", c.name, err)
 		}
 	}
 	// a NULL array with nothing to read is no error; undefined elements read as 0

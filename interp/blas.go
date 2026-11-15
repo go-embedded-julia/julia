@@ -472,9 +472,6 @@ func registerBlas[T blasFloat](fns map[expr.Symbol]shim, p string, ops *blasOps[
 // bootBLAS registers the BLAS of go-blas as the functions of the library
 // libblastrampoline forwards to, under the name julia 1.12.6 gives OpenBLAS.
 func (vm *VM) bootBLAS() {
-	if vm.libShims == nil {
-		vm.libShims = map[string]map[expr.Symbol]shim{}
-	}
 	fns := map[expr.Symbol]shim{}
 	registerBlas(fns, "d", &blasDouble)
 	registerBlas(fns, "s", &blasSingle)
