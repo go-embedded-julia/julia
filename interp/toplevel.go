@@ -17,6 +17,11 @@ type Session struct {
 	VM  *VM
 	Mod *Module
 	low *lower.State
+	// Soft runs top-level code under the REPL's soft scope (REPL.softscope,
+	// softscope below): a loop or a block at the top of a cell assigns to a
+	// global that exists instead of making a local. The default, false, is
+	// the scope of a file (include_string).
+	Soft bool
 }
 
 // NewSession returns a session in a fresh module Main.L, the module the
@@ -47,6 +52,9 @@ func (s *Session) Eval(src string) (res any, err error) {
 	if top.Head != "toplevel" {
 		return nil, s.VM.syntaxError(top)
 	}
+	if s.Soft {
+		top = softscope(top).(*expr.Expr)
+	}
 	for _, form := range top.Args {
 		if _, ok := form.(expr.LineNumberNode); ok {
 			continue
@@ -71,6 +79,7 @@ func (s *Session) evalForm(form any) (any, error) {
 		return nil, err
 	}
 	s.low.SetTop(s.VM.baseRelativeTo(s.Mod).Name)
+	s.low.SetDefinedGlobal(func(name expr.Symbol) bool { return s.VM.definedGlobal(s.Mod, name) })
 	lowered, err := s.low.Lower(syntaxModules(form))
 	if err != nil {
 		return nil, err

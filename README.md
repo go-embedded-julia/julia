@@ -26,7 +26,6 @@ expectations written by hand.
 
 Known limits of v0.15.0:
 - A VM loads the pinned system image in about 0.65 s; the image is not authenticated by itself and loading one writes process-shared type state, so a consumer pins its digest ([#49](https://github.com/go-embedded-julia/julia/issues/49)).
-- Kernel cells use hard scope, not the REPL's soft scope ([#54](https://github.com/go-embedded-julia/julia/issues/54)).
 - `showerror` of a `MethodError` needs `jl_methtable_lookup`; a kernel shows the Go repr ([#55](https://github.com/go-embedded-julia/julia/issues/55)).
 - Task-heavy code is slow on a cold VM.
 - No BLAS kernel computes yet (#33).
@@ -224,6 +223,13 @@ r := k.Eval(ctx, `f(x) = x + 1; f(41)`)
   `cmd/jlkernel` is a small program that does it from the command line
   (`jlkernel --image FILE --digest SHA256 < cell`), the one that measures the
   load of an image under node.
+- **Soft scope, as the REPL and IJulia have it.** A loop or a block at the top
+  of a cell assigns to a global that exists instead of making a local:
+  `s = 0` in one cell and `for i in 1:10; s += i; end` in the next gives
+  `s == 55`. It is `REPL.softscope` (stdlib/REPL/src/REPL.jl:145-161) with
+  lowering's `softscope` and `defined-julia-global` (julia-syntax.scm:3233-3250,
+  ast.c:172-182), checked on the cases of julia's `test/syntax.jl:2113-2221`.
+  `CellOptions{HardScope: true}` gives the scope of a file instead.
 - **Without Base** (a `Boot()`-only image) the value and the error are the Go
   repr, and cells use `Core`'s names; with the Base image they are julia's.
 

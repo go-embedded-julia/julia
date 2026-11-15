@@ -612,4 +612,32 @@ func TestKernelBase(t *testing.T) {
 		t.Errorf("an allocation budget: %+v", r)
 	}
 	evalOK(t, k, "f(1)", "3")
+
+	// soft scope (#54): the cases of julia 1.12.6's test/syntax.jl:2113-2221,
+	// whose expected values are the file's own; each cell has a budget
+	for i, c := range []struct{ src, want string }{
+		{"s = 0\nfor i in 1:10\n    s += i\nend\ns", "55"},
+		{"begin\n    x28789 = 0\n    for i = 1:2\n        x28789 += i\n    end\n    x28789\nend", "3"},
+		{"y28789 = 1", "1"},
+		{"for i = 1:10\n    y28789 += i\nend\ny28789", "56"},
+		{"begin\n    for i = 10:10\n        z28789 = i\n    end\n    seen = z28789\n    z28789 = 0\n    seen\nend", "10"},
+		{"let y28789 = 0\n    y28789 = 1\nend\ny28789", "56"},
+		{"let\n    y28789 = -8\nend\ny28789", "56"},
+		{"for y28789 in 0:0\n    for x in 2:2\n        for y in 3:3\n            z28789 = 42\n        end\n    end\nend\nz28789", "42"},
+		{"let x = 0\n    ww28789 = 88\n    let y = 3\n        ww28789 = 89\n    end\n    ww28789\nend", "89"},
+		{"@isdefined(ww28789)", "false"},
+		{"for x = 0\n    ww28789 = 88\n    for y = 3\n        ww28789 = 89\n    end\nend\n@isdefined(ww28789)", "false"},
+		{"function f28789()\n    z28789 = 43\nend\nf28789()\nz28789", "42"},
+		{"f38650() = 0\nstruct S38650\n    f38650() = 1\nend\nf38650()", "0"},
+	} {
+		if r := k.EvalWith(ctx, c.src, CellOptions{MaxSteps: 1000000, Timeout: 20 * time.Second}); r.Err != nil || r.Value != c.want {
+			t.Errorf("soft scope case %d:\n%s\n  got %q, %v; julia %q", i, c.src, r.Value, r.Err, c.want)
+		}
+	}
+	// the same first cell under hard scope: julia's UndefVarError
+	hard := k.EvalWith(ctx, "s = 0\nfor i in 1:10\n    s += i\nend", CellOptions{HardScope: true, MaxSteps: 1000000})
+	var he *JuliaError
+	if !errors.As(hard.Err, &he) || he.Type != "UndefVarError" {
+		t.Errorf("hard scope: %+v", hard)
+	}
 }
