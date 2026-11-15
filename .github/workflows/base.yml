@@ -65,7 +65,7 @@ jobs:
         run: echo "hash=${{ hashFiles('**/*.go', 'go.mod', 'interp/boot/**') }}" >> "$GITHUB_OUTPUT"
       - name: Cached image
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: base-image
           key: base-image-${{ steps.key.outputs.hash }}
@@ -82,7 +82,7 @@ jobs:
       # saved as soon as it exists, so that a failing test does not lose it
       - name: Save the image
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: base-image
           key: base-image-${{ steps.key.outputs.hash }}
@@ -128,7 +128,7 @@ jobs:
         run: echo "hash=${{ hashFiles('**/*.go', 'go.mod', 'interp/boot/**') }}" >> "$GITHUB_OUTPUT"
       - name: Cached image
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: base-image
           key: base-image-${{ steps.key.outputs.hash }}
@@ -142,7 +142,7 @@ jobs:
             go test ./interp -run '^TestBuildImage$' -count=1 -v -timeout 30m
       - name: Save the image
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: base-image
           key: base-image-${{ steps.key.outputs.hash }}
