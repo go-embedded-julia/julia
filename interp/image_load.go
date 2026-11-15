@@ -202,16 +202,17 @@ func readImage(r io.Reader, opts LoadOptions, spec *imageSpec) (*imgFrame, error
 	if opts.MaxObjects <= 0 {
 		opts.MaxObjects = DefaultMaxImageObjects
 	}
-	buf, err := io.ReadAll(io.LimitReader(r, opts.MaxBytes+1))
-	if err != nil {
+	// the header first: a stream that is not this interpreter's image is
+	// refused after 76 bytes, however long it goes on
+	const header = len(imageMagic) + 4 + 32
+	lr := io.LimitReader(r, opts.MaxBytes+1)
+	buf := make([]byte, header)
+	n, err := io.ReadFull(lr, buf)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return nil, err
 	}
-	if int64(len(buf)) > opts.MaxBytes {
-		return nil, fmt.Errorf("%w: more than %d bytes", ErrImageLimit, opts.MaxBytes)
-	}
-	const header = len(imageMagic) + 4 + 32
-	if len(buf) < header+32 {
-		return nil, fmt.Errorf("%w: %d bytes, the header and the trailer are %d", ErrImageTruncated, len(buf), header+32)
+	if buf = buf[:n]; n < header {
+		return nil, fmt.Errorf("%w: %d bytes, the header is %d", ErrImageTruncated, n, header)
 	}
 	if string(buf[:len(imageMagic)]) != imageMagic {
 		return nil, fmt.Errorf("%w: not an image", ErrImageCorrupt)
@@ -222,6 +223,16 @@ func readImage(r io.Reader, opts LoadOptions, spec *imageSpec) (*imgFrame, error
 	key := imageKey(spec.schemaHash())
 	if !bytes.Equal(buf[len(imageMagic)+4:header], key[:]) {
 		return nil, fmt.Errorf("%w: its key is not this interpreter's (schema, sources or version)", ErrImageKey)
+	}
+	rest, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, err
+	}
+	if buf = append(buf, rest...); int64(len(buf)) > opts.MaxBytes {
+		return nil, fmt.Errorf("%w: more than %d bytes", ErrImageLimit, opts.MaxBytes)
+	}
+	if len(buf) < header+32 {
+		return nil, fmt.Errorf("%w: %d bytes, the header and the trailer are %d", ErrImageTruncated, len(buf), header+32)
 	}
 	body, trailer := buf[header:len(buf)-32], buf[len(buf)-32:]
 	sum := sha256.Sum256(buf[:len(buf)-32])
@@ -317,6 +328,8 @@ type imgDec struct {
 	nulled int
 	objs   []reflect.Value
 	redir  map[uint32]bool // objects replaced by the type the process already holds
+	// replaced pairs each type of the image with the one the process holds
+	replaced [][2]*core.DataType
 
 	cur    []byte
 	depth  int
@@ -365,6 +378,7 @@ func (vm *VM) decodeImage(fr *imgFrame, spec *imageSpec) (err error) {
 	d.intern()
 	d.records()
 	d.roots()
+	d.transferInstances()
 	d.finishTask()
 	d.applyHints(hints)
 	d.rebuild()

@@ -3,6 +3,7 @@ package interp
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -243,6 +244,32 @@ func TestImageInternParametersFirst(t *testing.T) {
 	}
 }
 
+// The cached instance of a type the image made goes to the type the process
+// holds in its place when that has none, and never replaces one it has.
+func TestImageTransferInstances(t *testing.T) {
+	mk := func(name string) *core.DataType {
+		return must(core.NewType("Main", name, core.AnyType, false, false, nil, nil))
+	}
+	s1, c1 := mk("XferS1"), mk("XferC1") // the image's has an instance, the process's none
+	s2, c2 := mk("XferS2"), mk("XferC2") // both have
+	s3, c3 := mk("XferS3"), mk("XferC3") // the image's has none
+	s1.SetCachedInstance("from the image")
+	s2.SetCachedInstance("from the image")
+	c2.SetCachedInstance("the process's")
+	d := &imgDec{replaced: [][2]*core.DataType{{s1, c1}, {s2, c2}, {s3, c3}}}
+	d.transferInstances()
+	for name, c := range map[string]struct {
+		dt   *core.DataType
+		want any
+		has  bool
+	}{"given": {c1, "from the image", true}, "kept": {c2, "the process's", true}, "none to give": {c3, nil, false}} {
+		got, has := c.dt.CachedInstance()
+		if has != c.has || got != c.want {
+			t.Errorf("%s: instance %v, %v", name, got, has)
+		}
+	}
+}
+
 // canon rewrites the types inside unions, wrappers, bounds, varargs and tuples
 // to the ones the process holds, once each, and leaves nil and other values.
 func TestImageCanon(t *testing.T) {
@@ -345,7 +372,32 @@ func TestImageLoadBombs(t *testing.T) {
 	}
 	// a byte limit under the image
 	bomb(t, "bytes over the limit", make([]byte, 5000), LoadOptions{MaxBytes: 1000}, ErrImageLimit)
+
+	// a stream that never ends: refused at its header, or at the limit when
+	// the header is the interpreter's
+	prev := debug.SetMemoryLimit(256 << 20)
+	defer debug.SetMemoryLimit(prev)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := LoadImage(zeros{}, LoadOptions{})
+	if !errors.Is(err, ErrImageCorrupt) {
+		t.Errorf("a stream of zeros: %v", err)
+	}
+	valid := sealImage(&vmImageSpec, nil)[:len(imageMagic)+4+32]
+	_, err = LoadImage(io.MultiReader(bytes.NewReader(valid), zeros{}), LoadOptions{MaxBytes: 1 << 20})
+	if !errors.Is(err, ErrImageLimit) {
+		t.Errorf("a stream with a header and no end: %v", err)
+	}
+	runtime.ReadMemStats(&after)
+	if grown := after.TotalAlloc - before.TotalAlloc; grown > 64<<20 {
+		t.Errorf("%d MB allocated for two endless streams", grown>>20)
+	}
 }
+
+// zeros is a reader that never ends.
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
 // ----- the fuzz target -----
 

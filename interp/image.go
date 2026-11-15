@@ -1145,6 +1145,10 @@ func (e *imgEnc) interned() []uint32 {
 			visit(e.objs[i].v.Interface().(*core.TypeName))
 		}
 	}
+	// in id order, not in the order of the caches: what a cache holds first
+	// depends on what the process made before (a loader orders the insertions
+	// by what depends on what)
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }
 

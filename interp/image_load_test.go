@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -190,14 +193,18 @@ func TestImageLoadRefusals(t *testing.T) {
 	if _, err := LoadImage(bytes.NewReader(good), LoadOptions{MaxObjects: 10}); !errors.Is(err, ErrImageLimit) {
 		t.Errorf("an object limit: %v", err)
 	}
-	// a reader that fails
-	if _, err := LoadImage(io.MultiReader(bytes.NewReader(good[:100]), errReader{}), LoadOptions{}); err == nil {
-		t.Error("a failing reader")
+	// a reader that fails, in the header and after it
+	if _, err := LoadImage(io.MultiReader(bytes.NewReader(good[:100]), errReader{}), LoadOptions{}); err == nil || errors.Is(err, ErrImageTruncated) {
+		t.Errorf("a reader failing after the header: %v", err)
+	}
+	if _, err := LoadImage(errReader{}, LoadOptions{}); err == nil || errors.Is(err, ErrImageTruncated) {
+		t.Errorf("a reader failing in the header: %v", err)
 	}
 }
 
-// TestImageLoadFile loads the image JLGO_IMAGE_FILE names (written by
-// TestImageLoadBase with JLGO_IMAGE_OUT), saves the loaded VM and compares: the
+// TestImageLoadFile loads the image JLGO_IMAGE_FILE names (TestImageLoadBase
+// writes one and runs this in a fresh process), saves the loaded VM and
+// requires the same bytes: save, load, save across processes. It is also the
 // quick way to work on a difference the Base build would show after minutes.
 func TestImageLoadFile(t *testing.T) {
 	path := os.Getenv("JLGO_IMAGE_FILE")
@@ -216,15 +223,32 @@ func TestImageLoadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(b1, b2.Bytes()) {
-		t.Fatalf("save, load, save: %d and %d bytes that differ\n%s", len(b1), b2.Len(), describeImageDiff(t, b1, b2.Bytes()))
+		var more strings.Builder
+		if from := os.Getenv("JLGO_IMAGE_DUMP"); from != "" {
+			start, _ := strconv.Atoi(from)
+			e := newImgEnc(l, &vmImageSpec, SaveOptions{})
+			e.cur = -1
+			e.discover()
+			for i := start; i < min(start+60, len(e.objs)); i++ {
+				o := e.objs[i]
+				desc := o.t.String()
+				if dt, ok := o.v.Interface().(*core.DataType); ok {
+					desc += " " + showValue(dt)
+				}
+				e.cur = int32(i)
+				fmt.Fprintf(&more, "%d %s tier %d | %s\n", i, desc, o.tier, e.where())
+			}
+		}
+		t.Fatalf("save, load, save: %d and %d bytes that differ\n%s%s", len(b1), b2.Len(), describeImageDiff(t, b1, b2.Bytes()), more.String())
 	}
 }
 
 // TestImageLoadBase takes the VM at the cut where julia writes sys.so, saves
-// it, loads the image, saves that: the same bytes; then both go on from the
-// cut as julia does from its image (the module initializers) and run the same
-// Base programs. It builds Base: JLGO_BASE=1. The load time is printed; it is
-// a measurement only on an idle machine (1-minute load at most 8).
+// it, loads the image, requires save, load, save to give the same bytes in a
+// fresh process; then the built VM and the loaded one go on from the cut as
+// julia does from its image (the module initializers) and run the same Base
+// programs. It builds Base: JLGO_BASE=1. The load time is printed; it is a
+// measurement only on an idle machine (1-minute load at most 8).
 func TestImageLoadBase(t *testing.T) {
 	if os.Getenv("JLGO_BASE") != "1" {
 		t.Skip("set JLGO_BASE=1 to build Base (several minutes)")
@@ -252,17 +276,27 @@ func TestImageLoadBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("%d bytes loaded in %v (load-dependent: not a measurement unless the machine is idle)", b1.Len(), time.Since(t0))
-	var b2 bytes.Buffer
-	if err := l.SaveImage(&b2, SaveOptions{}); err != nil {
+	// save, load, save in a process that holds neither VM: the same bytes. (In
+	// this process the loaded VM shares the types of the built one, and the
+	// objects they are made of, so that its re-save need not be the same.)
+	dir, err := os.UserCacheDir()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if out := os.Getenv("JLGO_IMAGE_OUT"); out != "" {
-		if err := os.WriteFile(out, b1.Bytes(), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	dir = filepath.Join(dir, "go-embedded-julia-image-test")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if !bytes.Equal(b1.Bytes(), b2.Bytes()) {
-		t.Fatalf("save, load, save: %d and %d bytes that differ\n%s", b1.Len(), b2.Len(), describeImageDiff(t, b1.Bytes(), b2.Bytes()))
+	file := filepath.Join(dir, "base.img")
+	if err := os.WriteFile(file, b1.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestImageLoadFile$", "-test.v")
+	cmd.Env = append(os.Environ(), "JLGO_IMAGE_FILE="+file)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("save, load, save in a fresh process: %v\n%s", err, out)
+	} else {
+		t.Logf("in a fresh process: %s", out)
 	}
 	for _, v := range []*VM{vm, l} {
 		v.GeneratingOutput = false
@@ -319,6 +353,41 @@ func describeImageDiff(t testing.TB, a, b []byte) string {
 	}
 	if !bytes.Equal(pa.interned, pb.interned) {
 		out.WriteString("the interned types differ\n")
+	}
+	return out.String()
+}
+
+// describeGraphDiff walks two VMs in the order the encoder does and says where
+// the first object that is not the other's counterpart is: its type, what it
+// prints as, and the path the walk reached it by.
+func describeGraphDiff(a, b *VM) string {
+	walk := func(vm *VM) *imgEnc {
+		e := newImgEnc(vm, &vmImageSpec, SaveOptions{})
+		e.cur = -1
+		e.discover()
+		return e
+	}
+	ea, eb := walk(a), walk(b)
+	desc := func(e *imgEnc, i int) string {
+		o := e.objs[i]
+		s := o.t.String()
+		if dt, ok := o.v.Interface().(*core.DataType); ok {
+			s += " " + showValue(dt)
+		}
+		e.cur = int32(i)
+		return fmt.Sprintf("%d %s tier %d | %s", i, s, o.tier, e.where())
+	}
+	var out strings.Builder
+	fmt.Fprintf(&out, "graphs of %d and %d objects\n", len(ea.objs), len(eb.objs))
+	shown := 0
+	for i := 0; i < min(len(ea.objs), len(eb.objs)) && shown < 6; i++ {
+		if da, db := desc(ea, i), desc(eb, i); da != db {
+			fmt.Fprintf(&out, "first difference:\n  original: %s\n  loaded:   %s\n", da, db)
+			for j := 1; j <= 4 && i+j < min(len(ea.objs), len(eb.objs)); j++ {
+				fmt.Fprintf(&out, "  original: %s\n  loaded:   %s\n", desc(ea, i+j), desc(eb, i+j))
+			}
+			break
+		}
 	}
 	return out.String()
 }

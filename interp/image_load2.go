@@ -124,6 +124,21 @@ func (d *imgDec) internOne(st *internState, id uint32) {
 		d.objs[id] = reflect.ValueOf(c)
 		d.redir[id] = true
 		st.redirect[dt] = c
+		d.replaced = append(d.replaced, [2]*core.DataType{dt, c})
+	}
+}
+
+// transferInstances gives a type the process holds the cached instance of the
+// image's type it replaced, when it has none: the instance of a type is state
+// the VMs of a process share, as its hints are, and a process that has not run
+// the program has not made it.
+func (d *imgDec) transferInstances() {
+	for _, p := range d.replaced {
+		if _, has := p[1].CachedInstance(); !has {
+			if v, ok := p[0].CachedInstance(); ok {
+				p[1].SetCachedInstance(v)
+			}
+		}
 	}
 }
 
