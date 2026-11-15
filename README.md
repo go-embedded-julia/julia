@@ -26,7 +26,7 @@ expectations written by hand.
 
 Known limits of v0.15.0:
 - A VM loads the pinned system image in about 0.65 s; the image is not authenticated by itself and loading one writes process-shared type state, so a consumer pins its digest ([#49](https://github.com/go-embedded-julia/julia/issues/49)).
-- `showerror` of a `MethodError` needs `jl_methtable_lookup`; a kernel shows the Go repr ([#55](https://github.com/go-embedded-julia/julia/issues/55)).
+- The candidates of a `MethodError` whose candidates are all equally close (`sin()`) list in the order of the method table, which in julia is a function of type-name hashes that mix in each module's random build id (datatype.c:84): that order is one system image's, and is not reproduced. Every other part of the text is julia's.
 - Task-heavy code is slow on a cold VM.
 - No BLAS kernel computes yet (#33).
 - Writing a file in host mode is not ported (#32).

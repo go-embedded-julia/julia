@@ -22,6 +22,19 @@ type Session struct {
 	// global that exists instead of making a local. The default, false, is
 	// the scope of a file (include_string).
 	Soft bool
+	// file and line are the position the last LineNumberNode of the top-level
+	// forms in progress gave: what jl_toplevel_eval_flex passes down as its
+	// filename and lineno, and a `module` form records (toplevel.c:156-158).
+	file expr.Symbol
+	line int
+}
+
+// at takes the position a LineNumberNode of a top-level form names.
+func (s *Session) at(ln expr.LineNumberNode) {
+	if f, ok := ln.File.(expr.Symbol); ok {
+		s.file = f
+	}
+	s.line = ln.Line
 }
 
 // NewSession returns a session in a fresh module Main.L, the module the
@@ -56,7 +69,8 @@ func (s *Session) Eval(src string) (res any, err error) {
 		top = softscope(top).(*expr.Expr)
 	}
 	for _, form := range top.Args {
-		if _, ok := form.(expr.LineNumberNode); ok {
+		if ln, ok := form.(expr.LineNumberNode); ok {
+			s.at(ln)
 			continue
 		}
 		v, err := s.evalForm(form)
@@ -211,6 +225,9 @@ func (vm *VM) toplevelOnly(m *Module, e *expr.Expr) (any, error) {
 		s := vm.sessionFor(m)
 		for _, a := range e.Args {
 			vm.taskWorld = vm.World()
+			if ln, ok := a.(expr.LineNumberNode); ok {
+				s.at(ln)
+			}
 			v, err := s.evalForm(a)
 			if err != nil {
 				return nil, err
@@ -298,8 +315,11 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 		owner = nil
 	}
 	newm := vm.addModule(name, owner)
-	// the package's UUID is its parent's (toplevel.c:143)
+	// the package's UUID is its parent's (toplevel.c:143), the position the
+	// form is at its file and line (toplevel.c:156-158)
 	newm.uuid = parent.uuid
+	ps := vm.sessionFor(parent)
+	newm.file, newm.line = ps.file, int32(ps.line)
 	// Core stays used with the standard imports, which julia gets through
 	// Base's exports
 	vm.addDefaultNames(newm, true, true)
@@ -356,7 +376,8 @@ func (vm *VM) evalModule(parent *Module, e *expr.Expr) (any, error) {
 	}
 	defer closeModule()
 	for _, form := range body.Args {
-		if _, ok := form.(expr.LineNumberNode); ok {
+		if ln, ok := form.(expr.LineNumberNode); ok {
+			s.at(ln)
 			continue
 		}
 		// the bootstrap Base's Compiler.bootstrap!() without its inference of
