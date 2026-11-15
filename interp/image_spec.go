@@ -62,7 +62,7 @@ var imageRoots = map[string]bool{
 	"taskRecs": false, "finalizersInhibited": false, "typeinfTiming": false,
 	"strMu": false, "strBufs": false, "argMu": false, "irTags": false,
 	"reservations": false, "openModules": false, "GeneratingOutput": false,
-	"RunCompilerBootstrap": false, "bootIdx": false, "bootErr": false,
+	"RunCompilerBootstrap": false, "bootIdx": false, "bootList": false, "bootErr": false,
 }
 
 // imageSkip lists the struct fields the encoder does not enter: state that is
@@ -76,7 +76,16 @@ var imageSkip = map[string]string{
 	"dispatch.Table.clips":  "dispatch cache, refilled",
 	"core.TypeName.hashed":  "weak type cache, re-inserted with cacheOrGet",
 	"core.TypeName.linear":  "weak type cache, re-inserted with cacheOrGet",
-	"interp.Session.VM":     "host back-pointer to the VM",
+	"interp.Session.VM":     "host back-pointer to the VM, set by the loader",
+
+	// what the typemap derives from the methods: a loader rebuilds the events
+	// from the methods (Table.ResetAfterLoad) and replaying them recomputes these
+	"dispatch.Table.replayed":      "typemap position, replay starts again",
+	"dispatch.Table.failed":        "typemap failure, none after a load",
+	"dispatch.Table.changes":       "counts the leaf cache's invalidations, which starts empty",
+	"dispatch.Method.full":         "recomputed when the method's event is replayed",
+	"dispatch.Method.interference": "recomputed when the methods' events are replayed (replay appends to it)",
+	"dispatch.Method.latestOnly":   "recomputed when the method's event is replayed",
 }
 
 // What the image does with a type reached behind a pointer or an interface.

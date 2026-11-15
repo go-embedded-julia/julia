@@ -13,6 +13,7 @@
 package core
 
 import (
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -123,6 +124,47 @@ func (n *TypeName) Hash() uint32 {
 	}
 	return strHash(n.Module+"."+n.Name) | 1
 }
+
+// TypeofWrapper is Type{Wrapper}, cached on the name (jltypes.c:1115-1120), nil
+// until the type is made.
+func (n *TypeName) TypeofWrapper() *DataType {
+	TypeTypeName.mu.Lock() // the lock cacheOrGet holds when it sets the field
+	defer TypeTypeName.mu.Unlock()
+	return n.typeofWrapper
+}
+
+// SetTypeofWrapper caches dt as Type{Wrapper} when none is cached yet, and
+// reports whether the name holds dt afterwards.
+func (n *TypeName) SetTypeofWrapper(dt *DataType) bool {
+	TypeTypeName.mu.Lock()
+	defer TypeTypeName.mu.Unlock()
+	if n.typeofWrapper == nil {
+		n.typeofWrapper = dt
+	}
+	return n.typeofWrapper == dt
+}
+
+// CachedTypes are the types interned under this name, by hash and then in the
+// order they were made, then those that do not hash in that order.
+func (n *TypeName) CachedTypes() []*DataType {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	keys := make([]uint32, 0, len(n.hashed))
+	for k := range n.hashed {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	var out []*DataType
+	for _, k := range keys {
+		out = append(out, n.hashed[k]...)
+	}
+	return append(out, n.linear...)
+}
+
+// Intern is jl_cache_type_ (jltypes.c:1254-1280) for a type built outside
+// instantiation (a loaded image): dt becomes the cached type of its name and
+// parameters unless an equal one is already there, which is returned instead.
+func Intern(dt *DataType) *DataType { return cacheOrGet(dt) }
 
 // Hash is jl_datatype_t.hash: a hash of the name and the parameters, the same
 // in every process; 0 when the parameters do not hash (a Union, or a type

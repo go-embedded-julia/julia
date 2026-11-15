@@ -34,6 +34,13 @@ type leaveSignal struct{ n int }
 func (*leaveSignal) Error() string { return "interp: :leave escaped its try blocks" }
 
 func (vm *VM) newFrame(c *code, mod *Module) *frame {
+	if c.stmts == nil && c.src != nil {
+		// code loaded from an image holds its source and not its prepared
+		// statements (prepare is pure): prepared again, once, on first use
+		if p, err := prepare(c.src, c.toplevel); err == nil {
+			*c = *p
+		}
+	}
 	locals := make([]any, c.nslots+c.nssa)
 	for i := range locals {
 		locals[i] = undef

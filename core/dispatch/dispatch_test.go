@@ -65,6 +65,94 @@ func TestDefineInAGlobalWorld(t *testing.T) {
 	}
 }
 
+// A table made to answer from its methods alone, as a loaded one is, answers
+// as the table it was made from did, in every world: with methods replaced
+// and methods deleted in later worlds.
+func TestResetAfterLoad(t *testing.T) {
+	tab := &Table{Name: "f"}
+	tup := func(ts ...any) any { return mustApply(t, core.AnyTupleType, ts...) }
+	tab.Add(tup(core.Int64Type))  // 0
+	tab.Add(tup(core.NumberType)) // 1
+	tab.Add(tup(core.Int64Type))  // 2: replaces the first
+	m3, _ := tab.Add(tup(core.Float64Type))
+	tab.Add(tup(core.AbstractFloatType)) // 4
+	tab.Disable(m3, tab.World())         // the Float64 method is deleted
+	tab.Add(tup(core.RealType))
+	sigs := []any{tup(core.Int64Type), tup(core.Float64Type), tup(core.Int32Type), tup(core.StringType)}
+	answers := func() string {
+		var b strings.Builder
+		for w := uint64(0); w <= tab.World()+1; w++ {
+			for _, s := range sigs {
+				m, _, err := tab.Lookup(s, w)
+				if err != nil {
+					b.WriteString("-")
+				} else {
+					b.WriteString(string(rune('a' + m.Index)))
+				}
+			}
+			b.WriteString("|")
+		}
+		return b.String()
+	}
+	before := answers()
+	if !strings.Contains(before, "-") || strings.Count(before, "|") < 6 {
+		t.Fatalf("the table answers too little to compare: %s", before)
+	}
+	tab.ResetAfterLoad()
+	if got := answers(); got != before {
+		t.Errorf("after a reset:\n got %s\nwant %s", got, before)
+	}
+	// a reset of a table that was never queried, and one that was reset
+	fresh := &Table{Name: "g"}
+	fresh.Add(tup(core.Int64Type))
+	fresh.ResetAfterLoad()
+	fresh.ResetAfterLoad()
+	if m, _, err := fresh.Lookup(tup(core.Int64Type), fresh.World()); err != nil || m.Index != 0 {
+		t.Errorf("a table reset twice: %v, %v", m, err)
+	}
+	// the events are those of the methods: an insertion each, and a disabling
+	// for the deleted method alone (the replaced one has none)
+	var ins, dis int
+	for _, ev := range tab.events {
+		if ev.disable {
+			dis++
+		} else {
+			ins++
+		}
+	}
+	if ins != len(tab.methods) || dis != 1 {
+		t.Errorf("%d insertions and %d disablings for %d methods", ins, dis, len(tab.methods))
+	}
+}
+
+// sameSig is type equality, and a failure of the algebra's work bound is not
+// equality.
+func TestSameSig(t *testing.T) {
+	a := mustApply(t, core.AnyTupleType, core.Int64Type)
+	if !sameSig(a, mustApply(t, core.AnyTupleType, core.Int64Type)) || sameSig(a, mustApply(t, core.AnyTupleType, core.Int32Type)) {
+		t.Error("sameSig of equal and of different signatures")
+	}
+	// signatures whose comparison takes many steps: with each bound from 1
+	// up, some fail it, and none of the comparisons says they are equal
+	T := &core.TypeVar{Name: "T", LB: core.Bottom, UB: core.AnyType}
+	S := &core.TypeVar{Name: "S", LB: core.Bottom, UB: core.AnyType}
+	u := func(v *core.TypeVar, arr any) any {
+		return core.TypeUnion(arr, mustApply(t, core.RefType, v), mustApply(t, core.PairType, v, v))
+	}
+	sig1 := core.TypeUnionAll(T, mustApply(t, core.AnyTupleType,
+		u(T, mustApply(t, core.ArrayType, T, int64(1))), core.TypeUnion(T, core.NothingType)))
+	sig2 := core.TypeUnionAll(S, mustApply(t, core.AnyTupleType,
+		u(S, mustApply(t, core.AbstractArrayType, S, int64(1))), core.TypeUnion(S, core.NothingType)))
+	saved := core.SetMaxSubtypeSteps(1)
+	defer core.SetMaxSubtypeSteps(saved)
+	for n := 1; n < 200; n++ {
+		core.SetMaxSubtypeSteps(n)
+		if sameSig(sig1, sig2) {
+			t.Fatalf("bound %d: unequal signatures are equal", n)
+		}
+	}
+}
+
 // Static parameters come back from jl_subtype_env.
 func TestStaticParameters(t *testing.T) {
 	tab := &Table{Name: "f"}

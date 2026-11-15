@@ -42,6 +42,8 @@ type imageParts struct {
 	strs    []string
 	recs    [][]byte
 	roots   []byte
+
+	hints, interned []byte
 }
 
 type imageKindEntry struct {
@@ -107,6 +109,8 @@ func parseImage(t testing.TB, b []byte) *imageParts {
 		p.recs = append(p.recs, r.take(int(r.uv())))
 	}
 	p.roots = r.take(int(r.uv()))
+	p.hints = r.take(int(r.uv()))
+	p.interned = r.take(int(r.uv()))
 	if len(r.b) != 0 {
 		t.Fatalf("%d bytes after the roots", len(r.b))
 	}
