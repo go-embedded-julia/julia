@@ -6,7 +6,6 @@ import (
 	"errors"
 	"math"
 	"os"
-	"sync"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -401,29 +400,33 @@ func TestKernelValuesBase(t *testing.T) {
 	}
 }
 
+// holdKernel starts a cell that calls a ccall the test holds, and returns once
+// the cell is inside it: the kernel is busy from then until release is called,
+// which lets the cell finish and returns its result. The overlap is made by two
+// channels, not by sleeping or by asking until a call happens to land.
+func holdKernel(k *Kernel) (release func() Result) {
+	inside, free := make(chan struct{}), make(chan struct{})
+	k.VM().shims["jlgo_hold"] = func(vm *VM, a []any) (any, error) {
+		close(inside)
+		<-free
+		return int64(7), nil
+	}
+	result := make(chan Result, 1)
+	go func() { result <- k.Eval(context.Background(), `hold() = ccall(:jlgo_hold, Int, ()); hold()`) }()
+	<-inside
+	return func() Result {
+		close(free)
+		return <-result
+	}
+}
+
 // Get and Set are refused while a cell runs, as Eval is, and after Close.
 func TestKernelGetSetBusyAndClosed(t *testing.T) {
 	k := bootKernel(t, KernelOptions{})
 	k.Set("n", int64(1))
-	ctx, cancel := context.WithCancel(context.Background())
-	started := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		close(started)
-		k.Eval(ctx, spin)
-	}()
-	<-started
-	// the cell is running once Eval holds the kernel: ask until it does
-	busy := false
-	for i := 0; i < 1000 && !busy; i++ {
-		if _, _, err := k.Get("n"); errors.Is(err, ErrKernelBusy) {
-			busy = true
-		}
-	}
-	if !busy {
-		t.Fatal("Get was never refused while a cell ran")
+	release := holdKernel(k)
+	if _, _, err := k.Get("n"); !errors.Is(err, ErrKernelBusy) {
+		t.Errorf("Get while a cell runs: %v", err)
 	}
 	if err := k.Set("n", int64(2)); !errors.Is(err, ErrKernelBusy) {
 		t.Errorf("Set while a cell runs: %v", err)
@@ -435,10 +438,22 @@ func TestKernelGetSetBusyAndClosed(t *testing.T) {
 	if ty, ok, err := k.TypeOf("n"); ty != "" || ok || !errors.Is(err, ErrKernelBusy) {
 		t.Errorf("TypeOf while a cell runs: %q %v %v", ty, ok, err)
 	}
-	cancel()
-	wg.Wait()
+	if r := release(); r.Err != nil || r.Value != "7" {
+		t.Fatalf("the held cell: %+v", r)
+	}
+	// the cell has returned: all four are answered, and the Set that was
+	// refused changed nothing
 	if got := mustGet(t, k, "n"); got != int64(1) {
 		t.Errorf("n after the refused Set: %v", got)
+	}
+	if has, err := k.Has("n"); !has || err != nil {
+		t.Errorf("Has after the cell: %v %v", has, err)
+	}
+	if ty, ok, err := k.TypeOf("n"); ty != "Int64" || !ok || err != nil {
+		t.Errorf("TypeOf after the cell: %q %v %v", ty, ok, err)
+	}
+	if err := k.Set("n", int64(5)); err != nil || mustGet(t, k, "n") != int64(5) {
+		t.Errorf("Set after the cell: %v", err)
 	}
 	k.Close()
 	if _, _, err := k.Get("n"); !errors.Is(err, ErrKernelClosed) {
