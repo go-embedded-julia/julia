@@ -181,6 +181,42 @@ input both ways — `ErrParserFailed` exactly where JuliaSyntax throws, the
 same `Expr` everywhere else (200 002 inputs: 7 failures on both sides,
 0 differences; CI runs 50 000 on every pull request).
 
+## Running cells: Kernel
+
+`interp.Kernel` is the session a notebook keeps: one VM, one module (`Main`),
+one cell at a time.
+
+```go
+k, err := interp.FetchKernel(ctx, "v0.14.0", digest, interp.FetchOptions{},
+	interp.LoadOptions{}, interp.KernelOptions{})   // or LoadKernel(r, …), or NewKernel(vm, …)
+if err != nil { … }
+defer k.Close()
+r := k.Eval(ctx, `f(x) = x + 1; f(41)`)
+// r.Value "42" (julia's text/plain display), r.Stdout, r.Stderr (this cell's
+// only), r.Err (nil, a *JuliaError with julia's showerror text, or a typed error)
+```
+
+- **Cancellation.** Cancelling `ctx` raises `InterruptException` in the running
+  cell (also inside a `try`, which cannot swallow it, and in `sleep` or `wait`);
+  `Eval` answers `ErrCellCanceled`, wrapping `ctx.Err()`. The kernel runs the
+  next cell.
+- **Budgets per cell** (`CellOptions`, on the kernel or per `EvalWith`; zero is
+  the kernel's value, negative is no bound): `Timeout` (`ErrCellTimeout`),
+  `MaxSteps` (`ErrStepLimit`), `MaxAlloc`, the elements allocated in total
+  (`ErrMemoryLimit`), `MaxOutput` per stream (the rest is dropped,
+  `Result.Truncated`). `DefaultCellOptions` is 30 s, 2^25 elements and 1 MiB.
+- **Sandbox by default.** The filesystem is julia's own tree and the environment
+  is empty. Host mode is `KernelOptions{Host: true}`; a VM already in host mode
+  is refused (`ErrKernelHost`) without it.
+- **One kernel per VM** (`ErrKernelExists`), and one running cell per kernel
+  (`ErrKernelBusy`). Kernels of different VMs run side by side in one process:
+  what they share is core's type tables, which are guarded, and the hints an
+  image sets on core's shared types, which an image sets once and another
+  image may not change (`ErrImageConflict`, #49), so kernels over images of
+  one release are safe and a second release is refused at its load.
+- **Without Base** (a `Boot()`-only image) the value and the error are the Go
+  repr, and cells use `Core`'s names; with the Base image they are julia's.
+
 ## The system image
 
 `SaveImage` / `LoadImage` write and read a booted VM (Base built to the cut

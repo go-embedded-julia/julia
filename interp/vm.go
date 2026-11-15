@@ -167,6 +167,21 @@ type VM struct {
 	// build a different file (#40 step 7: the digest is pinned).
 	hrtick uint64
 
+	// intr is set, from any goroutine, to interrupt the running cell: the
+	// interpreter raises InterruptException at its next statement and for
+	// as long as it stays set. intrCh wakes an event loop that waits.
+	// allocs counts the elements the cell's memorynews allocated, allocMax
+	// bounds them (0: unbounded); kernel is the one Kernel of this VM
+	// (kernel.go).
+	intr     atomic.Bool
+	intrHard atomic.Bool
+	intrTask *Struct // the task an interrupt is for: the cell's
+	intrSent bool    // the interrupt was scheduled into that task
+	intrCh   chan struct{}
+	allocs   int64
+	allocMax int64
+	kernel   *Kernel
+
 	// tTask is Core.Task, task the root task (task.go)
 	tTask *core.DataType
 	task  *Struct

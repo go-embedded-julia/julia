@@ -61,6 +61,9 @@ func (f *frame) evalBody(ip int) (any, error) {
 				return nil, ErrStepLimit
 			}
 		}
+		if vm.takeInterrupt() {
+			return nil, vm.interruptError()
+		}
 		next := ip + 1
 		f.ip = ip
 		switch s := f.c.stmts[ip].(type) {
