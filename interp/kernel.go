@@ -170,6 +170,9 @@ func NewKernel(vm *VM, opts KernelOptions) (*Kernel, error) {
 	}
 	k.sess = vm.sessionFor(vm.Main)
 	vm.kernel = k
+	// from here on, a write to an object of the image is logged: the state
+	// Reset returns to is this one, after the initializers and the helpers
+	vm.undo.on = true
 	return k, nil
 }
 

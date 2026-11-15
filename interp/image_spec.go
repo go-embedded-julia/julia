@@ -66,7 +66,7 @@ var imageRoots = map[string]bool{
 	"intr": false, "intrHard": false, "intrTask": false, "intrSent": false, "ticks": false, "intrCh": false, "allocs": false, "allocMax": false, "kernel": false,
 	"strMu": false, "strBufs": false, "argMu": false, "irTags": false,
 	"reservations": false, "openModules": false, "GeneratingOutput": false,
-	"RunCompilerBootstrap": false, "bootIdx": false, "bootList": false, "bootErr": false,
+	"RunCompilerBootstrap": false, "bootIdx": false, "bootList": false, "bootErr": false, "undo": false,
 }
 
 // imageSkip lists the struct fields the encoder does not enter: state that is
@@ -82,6 +82,8 @@ var imageSkip = map[string]string{
 	"core.TypeName.hashed":  "weak type cache, re-inserted with cacheOrGet",
 	"core.TypeName.linear":  "weak type cache, re-inserted with cacheOrGet",
 	"interp.Session.VM":     "host back-pointer to the VM, set by the loader",
+	"interp.Memory.undo":    "the VM's undo log, set by the loader on the objects it makes",
+	"interp.Struct.undo":    "the VM's undo log, set by the loader on the objects it makes",
 
 	// what the typemap derives from the methods: a loader rebuilds the events
 	// from the methods (Table.ResetAfterLoad) and replaying them recomputes these

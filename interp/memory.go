@@ -24,6 +24,9 @@ type Memory struct {
 	Type  *core.DataType
 	elems []any
 	id    uint64 // its object id (objectid.go)
+	// undo is the log of the VM that loaded this memory from an image, nil for
+	// a memory a cell made (undo.go).
+	undo *undoLog
 }
 
 // newMemory is a Memory of type t holding elems, which it takes over.
@@ -37,7 +40,12 @@ func (m *Memory) Len() int { return len(m.elems) }
 func (m *Memory) Get(i int) any { return m.elems[i] }
 
 // Set stores v as element i.
-func (m *Memory) Set(i int, v any) { m.elems[i] = v }
+func (m *Memory) Set(i int, v any) {
+	if l := m.undo; l != nil && l.on {
+		l.recordElem(m, i)
+	}
+	m.elems[i] = v
+}
 
 // Slice is elements lo to hi (exclusive) as a slice that shares the store: a
 // write through it is a write of the memory. It exists for the code that moves
@@ -49,7 +57,12 @@ func (m *Memory) Slice(lo, hi int) []any { return m.elems[lo:hi] }
 func (m *Memory) All() []any { return m.elems }
 
 // SetAll replaces the elements by es, which the memory takes over.
-func (m *Memory) SetAll(es []any) { m.elems = es }
+func (m *Memory) SetAll(es []any) {
+	if l := m.undo; l != nil && l.on {
+		l.recordAll(m)
+	}
+	m.elems = es
+}
 
 // MemoryRef is a GenericMemoryRef: a memory and the 0-based index of an
 // element in it (ptr_or_offset, kept as an index whatever the layout).
