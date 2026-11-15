@@ -16,9 +16,11 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 	"unsafe"
 	"weak"
 )
@@ -474,19 +476,34 @@ func TestImageWalkBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireCutState(t, vm)
+	// The argument vectors of Exprs are held weakly and dropped by cleanups
+	// on another goroutine, so the count at the cut depends on when the
+	// collector last ran (5274..6384 for the same code). Collect first: the
+	// bands below are the counts after three collections.
+	for i := 0; i < 3; i++ {
+		runtime.GC()
+		time.Sleep(300 * time.Millisecond)
+	}
 	st := walkImage(vm, vmImageSpec)
 	requireClassified(t, st)
 	t.Log(st.report(vm))
-	// design §1, measured on v0.13.0 + #39 (84 modules, world 38766)
+	// design §1 was measured on v0.13.0 + #39 (84 modules, world 38766);
+	// re-measured after collection on 66204f6, with two drifts accounted:
+	//  - *core.DataType 61141 -> 51555 at 2238db4 (#48, LoadImage), the
+	//    only commit between f35e46c (61141) and v0.14.0 that moves it;
+	//  - argument vectors (and the Structs, Memorys and Exprs they own)
+	//    5106 -> 5450 at d035890 (#87, frame reuse): +9 at de8f4cd (#83),
+	//    +333 at #87 (+248 measured on 66204f6: the count moves by about
+	//    100 between runs even after collection).
 	inRange(t, "objects", st.Objects, 3268688, 15)
 	inRange(t, "edges", st.Edges, 4247336, 15)
 	inRange(t, "scalars", st.Scalars, 3037684, 15)
 	inRange(t, "distinct strings", st.Strings, 54870, 15)
 	inRange(t, "string bytes", st.StringBytes, 3030370, 15)
-	inRange(t, "*core.DataType", st.Kinds["*core.DataType"], 61136, 15)
-	inRange(t, "*expr.Expr", st.Kinds["*expr.Expr"], 328183, 15)
-	inRange(t, "*interp.Struct", st.Kinds["*interp.Struct"], 35551, 15)
-	inRange(t, "*interp.Memory", st.Kinds["*interp.Memory"], 25519, 15)
+	inRange(t, "*core.DataType", st.Kinds["*core.DataType"], 51555, 15)
+	inRange(t, "*expr.Expr", st.Kinds["*expr.Expr"], 327900, 15)
+	inRange(t, "*interp.Struct", st.Kinds["*interp.Struct"], 35600, 15)
+	inRange(t, "*interp.Memory", st.Kinds["*interp.Memory"], 25570, 15)
 	inRange(t, "*dispatch.Method", st.Kinds["*dispatch.Method"], 23282, 15)
 	inRange(t, "*interp.Module", st.Kinds["*interp.Module"], 84, 15)
 	inRange(t, "moduleInitOrder", len(vm.moduleInitOrder), 75, 15)
@@ -496,6 +513,6 @@ func TestImageWalkBase(t *testing.T) {
 	// made are goMethods
 	inRange(t, "goBody.fn", st.Funcs["interp.goBody.fn"], 2, 0)
 	inRange(t, "goMethod", st.Funcs["dispatch.Method.Def"], 9, 0)
-	inRange(t, "Struct.exprOwner", st.Weaks["interp.Struct.exprOwner"], 35551, 15)
-	inRange(t, "argVectors keys", st.Weaks["interp.VM.argVectors[key]"], 5277, 15)
+	inRange(t, "Struct.exprOwner", st.Weaks["interp.Struct.exprOwner"], 35600, 15)
+	inRange(t, "argVectors keys", st.Weaks["interp.VM.argVectors[key]"], 5350, 15)
 }
