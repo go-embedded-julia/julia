@@ -24,7 +24,14 @@ type frame struct {
 	preevaluation bool
 	continueAt    int
 	ip            int // the statement running, for Thrown.Trace
+	// inline holds the locals of a small frame, so that a call allocates its
+	// frame once and not the frame and a slice (#71).
+	inline [frameInline]any
 }
+
+// frameInline is the number of locals (slots and SSA values) a frame holds
+// without a second allocation: most of Base's methods are this small.
+const frameInline = 8
 
 // leaveSignal carries a :leave up through the evalBody calls of the try
 // blocks it exits; julia longjmps to the outermost of them
@@ -41,11 +48,16 @@ func (vm *VM) newFrame(c *code, mod *Module) *frame {
 			*c = *p
 		}
 	}
-	locals := make([]any, c.nslots+c.nssa)
-	for i := range locals {
-		locals[i] = undef
+	f := &frame{vm: vm, c: c, mod: mod}
+	if n := c.nslots + c.nssa; n <= frameInline {
+		f.locals = f.inline[:n]
+	} else {
+		f.locals = make([]any, n)
 	}
-	return &frame{vm: vm, c: c, mod: mod, locals: locals}
+	for i := range f.locals {
+		f.locals[i] = undef
+	}
+	return f
 }
 
 // evalBody is eval_body (interpreter.c:470-712).
@@ -830,13 +842,17 @@ func (vm *VM) callLambda(l *lambda, self any, args []any, sparams []any) (any, e
 	}
 	f := vm.newFrame(l.c, l.mod)
 	f.sparams, f.spenv = sparams, l.sig
-	all := append([]any{self}, args...)
+	// slot 1 is the function, then the arguments; for a vararg method the last
+	// slot is the tuple of the rest (newTuple copies what it is given, so args,
+	// which the caller owns, is never aliased by the frame)
 	n := l.nargs
 	if l.isva {
-		copy(f.locals, all[:n-1])
-		f.locals[n-1] = vm.newTuple(all[n-1:])
+		f.locals[0] = self
+		copy(f.locals[1:n-1], args[:n-2])
+		f.locals[n-1] = vm.newTuple(args[n-2:])
 	} else {
-		copy(f.locals, all[:n])
+		f.locals[0] = self
+		copy(f.locals[1:n], args[:n-1])
 	}
 	v, err := f.evalBody(0)
 	if t, ok := err.(*Thrown); ok && len(t.Trace) < maxTrace {
