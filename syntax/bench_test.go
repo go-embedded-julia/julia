@@ -89,9 +89,10 @@ func TestThroughputAgainstJulia(t *testing.T) {
 // A chain of 100 000 terms is one node of 200 000 children: parsing it must
 // not allocate in proportion to the growth of its arrays (#46: 53.8 MB when
 // append grew each of them by a quarter and the children were copied out of
-// the stack; 16.5 MB after the first pass; 11.6 MB now, with the token array
-// and the stack allocated once at their final size). Allocation is exact
-// under load, unlike a time.
+// the stack; 16.5 MB after the first pass; 11.6 MB with the token array
+// and the stack allocated once at their final size; 10.0 MB now, with a stack
+// entry of 24 bytes instead of 40). Allocation is exact under load, unlike a
+// time.
 func TestLongChainAllocation(t *testing.T) {
 	src := []byte(strings.Repeat("a+", 100000) + "a")
 	ParseAll(src, "warm")
@@ -99,7 +100,7 @@ func TestLongChainAllocation(t *testing.T) {
 	runtime.ReadMemStats(&before)
 	ParseAll(src, "chain")
 	runtime.ReadMemStats(&after)
-	const limit = 12 << 20
+	const limit = 10<<20 + 512<<10
 	if got := after.TotalAlloc - before.TotalAlloc; got > limit {
 		t.Errorf("a 100 000-term chain allocated %d bytes, want at most %d", got, limit)
 	}
@@ -125,7 +126,7 @@ func TestStackPeakIsTheDepthOfTheBuild(t *testing.T) {
 			s.validateTokens()
 			_, peak := s.stackPeak(drops)
 			depth, seen := 0, 0
-			buildTree(s, drops, func(h SyntaxHead, first, last int, children []struct{}, leaf bool) (struct{}, bool) {
+			buildTree(s, drops, func(h SyntaxHead, first, last int, children []struct{}, _ []int, leaf bool) (struct{}, bool) {
 				if drops != nil && drops(h) {
 					return struct{}{}, false
 				}
