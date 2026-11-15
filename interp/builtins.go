@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
@@ -256,6 +258,69 @@ func (vm *VM) tupleTypeOf(vals []any) *core.DataType {
 // jltypes.c:2487-2490); it dispatches on its kind, typeof(a), instead.
 // Neither step can fail on the values of a call.
 func (vm *VM) argTupleType(args []any) *core.DataType {
+	key, keyed := vm.argKeyOf(args)
+	if keyed {
+		if t, ok := argTupleCache.Load(key); ok {
+			return t.(*core.DataType)
+		}
+	}
+	t := vm.buildArgTupleType(args)
+	if keyed && argTupleCacheLen.Add(1) <= argTupleCacheMax {
+		argTupleCache.Store(key, t)
+	}
+	return t
+}
+
+// argKey names the argument tuple of a call by the identity of what it is made
+// of: the type of each argument, or the argument itself when it is a type
+// (Type{a} dispatches on a). The tuple type is a pure function of that, so it
+// is built once and found again, instead of building (core.Apply, and a new
+// DataType for every Type{a}, which the type cache does not intern) on each of
+// the millions of calls a loop makes (#71).
+type argKey struct {
+	n int
+	e [maxArgKey]argKeyElem
+}
+
+type argKeyElem struct {
+	isType bool
+	p      any
+}
+
+const (
+	maxArgKey = 6
+	// argTupleCacheMax bounds the cache: types a program makes (a Type{a} for
+	// each of a million distinct a) must not live as long as the process.
+	argTupleCacheMax = 1 << 16
+)
+
+var (
+	argTupleCache    sync.Map // argKey -> *core.DataType
+	argTupleCacheLen atomic.Int64
+)
+
+// argKeyOf is the key of args, false when there are too many arguments or one
+// whose identity is not a pointer (so that it cannot be a map key).
+func (vm *VM) argKeyOf(args []any) (argKey, bool) {
+	var k argKey
+	if len(args) > maxArgKey {
+		return k, false
+	}
+	k.n = len(args)
+	for i, a := range args {
+		if d, ok := a.(*core.DataType); ok {
+			k.e[i] = argKeyElem{true, d}
+		} else if core.IsType(a) {
+			return k, false // a Union, a UnionAll, a TypeVar: not keyed
+		} else {
+			k.e[i] = argKeyElem{false, vm.typeOf(a)}
+		}
+	}
+	return k, true
+}
+
+// buildArgTupleType is argTupleType without the cache.
+func (vm *VM) buildArgTupleType(args []any) *core.DataType {
 	types := make([]any, len(args))
 	for i, a := range args {
 		if core.IsType(a) && !core.HasFreeTypeVars(a) {
