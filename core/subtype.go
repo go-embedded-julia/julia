@@ -287,7 +287,7 @@ func canonicalBottomSuper(a any) any {
 // obviouslyEgal is obviously_egal (subtype.c:397-434).
 func obviouslyEgal(a, b any) bool {
 	a, b = canonicalBottomSuper(a), canonicalBottomSuper(b)
-	if a == b {
+	if sameParam(a, b) {
 		return true
 	}
 	if TypeOf(a) != TypeOf(b) {
@@ -324,7 +324,7 @@ func obviouslyEgal(a, b any) bool {
 // obviouslyUnequal is obviously_unequal (subtype.c:436-505).
 func obviouslyUnequal(a, b any) bool {
 	a, b = canonicalBottomSuper(a), canonicalBottomSuper(b)
-	if a == b {
+	if sameParam(a, b) {
 		return false
 	}
 	if _, ok := a.(*UnionAll); ok {
@@ -427,7 +427,7 @@ func obviouslyInUnion(u, x any) bool {
 
 // obviouslyDisjoint is obviously_disjoint (subtype.c:541-630).
 func obviouslyDisjoint(a, b any, specificity bool) bool {
-	if a == b || a == any(AnyType) || b == any(AnyType) {
+	if sameParam(a, b) || a == any(AnyType) || b == any(AnyType) {
 		return false
 	}
 	if specificity && a == any(TypeofBottomType) {
@@ -574,7 +574,7 @@ func (e *stenv) subtypeCcheck(x, y any) bool {
 			return xi == yi+e.loffset
 		}
 	}
-	if x == y {
+	if sameParam(x, y) {
 		return true
 	}
 	if x == any(Bottom) && IsType(y) {
@@ -602,7 +602,7 @@ func (e *stenv) subtypeLeftVar(x, y any, param int) bool {
 			return xi == yi+e.loffset
 		}
 	}
-	if _, ua := y.(*UnionAll); x == y && !ua {
+	if _, ua := y.(*UnionAll); sameParam(x, y) && !ua {
 		return true
 	}
 	if x == any(Bottom) && IsType(y) {
@@ -662,7 +662,7 @@ func (e *stenv) varLt(b *TypeVar, a any, param int) bool {
 	if !bb.right {
 		return e.subtypeLeftVar(bb.ub, a, param)
 	}
-	if bb.ub == a {
+	if sameParam(bb.ub, a) {
 		return true
 	}
 	if !((bb.lb == any(Bottom) && !IsType(a) && !isTypeVar(a)) || e.subtypeCcheck(bb.lb, a)) {
@@ -698,7 +698,7 @@ func (e *stenv) varGt(b *TypeVar, a any, param int) bool {
 	if !bb.right {
 		return e.subtypeLeftVar(a, bb.lb, param)
 	}
-	if bb.lb == a {
+	if sameParam(bb.lb, a) {
 		return true
 	}
 	if !((bb.ub == any(AnyType) && !IsType(a) && !isTypeVar(a)) || e.subtypeCcheck(a, bb.ub)) {
@@ -896,7 +896,7 @@ func (e *stenv) subtypeUnionAll(t any, u *UnionAll, R bool, param int) bool {
 	if !ans {
 		return false
 	}
-	if vb.lb != vb.ub {
+	if !sameParam(vb.lb, vb.ub) {
 		for b := e.vars; b != nil; b = b.prev {
 			vu, vl := b.ub, b.lb
 			if b.depth0 != vb.depth0 &&
@@ -918,7 +918,7 @@ func (e *stenv) subtypeUnionAll(t any, u *UnionAll, R bool, param int) bool {
 			} else {
 				val = &TypeVar{Name: u.Var.Name, LB: Bottom, UB: vb.lb}
 			}
-		case vb.lb == vb.ub:
+		case sameParam(vb.lb, vb.ub):
 			val = vb.lb
 		case vb.lb != any(Bottom):
 			val = vb.lb
@@ -1248,7 +1248,7 @@ func (e *stenv) subtype(x, y any, param int) bool {
 		}
 		if yvar, ok := y.(*TypeVar); ok && e.runions.depth == 0 && !HasFreeTypeVars(x) {
 			yb := e.lookup(yvar)
-			for e.intersection && yb != nil && yb.lb == yb.ub {
+			for e.intersection && yb != nil && sameParam(yb.lb, yb.ub) {
 				lbv, ok := yb.lb.(*TypeVar)
 				if !ok {
 					break
@@ -1410,7 +1410,7 @@ func (e *stenv) subtype(x, y any, param int) bool {
 		e.invdepth++
 		for i := range xd.Parameters {
 			xi, yi := xd.Parameters[i], yd.Parameters[i]
-			if !(xi == yi || e.forallExistsEqual(xi, yi)) {
+			if !(sameParam(xi, yi) || e.forallExistsEqual(xi, yi)) {
 				ans = false
 				break
 			}
@@ -1567,7 +1567,7 @@ func (e *stenv) localForallExistsSubtype(x, y any, param, limitSlow int) bool {
 // equalVar is equal_var (subtype.c:1699-1733).
 func (e *stenv) equalVar(v *TypeVar, x any) bool {
 	vb := e.lookup(v)
-	if e.intersection && vb != nil && vb.lb == vb.ub {
+	if e.intersection && vb != nil && sameParam(vb.lb, vb.ub) {
 		if lbv, ok := vb.lb.(*TypeVar); ok {
 			return e.equalVar(lbv, x)
 		}
@@ -1581,7 +1581,7 @@ func (e *stenv) equalVar(v *TypeVar, x any) bool {
 		return e.localForallExistsSubtype(x, vb.lb, 2, boolBit(!HasFreeTypeVars(x))) &&
 			e.localForallExistsSubtype(vb.ub, x, 0, 0)
 	}
-	if vb.lb == x {
+	if sameParam(vb.lb, x) {
 		return e.varLt(v, x, 0)
 	}
 	if !e.subtypeCcheck(x, vb.ub) {
@@ -1591,7 +1591,7 @@ func (e *stenv) equalVar(v *TypeVar, x any) bool {
 	if !e.intersection || !isTypeVar(lb) || !e.reachableVar(lb, v) {
 		vb.lb = lb
 	}
-	if vb.ub == x {
+	if sameParam(vb.ub, x) {
 		return true
 	}
 	if !e.subtypeCcheck(vb.lb, x) {
@@ -1748,7 +1748,7 @@ func findVarBody(t any, v *TypeVar) any {
 // obviousSubtype is obvious_subtype (subtype.c:1934-2235): ok reports that
 // the answer sub could be determined quickly.
 func obviousSubtype(x, y, y0 any, sub *bool) bool {
-	if x == y || y == any(AnyType) {
+	if sameParam(x, y) || y == any(AnyType) {
 		*sub = true
 		return true
 	}
@@ -1768,7 +1768,7 @@ func obviousSubtype(x, y, y0 any, sub *bool) bool {
 	}
 	y = UnwrapUnionAll(y)
 	x, y = canonicalBottomSuper(x), canonicalBottomSuper(y)
-	if x == y || y == any(AnyType) {
+	if sameParam(x, y) || y == any(AnyType) {
 		*sub = true
 		return true
 	}
@@ -2067,7 +2067,7 @@ func subtypeEnv(x, y any, env []any) bool {
 	}
 	_, yua := y.(*UnionAll)
 	_, yu := y.(*Union)
-	if x == y || (TypeOf(x) == TypeOf(y) && (yua || yu) && TypesEgal(x, y)) {
+	if sameParam(x, y) || (TypeOf(x) == TypeOf(y) && (yua || yu) && TypesEgal(x, y)) {
 		if len(env) != 0 {
 			ua := x.(*UnionAll)
 			for i := range env {
@@ -2135,7 +2135,7 @@ func SubtypeEnv(x, y any, env []any) (sub bool, err error) {
 
 // TypesEqual is jl_types_equal (subtype.c:2319-2399), release build.
 func TypesEqual(a, b any) bool {
-	if a == b {
+	if sameParam(a, b) {
 		return true
 	}
 	if TypeOf(a) == TypeOf(b) && TypesEgal(a, b) {

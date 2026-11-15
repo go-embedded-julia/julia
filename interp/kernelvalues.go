@@ -3,6 +3,7 @@ package interp
 import (
 	"errors"
 	"fmt"
+	"math"
 	"unicode"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -208,13 +209,19 @@ func (vm *VM) arrayToGo(a *Struct) (any, bool) {
 	dims := make([]int, nd)
 	for i, d := range size.Elems {
 		di, ok := d.(int64)
-		if !ok || di < 0 || di > 0 && int64(n) > int64(len(ref.Mem.Elems))/di {
-			return nil, false // not a size, or more elements than the memory holds
+		if !ok || di < 0 || di > int64(math.MaxInt) {
+			return nil, false // not a size
+		}
+		// the whole product, whose overflow is a refusal: a 3x0 matrix is
+		// empty, whatever the running product was before the 0 came
+		if di > 0 && n > math.MaxInt/int(di) {
+			return nil, false
 		}
 		dims[i] = int(di)
 		n *= int(di)
 	}
-	if ref.Off+n > len(ref.Mem.Elems) {
+	// ... and compared once with what the memory holds from the offset
+	if ref.Off < 0 || ref.Off > len(ref.Mem.Elems) || n > len(ref.Mem.Elems)-ref.Off {
 		return nil, false
 	}
 	elems := ref.Mem.Elems[ref.Off : ref.Off+n]

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
+	"github.com/go-embedded-julia/julia/expr"
 )
 
 // libblastrampoline's configuration, read the way lbt.jl reads it (its
@@ -50,7 +51,7 @@ nothing`
 		{"getfield(cfg(), :build_flags)", "0x0000001a"},
 		{"getfield(cfg(), :num_exported_symbols)", "0x00000000"},
 		{"isnull(libp(1))", "true"},
-		{`fwd("/julia/lib/julia/libopenblas64_.dylib", Int32(1))`, "0"},
+		{`fwd("/julia/lib/julia/libopenblas64_.dylib", Int32(1))`, "16"}, // the 8 s and 8 d routines of go-blas
 		{"str(getfield(lib(1), :libname))", `"/julia/lib/julia/libopenblas64_.dylib"`},
 		{"str(getfield(lib(1), :suffix))", `"64_"`},
 		{"getfield(lib(1), :interface)", "64"},
@@ -75,6 +76,48 @@ nothing`
 	} {
 		v, err := s.Eval(c.src)
 		check(t, c.src, v, err, c.want)
+	}
+}
+
+// The trampoline reaches the functions of the libraries it forwards to, and of
+// no library before: a ccall in libblastrampoline, by any of its names, and a
+// dlsym of its handle, find the BLAS after lbt_forward.
+func TestLBTForwardsBLAS(t *testing.T) {
+	vm := New()
+	if err := vm.Boot(); err != nil {
+		t.Fatal(err)
+	}
+	sym := expr.Symbol("dgemm_64_")
+	for _, lib := range []string{"libblastrampoline", "@rpath/libblastrampoline.5.dylib", "libblastrampoline.5"} {
+		if vm.shimOf(lib, sym) != nil {
+			t.Errorf("%s reaches dgemm_64_ before lbt_forward", lib)
+		}
+	}
+	forward := vm.libShims[lbtLib]["lbt_forward"]
+	if n, err := forward(vm, []any{vm.stringPtrOf("libopenblas64_.dylib"), int32(1), int32(0), nil}); err != nil || n != int32(16) {
+		t.Fatalf("lbt_forward: %v, %v", n, err)
+	}
+	for _, lib := range []string{"libblastrampoline", "@rpath/libblastrampoline.5.dylib", "libblastrampoline.5", "libopenblas64_"} {
+		if vm.shimOf(lib, sym) == nil {
+			t.Errorf("%s does not reach dgemm_64_ after lbt_forward", lib)
+		}
+	}
+	for _, lib := range []string{"libdSFMT", "libnope"} {
+		if vm.shimOf(lib, sym) != nil {
+			t.Errorf("%s reaches dgemm_64_", lib)
+		}
+	}
+	if vm.shimOf("libblastrampoline", "nosuch_64_") != nil {
+		t.Error("a symbol nothing has")
+	}
+	// the symbol a dlsym of the trampoline's handle finds
+	h, err := vm.loadDynamicLibrary([]any{vm.stringPtrOf("libblastrampoline"), uint32(0), int32(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &Pointer{Type: vm.ptrType(vm.ptrType(core.NothingType)), Target: &ptrSlot{}}
+	if r, err := vm.dlsym([]any{h, vm.stringPtrOf("dgemm_64_"), out, int32(0)}); err != nil || r != int32(1) {
+		t.Errorf("dlsym of dgemm_64_: %v, %v", r, err)
 	}
 }
 

@@ -203,31 +203,14 @@ func TestKernelBounds(t *testing.T) {
 // A running cell is not run twice at once; a closed or doubled kernel is refused.
 func TestKernelRefusals(t *testing.T) {
 	k := bootKernel(t, KernelOptions{})
-	ctx, cancel := context.WithCancel(context.Background())
-	started := make(chan struct{})
-	var first Result
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		close(started)
-		first = k.Eval(ctx, spin)
-	}()
-	<-started
-	var r Result
-	for r = k.Eval(context.Background(), `1`); !errors.Is(r.Err, ErrKernelBusy); r = k.Eval(context.Background(), `1`) {
-		if r.Err == nil {
-			// the goroutine had not begun its cell: it is not busy yet
-			time.Sleep(time.Millisecond)
-			continue
-		}
+	release := holdKernel(k)
+	if r := k.Eval(context.Background(), `1`); !errors.Is(r.Err, ErrKernelBusy) {
 		t.Fatalf("while a cell runs: %+v", r)
 	}
-	cancel()
-	wg.Wait()
-	if !errors.Is(first.Err, ErrCellCanceled) {
+	if first := release(); first.Err != nil || first.Value != "7" {
 		t.Errorf("the first cell: %+v", first)
 	}
+	evalOK(t, k, "1", "1")
 
 	if _, err := NewKernel(k.VM(), KernelOptions{}); !errors.Is(err, ErrKernelExists) {
 		t.Errorf("a second kernel for a VM: %v", err)
