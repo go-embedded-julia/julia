@@ -73,6 +73,7 @@ var imageRoots = map[string]bool{
 // rebuilt at load, with the reason (design section 2).
 var imageSkip = map[string]string{
 	"interp.code.stmts":     "prepared statements, rebuilt lazily from src",
+	"lower.State.defined":   "the session's hook for defined-julia-global, set again at every form (evalForm)",
 	"dispatch.Table.leaf":   "dispatch cache, refilled",
 	"dispatch.Table.canon":  "dispatch cache, refilled",
 	"dispatch.Table.tm":     "typemap, replays events on first query",

@@ -3,7 +3,11 @@ package lower
 // Pass 2 of julia-syntax.scm: identify and rename local variables
 // (resolve-scopes).
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/go-embedded-julia/julia/expr"
+)
 
 func lhsDecls(e any) []any {
 	switch {
@@ -410,7 +414,7 @@ func (lw *lowerer) resolveScopeBlock(e any, s *scope, loc any) any {
 		implicitLocals = filterL(func(v any) bool {
 			k := varKind(v, s, true)
 			return (k == "none" || k == "static-parameter") &&
-				!(soft && (memq(v, s.implicitGlobals) != nil || definedJuliaGlobal(v))) &&
+				!(soft && (memq(v, s.implicitGlobals) != nil || lw.definedJuliaGlobal(v))) &&
 				memq(v, globals) == nil
 		}, nonlocAssigned)
 	}
@@ -427,7 +431,7 @@ func (lw *lowerer) resolveScopeBlock(e any, s *scope, loc any) any {
 	var warnVars *ftable
 	if !toplevel && len(argnames) == 0 && !soft && !hard {
 		vars := filterL(func(v any) bool {
-			return (memq(v, s.implicitGlobals) != nil || definedJuliaGlobal(v)) &&
+			return (memq(v, s.implicitGlobals) != nil || lw.definedJuliaGlobal(v)) &&
 				varKind(v, s, false) == "none" && memq(v, globals) == nil
 		}, nonlocAssigned)
 		if len(vars) > 0 {
@@ -482,10 +486,16 @@ func (lw *lowerer) resolveScopeBlock(e any, s *scope, loc any) any {
 	return insertAfterMeta(blockify(body, nil), decls)
 }
 
-// definedJuliaGlobal is defined-julia-global, which julia overrides with
-// a lookup of the binding in the module being lowered. The oracle lowers
-// in a fresh module whose bindings lowering itself never defines.
-func definedJuliaGlobal(any) bool { return false }
+// definedJuliaGlobal is defined-julia-global: jlfrontend.scm:33 defines it as
+// false, and julia overrides it with fl_defined_julia_global (ast.c:172-182),
+// whether v is a global the module being lowered defines itself. The oracle
+// lowers in a fresh module whose bindings lowering itself never defines, which
+// is the State without a DefinedGlobal hook; an embedder that evaluates what it
+// lowers sets one (State.SetDefinedGlobal), and a soft scope then assigns to
+// the globals that exist.
+func (lw *lowerer) definedJuliaGlobal(v any) bool {
+	return lw.st.defined != nil && lw.st.defined(expr.Symbol(symString(v)))
+}
 
 func unmangledName(v any) any {
 	if v == sym("") {

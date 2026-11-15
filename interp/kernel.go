@@ -68,6 +68,12 @@ type CellOptions struct {
 	// MaxOutput bounds each of Stdout and Stderr in bytes; the rest is
 	// dropped and Result.Truncated is set.
 	MaxOutput int
+	// HardScope runs the cell with the scope of a file (include_string)
+	// instead of the REPL's soft scope, the default, as IJulia has it: in
+	// soft scope a loop at the top of a cell assigns to a global that exists
+	// (REPL.softscope, #54). The zero value is soft; a kernel's HardScope
+	// holds for its cells.
+	HardScope bool
 }
 
 // DefaultCellOptions are the budgets of a kernel that sets none.
@@ -95,6 +101,7 @@ func (d CellOptions) over(o CellOptions) CellOptions {
 	if o.MaxOutput == 0 {
 		o.MaxOutput = d.MaxOutput
 	}
+	o.HardScope = o.HardScope || d.HardScope
 	return o
 }
 
@@ -244,6 +251,7 @@ func (k *Kernel) EvalWith(ctx context.Context, src string, o CellOptions) (res R
 	oldOut, oldErr := vm.Stdout, vm.Stderr
 	depth, nexc := vm.depth, len(vm.excStack)
 	vm.Stdout, vm.Stderr = out, errb
+	k.sess.Soft = !o.HardScope
 	vm.steps, vm.MaxSteps = 0, max(o.MaxSteps, 0)
 	vm.allocs, vm.allocMax = 0, max(o.MaxAlloc, 0)
 

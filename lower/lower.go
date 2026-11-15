@@ -89,7 +89,16 @@ type State struct {
 	ssaCounter    int
 	mod           expr.Module
 	top           expr.Symbol
+	defined       func(expr.Symbol) bool
 }
+
+// SetDefinedGlobal sets what defined-julia-global asks (ast.c:172-182): whether
+// a name is a global the module being lowered defines itself, in the world the
+// form runs in. Without it nothing is, as for Meta.lower in a fresh module.
+// It matters to soft scope only (REPL.softscope, Expr(:softscope, true)): a
+// loop at the top of a cell assigns to a global that exists instead of making
+// a local.
+func (st *State) SetDefinedGlobal(f func(expr.Symbol) bool) { st.defined = f }
 
 // NewState returns the state of a fresh module, Main.L as the oracle
 // creates it.
