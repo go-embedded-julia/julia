@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"weak"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -104,8 +105,15 @@ func (vm *VM) newFrame(c *code, mod *Module) *frame {
 // return, and a Thrown keeps strings of it, not the frame.
 var framePool = sync.Pool{New: func() any { return new(frame) }}
 
+// framePoolOff turns the reuse off, so that a test can run the same cells
+// with fresh frames and compare (framesafety_test.go).
+var framePoolOff atomic.Bool
+
 // freeFrame clears f and gives it back.
 func freeFrame(f *frame) {
+	if framePoolOff.Load() {
+		return
+	}
 	*f = frame{}
 	framePool.Put(f)
 }
