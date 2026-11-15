@@ -6,7 +6,6 @@ import (
 	"errors"
 	"math"
 	"os"
-	"sync"
 	"testing"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -275,6 +274,69 @@ func TestKernelMalformedArrays(t *testing.T) {
 	}
 }
 
+// An empty matrix is read whichever dimension is the zero (#76: the running
+// product was compared with the memory before the 0 came, so 3x0 was refused),
+// and a product that overflows is refused, not wrapped.
+func TestKernelGetEmptyAndOverflowingMatrices(t *testing.T) {
+	k := bootKernel(t, KernelOptions{})
+	vm := k.VM()
+	mem := func(elems ...any) *Memory {
+		return &Memory{Type: must(core.Apply(core.GenericMemoryType, "not_atomic", core.Float64Type, core.CPU)).(*core.DataType), Elems: elems}
+	}
+	mat := func(m *Memory, off int, dims ...int64) *Struct {
+		size := make([]any, len(dims))
+		for i, d := range dims {
+			size[i] = d
+		}
+		return &Struct{Type: must(core.Apply(core.ArrayType, core.Float64Type, int64(len(dims)))).(*core.DataType),
+			Fields: []any{&MemoryRef{Mem: m, Off: off}, vm.newTuple(size)}}
+	}
+	floats := func(n int) []any {
+		out := make([]any, n)
+		for i := range out {
+			out[i] = float64(i)
+		}
+		return out
+	}
+	for name, c := range map[string]struct {
+		a          *Struct
+		rows, cols int
+	}{
+		"3x0":                 {mat(mem(), 0, 3, 0), 3, 0},
+		"0x3":                 {mat(mem(), 0, 0, 3), 0, 3},
+		"0x0":                 {mat(mem(), 0, 0, 0), 0, 0},
+		"3x0 over a memory":   {mat(mem(floats(5)...), 5, 3, 0), 3, 0},
+		"5x1":                 {mat(mem(floats(5)...), 0, 5, 1), 5, 1},
+		"1x5":                 {mat(mem(floats(5)...), 0, 1, 5), 1, 5},
+		"2x3 through offset":  {mat(mem(floats(8)...), 2, 2, 3), 2, 3},
+		"the whole memory":    {mat(mem(floats(6)...), 0, 2, 3), 2, 3},
+		"zero after a big 1d": {mat(mem(), 0, math.MaxInt/2+1, 0), math.MaxInt/2 + 1, 0},
+	} {
+		got, err := vm.toGo(c.a)
+		m, ok := got.(Matrix[float64])
+		if err != nil || !ok || m.Rows != c.rows || m.Cols != c.cols || len(m.Data) != c.rows*c.cols {
+			t.Errorf("%s: %v %v", name, got, err)
+		}
+	}
+	// the elements are the ones the offset names
+	if got, _ := vm.toGo(mat(mem(floats(8)...), 2, 2, 3)); got.(Matrix[float64]).At(1, 2) != 7 {
+		t.Errorf("through the offset: %v", got)
+	}
+	for name, a := range map[string]*Struct{
+		"a product that wraps to 0":      mat(mem(), 0, math.MaxInt/2+1, 4),
+		"a product that wraps to little": mat(mem(floats(4)...), 0, math.MaxInt/2+3, 4),
+		"max by two":                     mat(mem(), 0, math.MaxInt, 2),
+		"more than the memory":           mat(mem(floats(5)...), 0, 3, 2),
+		"an offset past the memory":      mat(mem(floats(5)...), 6, 0, 0),
+		"a negative offset":              mat(mem(floats(5)...), -1, 1, 1),
+		"the offset leaves too few":      mat(mem(floats(5)...), 4, 1, 2),
+	} {
+		if got, err := vm.toGo(a); !errors.Is(err, ErrKernelType) {
+			t.Errorf("%s: %v %v", name, got, err)
+		}
+	}
+}
+
 func TestKernelSetRefusals(t *testing.T) {
 	k := bootKernel(t, KernelOptions{})
 	// names a global cannot have
@@ -401,29 +463,33 @@ func TestKernelValuesBase(t *testing.T) {
 	}
 }
 
+// holdKernel starts a cell that calls a ccall the test holds, and returns once
+// the cell is inside it: the kernel is busy from then until release is called,
+// which lets the cell finish and returns its result. The overlap is made by two
+// channels, not by sleeping or by asking until a call happens to land.
+func holdKernel(k *Kernel) (release func() Result) {
+	inside, free := make(chan struct{}), make(chan struct{})
+	k.VM().shims["jlgo_hold"] = func(vm *VM, a []any) (any, error) {
+		close(inside)
+		<-free
+		return int64(7), nil
+	}
+	result := make(chan Result, 1)
+	go func() { result <- k.Eval(context.Background(), `hold() = ccall(:jlgo_hold, Int, ()); hold()`) }()
+	<-inside
+	return func() Result {
+		close(free)
+		return <-result
+	}
+}
+
 // Get and Set are refused while a cell runs, as Eval is, and after Close.
 func TestKernelGetSetBusyAndClosed(t *testing.T) {
 	k := bootKernel(t, KernelOptions{})
 	k.Set("n", int64(1))
-	ctx, cancel := context.WithCancel(context.Background())
-	started := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		close(started)
-		k.Eval(ctx, spin)
-	}()
-	<-started
-	// the cell is running once Eval holds the kernel: ask until it does
-	busy := false
-	for i := 0; i < 1000 && !busy; i++ {
-		if _, _, err := k.Get("n"); errors.Is(err, ErrKernelBusy) {
-			busy = true
-		}
-	}
-	if !busy {
-		t.Fatal("Get was never refused while a cell ran")
+	release := holdKernel(k)
+	if _, _, err := k.Get("n"); !errors.Is(err, ErrKernelBusy) {
+		t.Errorf("Get while a cell runs: %v", err)
 	}
 	if err := k.Set("n", int64(2)); !errors.Is(err, ErrKernelBusy) {
 		t.Errorf("Set while a cell runs: %v", err)
@@ -435,10 +501,22 @@ func TestKernelGetSetBusyAndClosed(t *testing.T) {
 	if ty, ok, err := k.TypeOf("n"); ty != "" || ok || !errors.Is(err, ErrKernelBusy) {
 		t.Errorf("TypeOf while a cell runs: %q %v %v", ty, ok, err)
 	}
-	cancel()
-	wg.Wait()
+	if r := release(); r.Err != nil || r.Value != "7" {
+		t.Fatalf("the held cell: %+v", r)
+	}
+	// the cell has returned: all four are answered, and the Set that was
+	// refused changed nothing
 	if got := mustGet(t, k, "n"); got != int64(1) {
 		t.Errorf("n after the refused Set: %v", got)
+	}
+	if has, err := k.Has("n"); !has || err != nil {
+		t.Errorf("Has after the cell: %v %v", has, err)
+	}
+	if ty, ok, err := k.TypeOf("n"); ty != "Int64" || !ok || err != nil {
+		t.Errorf("TypeOf after the cell: %q %v %v", ty, ok, err)
+	}
+	if err := k.Set("n", int64(5)); err != nil || mustGet(t, k, "n") != int64(5) {
+		t.Errorf("Set after the cell: %v", err)
 	}
 	k.Close()
 	if _, _, err := k.Get("n"); !errors.Is(err, ErrKernelClosed) {

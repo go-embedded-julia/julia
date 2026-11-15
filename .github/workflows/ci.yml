@@ -277,6 +277,9 @@ jobs:
           # JLGO_MUTATIONS: the differential parser fuzz against julia
           # (TestParserFailuresAgreeWithJulia) runs on 50000 mutated inputs.
           JLGO_ORACLE=1 JLGO_MUTATIONS=50000 go test -count=1 ./...
+          # the parser throughput ratios, in the log of every run: the test
+          # prints them with t.Logf, which `go test` shows only under -v
+          JLGO_ORACLE=1 go test -count=1 -v -run TestThroughputAgainstJulia ./syntax
           go run ./cmd/jloracle unicode
           go run ./cmd/jloracle snippets
           go run ./cmd/jloracle programs
