@@ -867,7 +867,7 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 		if p, isPtr := v.(*Pointer); isPtr {
 			// the address of a function dlsym found (dlload.go)
 			if fn, isFn := p.Target.(cFunc); isFn && p.Off == 0 {
-				if sh := vm.libShimsOf(fn.lib)[fn.name]; sh != nil {
+				if sh := vm.shimOf(fn.lib, fn.name); sh != nil {
 					return vm.foreignResult(rt, sh, args)
 				}
 			}
@@ -898,7 +898,7 @@ func (f *frame) evalForeign(x oForeign) (any, error) {
 			// ccall((:mpfr_sinu, :libmpfr), …): a library named by a symbol
 			name = string(s)
 		}
-		if sh := vm.libShimsOf(name)[x.name]; sh != nil {
+		if sh := vm.shimOf(name, x.name); sh != nil {
 			return vm.foreignResult(rt, sh, args)
 		}
 		return nil, fmt.Errorf("%w: ccall((:%s, %s))", ErrUnsupported, x.name, showValue(lib))

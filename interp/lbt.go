@@ -134,6 +134,24 @@ func (vm *VM) bootLBT() {
 		},
 	}
 	vm.lbt.nthreads = 1
+	vm.bootBLAS()
+}
+
+// shimOf is the Go function a ccall of sym in the library lib reaches: the
+// library's own, and for libblastrampoline, the one of the libraries it was
+// told to forward to (lbt_forward), the first that has it.
+func (vm *VM) shimOf(lib string, sym expr.Symbol) shim {
+	if sh := vm.libShimsOf(lib)[sym]; sh != nil {
+		return sh
+	}
+	if _, name, ok := vm.libFile(lib); lib == lbtLib || (ok && name == lbtLib) {
+		for _, l := range vm.lbt.libs {
+			if sh := vm.libShims[l][sym]; sh != nil {
+				return sh
+			}
+		}
+	}
+	return nil
 }
 
 // ptrToArray1d is jl_ptr_to_array_1d(atype, data, nel, own) (array.c):
