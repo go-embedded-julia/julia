@@ -257,7 +257,7 @@ func egalSlices(a, b []any) bool {
 // egalTypes is egal_types (builtins.c:167-224): structural equality,
 // matching bound variables pairwise.
 func egalTypes(a, b any, env *typeEnv, tvarNames bool) bool {
-	if a == b {
+	if sameParam(a, b) {
 		return true
 	}
 	switch x := a.(type) {
