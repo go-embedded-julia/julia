@@ -133,7 +133,7 @@ func (vm *VM) dlsym(a []any) (any, error) {
 	throw, _ := a[3].(int32)
 	voidPtr := vm.ptrType(core.NothingType)
 	var v *Pointer
-	if vm.libShims[l.name][expr.Symbol(sym)] != nil {
+	if vm.shimOf(l.name, expr.Symbol(sym)) != nil {
 		v = &Pointer{Type: voidPtr, Target: cFunc{l.name, expr.Symbol(sym)}}
 	}
 	if v == nil {
