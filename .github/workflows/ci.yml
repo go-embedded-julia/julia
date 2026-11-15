@@ -185,6 +185,31 @@ jobs:
           export PATH="$(go env GOROOT)/lib/wasm:$(go env GOPATH)/bin:$PATH"
           GOOS=wasip1 GOARCH=wasm go test ./expr ./internal/unitab ./syntax ./lower
 
+  # The Kernel as the playground runs it: a js/wasm binary under node (the
+  # wasm_exec of GOROOT/lib/wasm), which loads a Boot()-only image from bytes
+  # with its pinned digest and runs cells: a value, stdout, an error and the
+  # cancellation of a loop that never yields (yield_wasm.go).
+  wasm-kernel:
+    name: wasm kernel (js under node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27.4'
+      - run: node --version
+      - name: Kernel tests under node
+        run: |
+          export PATH="$(go env GOROOT)/lib/wasm:$PATH"
+          GOOS=js GOARCH=wasm go test -v -timeout 15m ./interp -run '^(TestWasmKernelFromBytes|TestKernel|TestLoadImageDigest|TestInterrupt|TestTakeInterrupt)'
+          GOOS=js GOARCH=wasm go test -v -timeout 15m ./cmd/jlkernel
+      - name: Size of the module
+        run: |
+          GOOS=js GOARCH=wasm go build -ldflags='-s -w' -o jlkernel.wasm ./cmd/jlkernel
+          gzip -k -9 jlkernel.wasm
+          ls -l jlkernel.wasm jlkernel.wasm.gz
+          echo "jlkernel.wasm: $(stat -c %s jlkernel.wasm) bytes, $(stat -c %s jlkernel.wasm.gz) gzipped" >> "$GITHUB_STEP_SUMMARY"
+
   govulncheck:
     runs-on: ubuntu-latest
     steps:

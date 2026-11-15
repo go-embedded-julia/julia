@@ -368,6 +368,18 @@ func (k *Kernel) juliaError(t *Thrown) error {
 	return e
 }
 
+// yielder lets the other goroutines run: nothing where the runtime preempts a
+// spinning goroutine, runtime.Gosched on WebAssembly (yield_wasm.go).
+var yielder = func() {}
+
+// yieldTick is on the path every statement takes (takeInterrupt): one in 1024
+// calls yields.
+func (vm *VM) yieldTick() {
+	if vm.ticks++; vm.ticks&0x3ff == 0 {
+		yielder()
+	}
+}
+
 // interruptEvery is how often a running cell is interrupted again while its
 // ctx is done.
 var interruptEvery = 100 * time.Millisecond
@@ -379,6 +391,7 @@ const softInterrupts = 2
 // and one is pending; it takes it, unless the interrupt is hard (intrHard),
 // which stays pending: nothing the cell does can swallow it.
 func (vm *VM) takeInterrupt() bool {
+	vm.yieldTick()
 	if !vm.intr.Load() {
 		return false
 	}

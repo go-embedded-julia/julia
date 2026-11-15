@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -459,6 +460,21 @@ func TestInterruptWakesTheLoop(t *testing.T) {
 	}
 }
 
+// One call in 1024 yields.
+func TestYieldTick(t *testing.T) {
+	vm := bootedVM(t)
+	n := 0
+	old := yielder
+	yielder = func() { n++ }
+	defer func() { yielder = old }()
+	for i := 0; i < 4096; i++ {
+		vm.yieldTick()
+	}
+	if n != 4 {
+		t.Errorf("%d yields in 4096 ticks, want 4", n)
+	}
+}
+
 // An interrupt is for one task, and is taken once.
 func TestTakeInterrupt(t *testing.T) {
 	vm := bootedVM(t)
@@ -535,6 +551,9 @@ func TestKernelBase(t *testing.T) {
 	tLoad := time.Since(t0)
 	first := k.Eval(context.Background(), `1 + 1`)
 	t.Logf("cold start: load + kernel %v, first cell %v (load %.1f)", tLoad, first.Elapsed, loadAverage())
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	t.Logf("%s/%s after the first cell: heap %d MiB, from the system %d MiB", runtime.GOOS, runtime.GOARCH, ms.HeapAlloc>>20, ms.Sys>>20)
 	if first.Err != nil || first.Value != "2" {
 		t.Fatalf("first cell: %+v", first)
 	}
