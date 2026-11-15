@@ -228,10 +228,10 @@ func TestGMPBrokenBigInt(t *testing.T) {
 		{"a negative offset", func(st *Struct) { st.Fields[2].(*Pointer).Off = -8 }},
 		{"an offset past the end", func(st *Struct) { st.Fields[2].(*Pointer).Off = 800 }},
 		{"another memory type", func(st *Struct) {
-			st.Fields[2] = &Pointer{Type: f.u8p, Target: &Memory{Type: memUInt8Type, Elems: []any{uint8(1)}}}
+			st.Fields[2] = &Pointer{Type: f.u8p, Target: newMemory(memUInt8Type, []any{uint8(1)})}
 		}},
 		{"no memory", func(st *Struct) { st.Fields[2] = &Pointer{Type: f.u64p} }},
-		{"an undefined limb", func(st *Struct) { st.Fields[2].(*Pointer).Target.(*Memory).Elems[0] = undef }},
+		{"an undefined limb", func(st *Struct) { st.Fields[2].(*Pointer).Target.(*Memory).Set(0, undef) }},
 	} {
 		p, st := f.big("18446744073709551617")
 		c.fix(st)
@@ -322,15 +322,15 @@ func TestGMPText(t *testing.T) {
 	f := newGMPFixture(t)
 	ten, _ := f.big("-12345678901234567890")
 	mem := func(n int) (*Pointer, *Memory) {
-		m := &Memory{Type: memUInt8Type, Elems: make([]any, n)}
-		for i := range m.Elems {
-			m.Elems[i] = uint8(0xff)
+		m := newMemory(memUInt8Type, make([]any, n))
+		for i := range m.All() {
+			m.Set(i, uint8(0xff))
 		}
 		return &Pointer{Type: f.u8p, Target: m}, m
 	}
 	text := func(m *Memory) string {
 		var b []byte
-		for _, e := range m.Elems {
+		for _, e := range m.All() {
 			if e.(uint8) == 0 || e.(uint8) == 0xff {
 				break
 			}
@@ -341,7 +341,7 @@ func TestGMPText(t *testing.T) {
 	// room for the digits and the NUL; for the digits only; for fewer
 	p, m := mem(22)
 	f.must("__gmpz_get_str", p, int32(10), ten)
-	if text(m) != "-12345678901234567890" || m.Elems[21] != uint8(0) {
+	if text(m) != "-12345678901234567890" || m.Get(21) != uint8(0) {
 		t.Errorf("with a NUL: %q", text(m))
 	}
 	p, m = mem(21)
@@ -360,8 +360,8 @@ func TestGMPText(t *testing.T) {
 	p, m = mem(30)
 	p.Off = 5
 	f.must("__gmpz_get_str", p, int32(-16), ten)
-	if text(&Memory{Elems: m.Elems[5:]}) != "-AB54A98CEB1F0AD2" {
-		t.Errorf("at an offset: %q", text(&Memory{Elems: m.Elems[5:]}))
+	if text(newMemory(nil, m.Slice(5, m.Len()))) != "-AB54A98CEB1F0AD2" {
+		t.Errorf("at an offset: %q", text(newMemory(nil, m.Slice(5, m.Len()))))
 	}
 	// a base GMP refuses answers NULL; a NULL buffer is allocated
 	for _, base := range []int32{0, 1, 63, -1, -37} {
@@ -409,10 +409,10 @@ func TestGMPExport(t *testing.T) {
 	f := newGMPFixture(t)
 	v, _ := f.big("-4660") // 0x1234
 	mk := func(et *core.DataType, n int) (*Pointer, *Memory) {
-		m := &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), et, core.CPU)).(*core.DataType), Elems: make([]any, n)}
+		m := newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), et, core.CPU)).(*core.DataType), make([]any, n))
 		z, _ := bitsValue(et, u128{})
-		for i := range m.Elems {
-			m.Elems[i] = z
+		for i := range m.All() {
+			m.Set(i, z)
 		}
 		return &Pointer{Type: f.vm.ptrType(et), Target: m}, m
 	}
@@ -422,14 +422,14 @@ func TestGMPExport(t *testing.T) {
 	if got := f.must("__gmpz_export", r, c, int32(1), uint64(1), int32(0), uint64(0), v); got != any(r) || cst.Fields[0] != uint64(2) {
 		t.Errorf("returns %v, count %v", got, cst.Fields[0])
 	}
-	if m.Elems[0] != uint8(0x12) || m.Elems[1] != uint8(0x34) || m.Elems[2] != uint8(0) {
-		t.Errorf("most significant first: %v", m.Elems)
+	if m.Get(0) != uint8(0x12) || m.Get(1) != uint8(0x34) || m.Get(2) != uint8(0) {
+		t.Errorf("most significant first: %v", m.All())
 	}
 	// at an element offset
 	r.Off = 1
 	f.must("__gmpz_export", r, c, int32(-1), uint64(1), int32(0), uint64(0), v)
-	if m.Elems[1] != uint8(0x34) || m.Elems[2] != uint8(0x12) {
-		t.Errorf("at an offset: %v", m.Elems)
+	if m.Get(1) != uint8(0x34) || m.Get(2) != uint8(0x12) {
+		t.Errorf("at an offset: %v", m.All())
 	}
 	// a word too far
 	r.Off = 3
@@ -458,8 +458,8 @@ func TestGMPExport(t *testing.T) {
 	// big endian words of 16 bits
 	r2, m2 := mk(core.UInt16Type, 2)
 	f.must("__gmpz_export", r2, c, int32(1), uint64(2), int32(1), uint64(0), v)
-	if m2.Elems[0] != uint16(0x3412) {
-		t.Errorf("big endian: %v", m2.Elems)
+	if m2.Get(0) != uint16(0x3412) {
+		t.Errorf("big endian: %v", m2.All())
 	}
 }
 
@@ -472,10 +472,12 @@ func TestGMPLimbs(t *testing.T) {
 	}
 	d := f.must("__gmpz_limbs_write", x, int64(3)).(*Pointer)
 	m := d.Target.(*Memory)
-	if len(m.Elems) != 3 || st.Fields[0] != int32(3) || st.Fields[1] != int32(0) {
+	if m.Len() != 3 || st.Fields[0] != int32(3) || st.Fields[1] != int32(0) {
 		t.Fatalf("after limbs_write: %v", st.Fields)
 	}
-	m.Elems[0], m.Elems[1], m.Elems[2] = uint64(7), uint64(0), uint64(0)
+	m.Set(0, uint64(7))
+	m.Set(1, uint64(0))
+	m.Set(2, uint64(0))
 	f.must("__gmpz_limbs_finish", x, int64(-3))
 	if got := f.raw(st.Fields[:3]); got != "Z:-1;7" {
 		t.Errorf("finished: %s", got)
@@ -597,7 +599,7 @@ func TestGMPRefusals(t *testing.T) {
 // library table
 func TestGMPMore(t *testing.T) {
 	f := newGMPFixture(t)
-	m := &Memory{Type: memUInt8Type, Elems: []any{uint8(0), uint8(0), uint8(0)}}
+	m := newMemory(memUInt8Type, []any{uint8(0), uint8(0), uint8(0)})
 	neg, _ := f.big("-12345678901234567890")
 	f.wantErr("__gmpz_get_str", "does not fit", &Pointer{Type: f.u8p, Target: m}, int32(10), neg)
 	x, _ := f.fresh()

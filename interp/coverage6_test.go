@@ -130,7 +130,7 @@ struct Zero; end
 mutable struct MPart; a::Int; b::Int; MPart() = new(); end`); err != nil {
 		t.Fatal(err)
 	}
-	mem := &Memory{Type: memAnyType, Elems: []any{int64(1), int64(2)}}
+	mem := newMemory(memAnyType, []any{int64(1), int64(2)})
 	args := &Pointer{Type: vm.ptrType(core.AnyType), Target: mem}
 	null := &Pointer{Type: vm.ptrType(core.AnyType)}
 	for _, c := range []struct {
@@ -198,7 +198,7 @@ func TestIRPointerImages(t *testing.T) {
 	f := newIRFixture(t)
 	vm := f.vm
 	u8p := vm.ptrType(core.UInt8Type)
-	mem := &Memory{Type: memUInt8Type, Elems: []any{uint8(1), uint8(2), uint8(3)}}
+	mem := newMemory(memUInt8Type, []any{uint8(1), uint8(2), uint8(3)})
 	stmts := []any{
 		&Pointer{Type: u8p},                                                // C_NULL
 		&Pointer{Type: u8p, Off: 12},                                       // an integer made a pointer

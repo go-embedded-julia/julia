@@ -91,7 +91,7 @@ func TestEnvShims(t *testing.T) {
 		t.Errorf("a buffer too small: %d %d %v", rc, n, err)
 	}
 	vm.Env, vm.HomeDir = nil, "/x/y"
-	if rc, n, err := home(8, buf); err != nil || rc != 0 || n != 4 || m.Elems[3] != uint8('y') {
+	if rc, n, err := home(8, buf); err != nil || rc != 0 || n != 4 || m.Get(3) != uint8('y') {
 		t.Errorf("the passwd home: %d %d %v", rc, n, err)
 	}
 	_, err = f.sh("uv_os_homedir", buf, int64(1))
@@ -185,11 +185,11 @@ func TestStartupShims(t *testing.T) {
 		}
 		check(t, c.name, v, err, c.want)
 	}
-	mem := &Memory{Type: memUInt8Type, Elems: []any{uint8('a'), uint8('b')}}
+	mem := newMemory(memUInt8Type, []any{uint8('a'), uint8('b')})
 	if v, err := f.sh("jl_genericmemory_to_string", mem, int64(2)); err != nil || v != any("ab") {
 		t.Errorf("jl_genericmemory_to_string: %v %v", v, err)
 	}
-	dst := &Memory{Type: memUInt8Type, Elems: []any{uint8(0), uint8(0)}}
+	dst := newMemory(memUInt8Type, []any{uint8(0), uint8(0)})
 	if _, err := f.sh("memmove", &Pointer{Type: f.u8p, Target: dst}, f.str("xy"), uint64(2)); err != nil || joinBytes(dst) != "120,121" {
 		t.Errorf("memmove: %v %s", err, joinBytes(dst))
 	}
@@ -199,7 +199,7 @@ func TestStartupShims(t *testing.T) {
 	v, err = f.sh("memcmp", &Pointer{Type: f.u8p, Target: dst}, f.str("\x07\x08"), uint64(2))
 	check(t, "memcmp", v, err, "-1")
 	// jl_get_fenv_consts, jl_copy_code_info, jl_value_ptr
-	fe := &Memory{Type: memType(core.Int32Type), Elems: make([]any, 9)}
+	fe := newMemory(memType(core.Int32Type), make([]any, 9))
 	if _, err := f.sh("jl_get_fenv_consts", &Pointer{Type: vm.ptrType(core.Int32Type), Target: fe}); err != nil {
 		t.Error(err)
 	}
@@ -270,7 +270,7 @@ func TestInstantiateTypeInEnvShim(t *testing.T) {
 	any8 := vm.ptrType(core.AnyType)
 	svp := func(off int64, vs ...any) *Pointer { return &Pointer{Type: any8, Target: SVec(vs), Off: off} }
 	memp := func(vs ...any) *Pointer {
-		return &Pointer{Type: any8, Target: &Memory{Type: memAnyType, Elems: vs}}
+		return &Pointer{Type: any8, Target: newMemory(memAnyType, vs)}
 	}
 	null := &Pointer{Type: any8}
 	for _, c := range []struct {

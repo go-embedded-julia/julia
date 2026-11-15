@@ -76,7 +76,7 @@ func (vm *VM) cValue(t any, g any) (any, error) {
 			}
 			elems[i] = v
 		}
-		mem := &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), et, core.CPU)).(*core.DataType), Elems: elems}
+		mem := newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), et, core.CPU)).(*core.DataType), elems)
 		return &Pointer{Type: d, Target: mem}, nil
 	case string:
 		return biBitcast(vm, []any{d, vm.stringPtrOf(x)})
@@ -172,7 +172,7 @@ func (vm *VM) ptrToArray1d(a []any) (any, error) {
 	}
 	size, _, _, _ := memElem(et)
 	k := p.Off / int64(size)
-	if p.Off%int64(size) != 0 || k+int64(n) > int64(len(m.Elems)) || n > uint64(len(m.Elems)) {
+	if p.Off%int64(size) != 0 || k+int64(n) > int64(m.Len()) || n > uint64(m.Len()) {
 		return nil, vm.errorf("jl_ptr_to_array_1d: invalid pointer")
 	}
 	v := vm.newVector(et, nil)

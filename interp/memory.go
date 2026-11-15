@@ -15,12 +15,41 @@ import (
 // element type starts at its zero value, as julia's zero-initialised
 // memory reads.
 
-// Memory is a GenericMemory{kind, T, addrspace} instance.
+// Memory is a GenericMemory{kind, T, addrspace} instance. Its elements are
+// reached through Len, Get, Set, Slice and All, and made by newMemory: nothing
+// but this file names the field that holds them, so that the representation
+// (today a []any of boxed values) can change one element type at a time
+// (#81). TestMemoryStoreIsPrivate keeps it so.
 type Memory struct {
 	Type  *core.DataType
-	Elems []any
+	elems []any
 	id    uint64 // its object id (objectid.go)
 }
+
+// newMemory is a Memory of type t holding elems, which it takes over.
+func newMemory(t *core.DataType, elems []any) *Memory { return &Memory{Type: t, elems: elems} }
+
+// Len is the number of elements.
+func (m *Memory) Len() int { return len(m.elems) }
+
+// Get is element i (0-based), as it is stored: undef for a slot never
+// assigned.
+func (m *Memory) Get(i int) any { return m.elems[i] }
+
+// Set stores v as element i.
+func (m *Memory) Set(i int, v any) { m.elems[i] = v }
+
+// Slice is elements lo to hi (exclusive) as a slice that shares the store: a
+// write through it is a write of the memory. It exists for the code that moves
+// or searches runs of elements (copyto!, the tables of IdDict and IdSet, the
+// byte views of strings), which a typed store will reach by another door.
+func (m *Memory) Slice(lo, hi int) []any { return m.elems[lo:hi] }
+
+// All is every element, as Slice(0, Len()) shares the store.
+func (m *Memory) All() []any { return m.elems }
+
+// SetAll replaces the elements by es, which the memory takes over.
+func (m *Memory) SetAll(es []any) { m.elems = es }
 
 // MemoryRef is a GenericMemoryRef: a memory and the 0-based index of an
 // element in it (ptr_or_offset, kept as an index whatever the layout).
@@ -111,10 +140,10 @@ func biMemorynew(vm *VM, args []any) (any, error) {
 			return nil, fmt.Errorf("%w: the cell allocated more than %d elements", ErrMemoryLimit, vm.allocMax)
 		}
 	}
-	m := &Memory{Type: mt, Elems: make([]any, n)}
+	m := newMemory(mt, make([]any, n))
 	zero := vm.zeroElem(eltype)
-	for i := range m.Elems {
-		m.Elems[i] = zero
+	for i := range m.All() {
+		m.Set(i, zero)
 	}
 	return m, nil
 }
@@ -172,7 +201,7 @@ func biMemoryrefnew(vm *VM, args []any) (any, error) {
 	// size_t arithmetic, offset + (i - 1): an index below 1 steps back from
 	// the offset, and is out of bounds only once it wraps below the memory's
 	// start (builtins.c:1740-1745); _growbeg! steps back so
-	if uint64(r.Off)+uint64(i-1) >= uint64(len(r.Mem.Elems)) {
+	if uint64(r.Off)+uint64(i-1) >= uint64(r.Mem.Len()) {
 		return nil, vm.exception(vm.tBounds, r, args[1])
 	}
 	return &MemoryRef{Type: r.Type, Mem: r.Mem, Off: r.Off + int(i-1)}, nil
@@ -253,10 +282,10 @@ func biMemoryrefget(vm *VM, args []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(r.Mem.Elems) == 0 {
+	if r.Mem.Len() == 0 {
 		return nil, vm.exception(vm.tBounds, r.Mem, int64(1))
 	}
-	v := r.Mem.Elems[r.Off]
+	v := r.Mem.Get(r.Off)
 	if v == undef {
 		return nil, vm.exception(vm.tUndefRef)
 	}
@@ -270,14 +299,14 @@ func biMemoryrefset(vm *VM, args []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(r.Mem.Elems) == 0 {
+	if r.Mem.Len() == 0 {
 		return nil, vm.exception(vm.tBounds, r.Mem, int64(1))
 	}
 	eltype := r.Mem.Type.Parameters[1]
 	if eltype != any(core.AnyType) && !vm.isa(args[1], eltype) {
 		return nil, vm.typeError("memoryrefset!", "", eltype, args[1])
 	}
-	r.Mem.Elems[r.Off] = args[1]
+	r.Mem.Set(r.Off, args[1])
 	return args[1], nil
 }
 
@@ -287,8 +316,8 @@ func biMemoryrefIsassigned(vm *VM, args []any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(r.Mem.Elems) == 0 {
+	if r.Mem.Len() == 0 {
 		return false, nil
 	}
-	return r.Mem.Elems[r.Off] != undef, nil
+	return r.Mem.Get(r.Off) != undef, nil
 }

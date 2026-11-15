@@ -229,7 +229,7 @@ func TestIRRoundTripLiterals(t *testing.T) {
 	f := newIRFixture(t)
 	vm := f.vm
 	mem := func(elt any, elems []any) *Memory {
-		return &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), elt, core.CPU)).(*core.DataType), Elems: elems}
+		return newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), elt, core.CPU)).(*core.DataType), elems)
 	}
 	stmts := []any{expr.ReturnNode{Val: int64(1)}}
 	for _, c := range []struct {

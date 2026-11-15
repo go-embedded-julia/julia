@@ -21,9 +21,9 @@ func FuzzStringBytes(f *testing.F) {
 		}
 		var target any = s
 		if mem {
-			m := &Memory{Type: memUInt8Type, Elems: make([]any, len(s))}
+			m := newMemory(memUInt8Type, make([]any, len(s)))
 			for i := range len(s) {
-				m.Elems[i] = s[i]
+				m.Set(i, s[i])
 			}
 			target = m
 		}
@@ -36,7 +36,7 @@ func FuzzStringBytes(f *testing.F) {
 
 // A Memory of another element type than UInt8 is no byte buffer.
 func TestStringBytesOfAMemoryOfInt32(t *testing.T) {
-	m := &Memory{Type: memType(core.Int32Type), Elems: []any{int32(1)}}
+	m := newMemory(memType(core.Int32Type), []any{int32(1)})
 	if _, ok := stringBytes(&Pointer{Target: m}, int64(1)); ok {
 		t.Error("a Memory{Int32} read as bytes")
 	}

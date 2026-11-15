@@ -68,16 +68,16 @@ func (f *pcreFixture) ref(typ string, v any) (*Pointer, *Struct) {
 }
 
 func (f *pcreFixture) buf(n int, fill uint8) (*Pointer, *Memory) {
-	m := &Memory{Type: memUInt8Type, Elems: make([]any, n)}
-	for i := range m.Elems {
-		m.Elems[i] = fill
+	m := newMemory(memUInt8Type, make([]any, n))
+	for i := range m.All() {
+		m.Set(i, fill)
 	}
 	return &Pointer{Type: f.u8p, Target: m}, m
 }
 
 func joinBytes(m *Memory) string {
 	var parts []string
-	for _, e := range m.Elems {
+	for _, e := range m.All() {
 		parts = append(parts, fmt.Sprint(e))
 	}
 	return strings.Join(parts, ",")
@@ -116,7 +116,7 @@ func (f *pcreFixture) errmsg(code int32, size int) string {
 	rc := f.must("pcre2_get_error_message_8", code, buf, uint64(size)).(int32)
 	if size > 16 {
 		var text []byte
-		for _, e := range m.Elems {
+		for _, e := range m.All() {
 			if e.(uint8) == 0 {
 				break
 			}

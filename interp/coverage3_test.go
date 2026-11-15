@@ -12,7 +12,7 @@ func TestStringMemoryShims(t *testing.T) {
 	f := newPCREFixture(t)
 	vm := f.vm
 	sh := func(name string, args ...any) (any, error) { return vm.shims[expr.Symbol(name)](vm, args) }
-	u8mem := func(elems ...any) *Memory { return &Memory{Type: memUInt8Type, Elems: elems} }
+	u8mem := func(elems ...any) *Memory { return newMemory(memUInt8Type, elems) }
 
 	// jl_string_to_genericmemory, and back
 	v, err := sh("jl_string_to_genericmemory", "ab")
@@ -22,7 +22,7 @@ func TestStringMemoryShims(t *testing.T) {
 	m := u8mem(uint8('a'), uint8('b'), uint8('c'))
 	v, err = sh("jl_genericmemory_to_string", m, int64(2))
 	check(t, "memory to string", v, err, `"ab"`)
-	if len(m.Elems) != 0 {
+	if m.Len() != 0 {
 		t.Error("jl_genericmemory_to_string leaves the memory its elements")
 	}
 	v, err = sh("jl_genericmemory_to_string", u8mem(uint8(1)), int64(0))
@@ -144,7 +144,7 @@ func TestStringMemoryShims(t *testing.T) {
 func TestStringMemoryBytes(t *testing.T) {
 	f := newPCREFixture(t)
 	vm := f.vm
-	u8mem := func(elems ...any) *Memory { return &Memory{Type: memUInt8Type, Elems: elems} }
+	u8mem := func(elems ...any) *Memory { return newMemory(memUInt8Type, elems) }
 	mp := func(m *Memory, off int64) *Pointer { return &Pointer{Type: f.u8p, Target: m, Off: off} }
 	// a String into a memory, a memory into a String the VM made, a memory
 	// into a memory
@@ -193,9 +193,9 @@ func TestStringMemoryBytes(t *testing.T) {
 		{"past the memory", mp(src, 0), f.str("abc"), 3, "!memcmp of"},
 		// a memory of another primitive type is read as its bytes: UInt16[0x6261]
 		// is "ab", little-endian
-		{"a memory of UInt16", &Pointer{Type: f.u8p, Target: &Memory{Type: memUInt16Type, Elems: []any{uint16(0x6261)}}}, f.str("ab"), 2, "0"},
-		{"past a memory of UInt16", &Pointer{Type: f.u8p, Target: &Memory{Type: memUInt16Type, Elems: []any{uint16(0x6261)}}}, f.str("abc"), 3, "!memcmp of"},
-		{"a memory of Any", &Pointer{Type: f.u8p, Target: &Memory{Type: memAnyType, Elems: []any{int64(1)}}}, f.str("a"), 1, "!memcmp of"},
+		{"a memory of UInt16", &Pointer{Type: f.u8p, Target: newMemory(memUInt16Type, []any{uint16(0x6261)})}, f.str("ab"), 2, "0"},
+		{"past a memory of UInt16", &Pointer{Type: f.u8p, Target: newMemory(memUInt16Type, []any{uint16(0x6261)})}, f.str("abc"), 3, "!memcmp of"},
+		{"a memory of Any", &Pointer{Type: f.u8p, Target: newMemory(memAnyType, []any{int64(1)})}, f.str("a"), 1, "!memcmp of"},
 		{"a negative offset", mp(src, -1), f.str("a"), 1, "!memcmp of"},
 		{"an undefined byte", mp(u8mem(undef), 0), f.str("a"), 1, "!memcmp of"},
 		{"no pointer", int64(1), f.str("a"), 1, "!memcmp of"},
@@ -208,7 +208,7 @@ func TestStringMemoryBytes(t *testing.T) {
 	check(t, "a count that is no UInt", nil, err, "!memcmp of")
 
 	// memset over an element the VM cannot read the bytes of
-	words := &Memory{Type: memUInt32Type, Elems: []any{"x", uint32(0)}}
+	words := newMemory(memUInt32Type, []any{"x", uint32(0)})
 	_, err = vm.memset([]any{&Pointer{Type: f.u8p, Target: words, Off: 1}, int32(1), uint64(2)})
 	check(t, "memset over a word that is no bits", nil, err, "!the bits of a")
 }
@@ -247,13 +247,13 @@ func TestPointerSlotsAndBytes(t *testing.T) {
 
 	// a memory of pointers read and written as bytes: bytes cannot be made a
 	// pointer
-	ptrMem := &Memory{Type: memType(i64p), Elems: []any{undef, undef}}
+	ptrMem := newMemory(memType(i64p), []any{undef, undef})
 	u8p := vm.ptrType(core.UInt8Type)
 	_, err := biPointerset(vm, []any{&Pointer{Type: u8p, Target: ptrMem}, uint8(1), int64(1), int64(1)})
 	check(t, "a byte into a memory of pointers", nil, err, "!into a Memory")
-	bytes := &Memory{Type: memUInt8Type, Elems: make([]any, 16)}
-	for i := range bytes.Elems {
-		bytes.Elems[i] = uint8(0)
+	bytes := newMemory(memUInt8Type, make([]any, 16))
+	for i := range bytes.All() {
+		bytes.Set(i, uint8(0))
 	}
 	_, err = biPointerref(vm, []any{&Pointer{Type: i64p, Target: bytes}, int64(1), int64(1)})
 	check(t, "bytes as an Int64", nil, err, "")

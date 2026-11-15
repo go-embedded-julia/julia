@@ -33,10 +33,10 @@ func arrayOf(v any) (any, []int64, []any, bool) {
 		n *= dims[i]
 	}
 	end := ref.Off + int(n)
-	if end > len(ref.Mem.Elems) {
-		end = len(ref.Mem.Elems)
+	if end > ref.Mem.Len() {
+		end = ref.Mem.Len()
 	}
-	return s.Type.Parameters[0], dims, ref.Mem.Elems[ref.Off:end], true
+	return s.Type.Parameters[0], dims, ref.Mem.Slice(ref.Off, end), true
 }
 
 // typeinfoImplicit is typeinfo_implicit (arrayshow.jl:556-565): the types
@@ -229,7 +229,7 @@ func writeIn(b *showBuf, v any, ctx any) {
 		if d, ok := ctx.(*core.DataType); ok && d.Name == x.Type.Name {
 			inner = d.Parameters[1]
 		}
-		writeArray(b, x, x.Type, x.Type.Parameters[1], []int64{int64(len(x.Elems))}, x.Elems, inner)
+		writeArray(b, x, x.Type, x.Type.Parameters[1], []int64{int64(x.Len())}, x.All(), inner)
 		return
 	}
 	writeValue(b, v)

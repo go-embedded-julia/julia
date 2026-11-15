@@ -9,9 +9,9 @@ import (
 
 // an ios_t as Base allocates it: sizeof(ios_t) zero bytes
 func (f *pcreFixture) newIOS() *Pointer {
-	m := &Memory{Type: memUInt8Type, Elems: make([]any, 184)}
-	for i := range m.Elems {
-		m.Elems[i] = uint8(0)
+	m := newMemory(memUInt8Type, make([]any, 184))
+	for i := range m.All() {
+		m.Set(i, uint8(0))
 	}
 	return &Pointer{Type: f.u8p, Target: m}
 }

@@ -177,8 +177,8 @@ func (c *blasCall[T]) region(v any, ext int) (blasRegion, error) {
 	if !ok || m.Type.Parameters[1] != any(c.ops.elem) || p.Off < 0 || p.Off%int64(c.ops.size) != 0 {
 		return blasRegion{}, fmt.Errorf("%w: a BLAS array of %s", ErrUnsupported, showValue(v))
 	}
-	start := int(min(p.Off/int64(c.ops.size), int64(len(m.Elems))))
-	ext = min(ext, len(m.Elems)-start)
+	start := int(min(p.Off/int64(c.ops.size), int64(m.Len())))
+	ext = min(ext, m.Len()-start)
 	r := blasRegion{m, start, ext}
 	if b := c.bufs[m]; b == nil {
 		c.bufs[m] = &blasBuf[T]{lo: start, hi: start + ext}
@@ -194,7 +194,7 @@ func (c *blasCall[T]) load() {
 	for m, b := range c.bufs {
 		b.data = make([]T, b.hi-b.lo)
 		for i := range b.data {
-			if f, ok := m.Elems[b.lo+i].(T); ok {
+			if f, ok := m.Get(b.lo + i).(T); ok {
 				b.data[i] = f
 			}
 		}
@@ -223,7 +223,7 @@ func (c *blasCall[T]) store() {
 	for m, b := range c.bufs {
 		if b.written {
 			for i, f := range b.data {
-				m.Elems[b.lo+i] = f
+				m.Set(b.lo+i, f)
 			}
 		}
 	}

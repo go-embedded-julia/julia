@@ -236,7 +236,7 @@ func TestKernelMalformedArrays(t *testing.T) {
 	k := bootKernel(t, KernelOptions{})
 	vm := k.VM()
 	mem := func(elem *core.DataType, elems ...any) *Memory {
-		return &Memory{Type: must(core.Apply(core.GenericMemoryType, "not_atomic", elem, core.CPU)).(*core.DataType), Elems: elems}
+		return newMemory(must(core.Apply(core.GenericMemoryType, "not_atomic", elem, core.CPU)).(*core.DataType), elems)
 	}
 	arr := func(elem *core.DataType, nd int64, ref any, size any) *Struct {
 		return &Struct{Type: must(core.Apply(core.ArrayType, elem, nd)).(*core.DataType), Fields: []any{ref, size}}
@@ -281,7 +281,7 @@ func TestKernelGetEmptyAndOverflowingMatrices(t *testing.T) {
 	k := bootKernel(t, KernelOptions{})
 	vm := k.VM()
 	mem := func(elems ...any) *Memory {
-		return &Memory{Type: must(core.Apply(core.GenericMemoryType, "not_atomic", core.Float64Type, core.CPU)).(*core.DataType), Elems: elems}
+		return newMemory(must(core.Apply(core.GenericMemoryType, "not_atomic", core.Float64Type, core.CPU)).(*core.DataType), elems)
 	}
 	mat := func(m *Memory, off int, dims ...int64) *Struct {
 		size := make([]any, len(dims))

@@ -36,7 +36,7 @@ func intWidth(a *Memory) (uint64, bool) {
 }
 
 func intAt(a *Memory, i int) uint64 {
-	switch x := a.Elems[i].(type) {
+	switch x := a.Get(i).(type) {
 	case uint8:
 		return uint64(x)
 	case uint16:
@@ -71,17 +71,17 @@ func intrefAcquire(a *Memory, i int) int64 {
 func intsetRelease(a *Memory, i int, val int64) {
 	switch a.Type {
 	case memUInt8Type:
-		a.Elems[i] = uint8(val)
+		a.Set(i, uint8(val))
 	case memUInt16Type:
-		a.Elems[i] = uint16(val)
+		a.Set(i, uint16(val))
 	case memUInt32Type:
-		a.Elems[i] = uint32(val)
+		a.Set(i, uint32(val))
 	}
 }
 
 // smallintsetEmpty is smallintset_empty (smallintset.c:89-104).
 func smallintsetEmpty(a *Memory) {
-	for i := range a.Elems {
+	for i := range a.All() {
 		intsetRelease(a, i, 0)
 	}
 }
@@ -99,7 +99,7 @@ func (vm *VM) allocInt1d(np, n uint64) (*Memory, error) {
 	case np < 0xFFFF:
 		t = memUInt16Type
 	}
-	a := &Memory{Type: t, Elems: make([]any, n)}
+	a := newMemory(t, make([]any, n))
 	smallintsetEmpty(a)
 	return a, nil
 }
@@ -107,7 +107,7 @@ func (vm *VM) allocInt1d(np, n uint64) (*Memory, error) {
 // smallintsetLookup is jl_smallintset_lookup (smallintset.c:121-148): the
 // index whose key eq accepts, -1 if none; pop leaves a tombstone.
 func smallintsetLookup(cache *Memory, eq func(int) bool, hv uint64, pop bool) int64 {
-	sz := len(cache.Elems)
+	sz := cache.Len()
 	if sz == 0 {
 		return -1
 	}
@@ -135,7 +135,7 @@ func smallintsetLookup(cache *Memory, eq func(int) bool, hv uint64, pop bool) in
 
 // smallintsetInsertAt is smallintset_insert_ (smallintset.c:150-169).
 func smallintsetInsertAt(a *Memory, hv uint64, val1 uint64) bool {
-	sz := len(a.Elems)
+	sz := a.Len()
 	if sz <= 1 {
 		return false
 	}
@@ -160,13 +160,13 @@ func smallintsetInsertAt(a *Memory, hv uint64, val1 uint64) bool {
 func (vm *VM) smallintsetInsert(a *Memory, hash func(int) uint64, val uint64) (*Memory, error) {
 	var err error
 	if max, _ := intWidth(a); val+1 >= max {
-		if a, err = vm.smallintsetRehash(a, hash, uint64(len(a.Elems)), val+1); err != nil {
+		if a, err = vm.smallintsetRehash(a, hash, uint64(a.Len()), val+1); err != nil {
 			return nil, err
 		}
 	}
 	for !smallintsetInsertAt(a, hash(int(val)), val+1) {
 		// the table is full: grow it really fast
-		sz := uint64(len(a.Elems))
+		sz := uint64(a.Len())
 		newsz := sz << 2
 		switch {
 		case sz < htNInline:
@@ -184,7 +184,7 @@ func (vm *VM) smallintsetInsert(a *Memory, hash func(int) uint64, val uint64) (*
 // smallintsetRehash is smallintset_rehash (smallintset.c:203-228): a's
 // entries in a new index of newsz entries, wide enough for np.
 func (vm *VM) smallintsetRehash(a *Memory, hash func(int) uint64, newsz, np uint64) (*Memory, error) {
-	for i := range a.Elems {
+	for i := range a.All() {
 		np = max(np, intref(a, i))
 	}
 	for {
@@ -193,12 +193,12 @@ func (vm *VM) smallintsetRehash(a *Memory, hash func(int) uint64, newsz, np uint
 			return nil, err
 		}
 		i := 0
-		for ; i < len(a.Elems); i++ {
+		for ; i < a.Len(); i++ {
 			if val1 := intref(a, i); val1 != 0 && !smallintsetInsertAt(newa, hash(int(val1-1)), val1) {
 				break
 			}
 		}
-		if i == len(a.Elems) {
+		if i == a.Len() {
 			return newa, nil
 		}
 		newsz <<= 1
@@ -224,15 +224,15 @@ func (vm *VM) idsetArgs(fn string, k, i any) (*Memory, *Memory, error) {
 // idsetHash and idsetEq are idset_hash and idset_eq (idset.c:4-16).
 func (vm *VM) idsetHash(keys *Memory) func(int) uint64 {
 	return func(i int) uint64 {
-		if keys.Elems[i] == undef {
+		if keys.Get(i) == undef {
 			return 0
 		}
-		return vm.objectID(keys.Elems[i])
+		return vm.objectID(keys.Get(i))
 	}
 }
 
 func (vm *VM) idsetEq(keys *Memory, key any) func(int) bool {
-	return func(i int) bool { return keys.Elems[i] != undef && vm.egal(keys.Elems[i], key) }
+	return func(i int) bool { return keys.Get(i) != undef && vm.egal(keys.Get(i), key) }
 }
 
 // bootIdSet registers idset.c's entry points (idset.c:18-118).
@@ -251,7 +251,7 @@ func (vm *VM) bootIdSet() {
 		}
 		idx := smallintsetLookup(idxs, vm.idsetEq(keys, a[2]), vm.objectID(a[2]), true)
 		if idx != -1 {
-			keys.Elems[idx] = undef
+			keys.Set(int(idx), undef)
 		}
 		return idx, nil
 	}
@@ -281,8 +281,8 @@ func (vm *VM) bootIdSet() {
 		}
 		// a full rehash
 		smallintsetEmpty(idxs)
-		for i := int64(0); i < -idx && i < int64(len(keys.Elems)); i++ {
-			if keys.Elems[i] != undef {
+		for i := int64(0); i < -idx && i < int64(keys.Len()); i++ {
+			if keys.Get(int(i)) != undef {
 				if idxs, err = vm.smallintsetInsert(idxs, hash, uint64(i)); err != nil {
 					return nil, err
 				}
@@ -318,9 +318,9 @@ func nextPowerOfTwo(n uint64) uint64 {
 // kept key, compacting or growing the keys; the index it takes, negative
 // when the index must be rebuilt (-(count)-1).
 func (vm *VM) idsetPutKey(keys *Memory, key any) (*Memory, int64, error) {
-	l := len(keys.Elems)
+	l := keys.Len()
 	i := l
-	for i > 0 && keys.Elems[i-1] == undef {
+	for i > 0 && keys.Get(i-1) == undef {
 		i--
 	}
 	newidx := int64(i)
@@ -328,10 +328,11 @@ func (vm *VM) idsetPutKey(keys *Memory, key any) (*Memory, int64, error) {
 		// idset_compact (idset.c:47-64)
 		j, rehash := 0, false
 		for k := 0; k < l; k++ {
-			if keys.Elems[k] != undef {
+			if keys.Get(k) != undef {
 				if k != j {
 					rehash = true
-					keys.Elems[j], keys.Elems[k] = keys.Elems[k], undef
+					keys.Set(j, keys.Get(k))
+					keys.Set(k, undef)
 				}
 				j++
 			}
@@ -350,10 +351,10 @@ func (vm *VM) idsetPutKey(keys *Memory, key any) (*Memory, int64, error) {
 			if err != nil {
 				return nil, 0, err
 			}
-			copy(nk.Elems, keys.Elems[:i])
+			copy(nk.All(), keys.Slice(0, i))
 			keys = nk
 		}
 	}
-	keys.Elems[i] = key
+	keys.Set(i, key)
 	return keys, newidx, nil
 }

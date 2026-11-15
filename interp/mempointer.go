@@ -74,10 +74,10 @@ func (vm *VM) memoryCopyto(a []any) error {
 	}
 	di, ok1 := memIndexOf(dest, dp)
 	si, ok2 := memIndexOf(src, sp)
-	if !ok1 || !ok2 || n < 0 || di+n > int64(len(dest.Elems)) || si+n > int64(len(src.Elems)) {
+	if !ok1 || !ok2 || n < 0 || di+n > int64(dest.Len()) || si+n > int64(src.Len()) {
 		return fmt.Errorf("%w: jl_genericmemory_copyto of %d elements outside its memories (undefined in C)", ErrUnsupported, n)
 	}
-	copy(dest.Elems[di:di+n], src.Elems[si:si+n])
+	copy(dest.Slice(int(di), int(di+n)), src.Slice(int(si), int(si+n)))
 	return nil
 }
 
@@ -98,8 +98,8 @@ func (vm *VM) ptrArgs(fname string, p, count any) ([]any, error) {
 	n, ok2 := count.(int32)
 	if ok1 && ok2 && n > 0 {
 		if m, ok := ptr.Target.(*Memory); ok && m.Type == memAnyType && ptr.Off%8 == 0 && ptr.Off >= 0 {
-			if i := ptr.Off / 8; i <= int64(len(m.Elems)) && int64(n) <= int64(len(m.Elems))-i {
-				args := m.Elems[i : i+int64(n)]
+			if i := ptr.Off / 8; i <= int64(m.Len()) && int64(n) <= int64(m.Len())-i {
+				args := m.Slice(int(i), int(i+int64(n)))
 				for _, x := range args {
 					if x == undef {
 						return nil, vm.exception(vm.tUndefRef)
@@ -233,7 +233,7 @@ func (vm *VM) memIndex(name string, p *Pointer, m *Memory, t any, i int64) (int,
 		return 0, fmt.Errorf("%w: %s of a %s pointer into a Memory{%s}", ErrUnsupported, name, showValue(t), showValue(eltype))
 	}
 	off := p.Off + (i-1)*int64(size)
-	if off < 0 || off%int64(size) != 0 || off/int64(size) >= int64(len(m.Elems)) {
+	if off < 0 || off%int64(size) != 0 || off/int64(size) >= int64(m.Len()) {
 		return 0, vm.errorf("%s: invalid pointer", name)
 	}
 	return int(off / int64(size)), nil
@@ -308,7 +308,7 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 		return vm.memStoreBytes(fname, m, p.Off+(i-1)*int64(at.Name.Bits/8), x)
 	}
 	if k, ok := vm.unsetThrough(p, m, x, i); ok {
-		m.Elems[k] = undef
+		m.Set(k, undef)
 		return nil
 	}
 	if ety != any(core.AnyType) && vm.typeOf(x) != ety {
@@ -318,7 +318,7 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 	if err != nil {
 		return err
 	}
-	m.Elems[k] = x
+	m.Set(k, x)
 	return nil
 }
 
@@ -351,7 +351,7 @@ func reinterpreted(p *Pointer, m *Memory) (*core.DataType, bool) {
 // returns its element size.
 func (vm *VM) memByteRange(fname string, m *Memory, off int64, n int) (int, error) {
 	es := m.Type.Parameters[1].(*core.DataType).Name.Bits / 8
-	if off < 0 || off+int64(n) > int64(es)*int64(len(m.Elems)) {
+	if off < 0 || off+int64(n) > int64(es)*int64(m.Len()) {
 		return 0, vm.errorf("%s: invalid pointer", fname)
 	}
 	return es, nil
@@ -360,12 +360,12 @@ func (vm *VM) memByteRange(fname string, m *Memory, off int64, n int) (int, erro
 // elemBytes and setElemBytes are element k's little-endian bytes, as
 // julia's memory holds them.
 func (vm *VM) elemBytes(m *Memory, k, es int) ([]byte, error) {
-	if m.Elems[k] == undef {
+	if m.Get(k) == undef {
 		return make([]byte, es), nil // uninitialized bits
 	}
-	bits, _, ok := primBits(m.Elems[k])
+	bits, _, ok := primBits(m.Get(k))
 	if !ok {
-		return nil, fmt.Errorf("%w: the bits of a %s", ErrUnsupported, showValue(vm.typeOf(m.Elems[k])))
+		return nil, fmt.Errorf("%w: the bits of a %s", ErrUnsupported, showValue(vm.typeOf(m.Get(k))))
 	}
 	b := binary.LittleEndian.AppendUint64(nil, bits.lo)
 	return binary.LittleEndian.AppendUint64(b, bits.hi)[:es], nil
@@ -388,7 +388,7 @@ func (vm *VM) memLoadBytes(fname string, m *Memory, off int64, at *core.DataType
 	if at.Name == typeNameOf(core.PtrType) && es == 8 && off%8 == 0 {
 		// a pointer stored in a whole word (mpfr.jl keeps a BigFloat's limb
 		// pointer in its memory); a word never stored is C_NULL
-		switch w := m.Elems[off/8].(type) {
+		switch w := m.Get(int(off / 8)).(type) {
 		case *Pointer:
 			return w, nil
 		case uint64:
@@ -427,7 +427,7 @@ func (vm *VM) memStoreBytes(fname string, m *Memory, off int64, x any) error {
 			return err
 		}
 		if es == 8 && off%8 == 0 {
-			m.Elems[off/8] = p
+			m.Set(int(off/8), p)
 			return nil
 		}
 	}
@@ -457,7 +457,7 @@ func (vm *VM) memStoreBytes(fname string, m *Memory, off int64, x any) error {
 		if !ok {
 			return fmt.Errorf("%w: %s into a Memory{%s}", ErrUnsupported, fname, showValue(et))
 		}
-		m.Elems[k] = v
+		m.Set(k, v)
 	}
 	return nil
 }
@@ -485,7 +485,7 @@ func (vm *VM) unsetThrough(p *Pointer, m *Memory, x any, i int64) (int, bool) {
 		}
 	}
 	off := p.Off + (i-1)*8
-	if off < 0 || off/int64(size) >= int64(len(m.Elems)) {
+	if off < 0 || off/int64(size) >= int64(m.Len()) {
 		return 0, false
 	}
 	return int(off / int64(size)), true
@@ -524,7 +524,7 @@ func (vm *VM) fenvConsts(a []any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		m.Elems[k] = v
+		m.Set(k, v)
 	}
 	return nil, nil
 }

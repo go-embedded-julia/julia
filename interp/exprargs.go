@@ -31,7 +31,7 @@ func (vm *VM) exprArgs(ex *expr.Expr) *Struct {
 	if v != nil && sharesArgs(v, ex.Args) {
 		return v
 	}
-	mem := &Memory{Type: memAnyType, Elems: ex.Args}
+	mem := newMemory(memAnyType, ex.Args)
 	v = &Struct{Type: vecAnyType, exprOwner: weak.Make(ex), Fields: []any{
 		&MemoryRef{Type: memRefAnyType, Mem: mem},
 		vm.newTuple([]any{int64(len(ex.Args))}),

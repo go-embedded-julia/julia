@@ -16,7 +16,7 @@ func TestIREncodeOfTypesThatFail(t *testing.T) {
 	bad := expr.GlobalRef{Mod: "NoSuch", Name: "x"}
 	weird := &core.DataType{Name: typeNameOf(core.ArrayType), Parameters: []any{bad, int64(1)}}
 	mem := func(elt any, elems []any) *Memory {
-		return &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), elt, core.CPU)).(*core.DataType), Elems: elems}
+		return newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), elt, core.CPU)).(*core.DataType), elems)
 	}
 	stmts := []any{int64(1)}
 

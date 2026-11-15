@@ -170,12 +170,12 @@ func satMul(a, b uint64) uint64 {
 // limbsAt is the n limbs a Ptr{Limb} points at.
 func (vm *VM) limbsAt(p *Pointer, n uint64) ([]uint64, error) {
 	m, ok := p.Target.(*Memory)
-	if !ok || m.Type != memUInt64Type || p.Off < 0 || p.Off%8 != 0 || p.Off/8 > int64(len(m.Elems)) || n > uint64(int64(len(m.Elems))-p.Off/8) {
+	if !ok || m.Type != memUInt64Type || p.Off < 0 || p.Off%8 != 0 || p.Off/8 > int64(m.Len()) || n > uint64(int64(m.Len())-p.Off/8) {
 		return nil, vm.errorf("gmp: %d limbs at %s are not in a Memory{UInt64}", n, showValue(p))
 	}
 	l := make([]uint64, n)
 	for i := range l {
-		w, ok := m.Elems[p.Off/8+int64(i)].(uint64)
+		w, ok := m.Get(int(p.Off/8 + int64(i))).(uint64)
 		if !ok {
 			return nil, vm.exception(vm.tUndefRef)
 		}
@@ -232,9 +232,9 @@ func (vm *VM) getMpz(f []any) (*big.Int, error) {
 }
 
 func (vm *VM) newLimbs(n int) *Memory {
-	m := &Memory{Type: memUInt64Type, Elems: make([]any, n)}
-	for i := range m.Elems {
-		m.Elems[i] = uint64(0)
+	m := newMemory(memUInt64Type, make([]any, n))
+	for i := range m.All() {
+		m.Set(i, uint64(0))
 	}
 	return m
 }
@@ -257,7 +257,7 @@ func (vm *VM) putMpzAlloc(f []any, v *big.Int, alloc int64, reuse bool) error {
 	need := max(len(l), int(alloc), 1)
 	var m *Memory
 	if d, ok := f[2].(*Pointer); ok && reuse {
-		if mem, ok := d.Target.(*Memory); ok && mem.Type == memUInt64Type && d.Off == 0 && len(mem.Elems) >= need {
+		if mem, ok := d.Target.(*Memory); ok && mem.Type == memUInt64Type && d.Off == 0 && mem.Len() >= need {
 			m = mem
 		}
 	}
@@ -265,13 +265,13 @@ func (vm *VM) putMpzAlloc(f []any, v *big.Int, alloc int64, reuse bool) error {
 		m = vm.newLimbs(need)
 	}
 	for i, w := range l {
-		m.Elems[i] = w
+		m.Set(i, w)
 	}
 	size := int32(len(l))
 	if v.Sign() < 0 {
 		size = -size
 	}
-	f[0], f[1], f[2] = int32(len(m.Elems)), size, &Pointer{Type: vm.ptrType(core.UInt64Type), Target: m}
+	f[0], f[1], f[2] = int32(m.Len()), size, &Pointer{Type: vm.ptrType(core.UInt64Type), Target: m}
 	return nil
 }
 
@@ -468,8 +468,8 @@ func gmpSetStr(s string, base int) (*big.Int, bool) {
 func (vm *VM) writableTail(p *Pointer) (int64, bool) {
 	switch t := p.Target.(type) {
 	case *Memory:
-		if t.Type == memUInt8Type && p.Off >= 0 && p.Off <= int64(len(t.Elems)) {
-			return int64(len(t.Elems)) - p.Off, true
+		if t.Type == memUInt8Type && p.Off >= 0 && p.Off <= int64(t.Len()) {
+			return int64(t.Len()) - p.Off, true
 		}
 	case string:
 		if b, ok := vm.writableBytes(t); ok && p.Off >= 0 && p.Off <= int64(len(b)) {
@@ -568,7 +568,7 @@ func (vm *VM) export(a []any) (any, error) {
 	per := 8*size - nails
 	count := cld64(uint64(v.BitLen()), per)
 	first := rop.Off / int64(size)
-	if count > uint64(int64(len(m.Elems))-first) {
+	if count > uint64(int64(m.Len())-first) {
 		return nil, vm.errorf("mpz_export: %d words do not fit the memory", count)
 	}
 	mask := new(big.Int).Sub(new(big.Int).Lsh(bigOne, uint(per)), bigOne)
@@ -583,7 +583,7 @@ func (vm *VM) export(a []any) (any, error) {
 			at = int64(count - 1 - i)
 		}
 		x, _ := bitsValue(et, from64(w))
-		m.Elems[first+at] = x
+		m.Set(int(first+at), x)
 	}
 	return rop, vm.storeAs("mpz_export", countp, count)
 }

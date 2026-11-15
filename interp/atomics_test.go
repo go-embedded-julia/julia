@@ -27,13 +27,14 @@ func TestAtomicPointers(t *testing.T) {
 		return v.(*Memory)
 	}
 	m := mem("Core.GenericMemory{:not_atomic, Int, Core.CPU}(undef, 2)")
-	m.Elems[0], m.Elems[1] = int64(5), int64(6)
+	m.Set(0, int64(5))
+	m.Set(1, int64(6))
 	p := &Pointer{Type: vm.ptrType(core.Int64Type), Target: m}
 	ma := mem("Core.GenericMemory{:not_atomic, Any, Core.CPU}(undef, 1)")
-	ma.Elems[0] = expr.Symbol("a")
+	ma.Set(0, expr.Symbol("a"))
 	pa := &Pointer{Type: vm.ptrType(core.AnyType), Target: ma}
 	nt := must(core.Apply(core.AnyTupleType, core.Int64Type, core.Int64Type, core.Int64Type))
-	pt := &Pointer{Type: vm.ptrType(nt), Target: &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), nt, core.CPU)).(*core.DataType), Elems: []any{undef}}}
+	pt := &Pointer{Type: vm.ptrType(nt), Target: newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), nt, core.CPU)).(*core.DataType), []any{undef})}
 	str := &Pointer{Type: vm.ptrType(core.UInt8Type), Target: "abc"}
 	uuT, err := s.Eval("struct UU; x::Union{Int8, UInt8}; end; UU")
 	if err != nil {
@@ -69,10 +70,10 @@ func TestAtomicPointers(t *testing.T) {
 		{"ref release", "atomic_pointerref", []any{p, sym("release")}, "!ConcurrencyViolationError(\"invalid atomic ordering\")", nil},
 		{"ref 1", "atomic_pointerref", []any{p, int64(1)}, "!TypeError(:atomic_pointerref, \"\", Symbol, 1)", nil},
 		{"ref of no pointer", "atomic_pointerref", []any{int64(1), sc}, "!TypeError(:atomic_pointerref, \"\", Ptr, 1)", nil},
-		{"set release", "atomic_pointerset", []any{p, int64(7), sym("release")}, "", func() any { return m.Elems[0] }},
+		{"set release", "atomic_pointerset", []any{p, int64(7), sym("release")}, "", func() any { return m.Get(0) }},
 		{"set acquire", "atomic_pointerset", []any{p, int64(7), sym("acquire")}, "!ConcurrencyViolationError(\"invalid atomic ordering\")", nil},
 		{"set float", "atomic_pointerset", []any{p, 1.5, sym("release")}, "!TypeError(:atomic_pointerset, \"\", Int64, 1.5)", nil},
-		{"swap", "atomic_pointerswap", []any{p, int64(9), sym("acquire_release")}, "7", func() any { return m.Elems[0] }},
+		{"swap", "atomic_pointerswap", []any{p, int64(9), sym("acquire_release")}, "7", func() any { return m.Get(0) }},
 		{"swap of no pointer", "atomic_pointerswap", []any{int64(1), int64(9), sc}, "!TypeError(:atomic_pointerswap", nil},
 		{"swap float", "atomic_pointerswap", []any{p, 1.5, sc}, "!TypeError(:atomic_pointerswap, \"\", Int64, 1.5)", nil},
 		{"modify", "atomic_pointermodify", []any{p, plus, int64(1), mono}, "(Pair{Int64, Int64}, 9, 10)", nil},
@@ -90,7 +91,7 @@ func TestAtomicPointers(t *testing.T) {
 		{"replace of no pointer", "atomic_pointerreplace", []any{int64(1), int64(3), int64(4), sc, mono}, "!TypeError(:atomic_pointerreplace", nil},
 		{"replace past the memory", "atomic_pointerreplace", []any{&Pointer{Type: p.Type, Target: m, Off: 16}, int64(3), int64(4), sc, mono}, "!atomic_pointerreplace: invalid pointer", nil},
 		{"any ref", "atomic_pointerref", []any{pa, mono}, ":a", nil},
-		{"any set", "atomic_pointerset", []any{pa, 1.5, mono}, "", func() any { return ma.Elems[0] }},
+		{"any set", "atomic_pointerset", []any{pa, 1.5, mono}, "", func() any { return ma.Get(0) }},
 		{"any replace", "atomic_pointerreplace", []any{pa, 1.5, "s", mono, mono}, "(@NamedTuple{old, success::Bool}, 1.5, true)", nil},
 		{"any modify", "atomic_pointermodify", []any{pa, second, int64(2), mono}, "(Pair{Any, Any}, \"s\", 2)", nil},
 		{"tuple ref", "atomic_pointerref", []any{pt, mono}, "!atomic_pointerref: invalid pointer for atomic operation", nil},
@@ -122,8 +123,8 @@ func TestAtomicPointers(t *testing.T) {
 			}
 		}
 	}
-	if m.Elems[0] != int64(11) || ma.Elems[0] != int64(2) {
-		t.Errorf("after the sequence: %v %v", m.Elems[0], ma.Elems[0])
+	if m.Get(0) != int64(11) || ma.Get(0) != int64(2) {
+		t.Errorf("after the sequence: %v %v", m.Get(0), ma.Get(0))
 	}
 }
 
@@ -133,7 +134,7 @@ func TestMemmoveMemory(t *testing.T) {
 	ints := func(xs ...int64) *Memory {
 		m := &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), core.Int64Type, core.CPU)).(*core.DataType)}
 		for _, x := range xs {
-			m.Elems = append(m.Elems, x)
+			m.SetAll(append(m.All(), x))
 		}
 		return m
 	}
@@ -148,7 +149,7 @@ func TestMemmoveMemory(t *testing.T) {
 	if _, err := vm.memmove([]any{at(a, 0), at(a, 8), uint64(24)}); err != nil || showValue(a) != "[5, 6, 7, 7]" {
 		t.Errorf("memmove overlapping: %v %s", err, showValue(a))
 	}
-	anys := &Memory{Type: memAnyType, Elems: []any{int64(1)}}
+	anys := newMemory(memAnyType, []any{int64(1)})
 	for _, c := range []struct {
 		name string
 		args []any

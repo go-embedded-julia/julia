@@ -30,7 +30,7 @@ func blasMemory[T blasFloat](vals []T) (*Memory, any, int) {
 	for i, v := range vals {
 		elems[i] = v
 	}
-	return &Memory{Type: memType(et), Elems: elems}, et, size
+	return newMemory(memType(et), elems), et, size
 }
 
 // blasArray is a pointer to element i of a memory of vals.
@@ -45,8 +45,8 @@ func blasRef(vm *VM, v any) *Pointer {
 }
 
 func blasElems[T blasFloat](m *Memory) []T {
-	out := make([]T, len(m.Elems))
-	for i, e := range m.Elems {
+	out := make([]T, m.Len())
+	for i, e := range m.All() {
 		out[i], _ = e.(T)
 	}
 	return out
@@ -441,7 +441,7 @@ func TestBLASRefusals(t *testing.T) {
 		t.Errorf("dnrm2 of nothing: %v, %v", r, err)
 	}
 	m, _, _ := blasMemory([]float64{1, 2})
-	m.Elems[0] = undef
+	m.Set(0, undef)
 	if r, err := blasShim(vm, "dasum_64_")(vm, []any{i, &Pointer{Type: vm.ptrType(core.Float64Type), Target: m}, one}); err != nil || r != 2.0 {
 		t.Errorf("dasum of an undefined element and 2: %v, %v", r, err)
 	}

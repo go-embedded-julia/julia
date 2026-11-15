@@ -60,11 +60,11 @@ func intArg(v any) (int64, bool) {
 func (vm *VM) putBytes(dst any, b []byte) error {
 	if p, ok := dst.(*Pointer); ok {
 		if m, isMem := p.Target.(*Memory); isMem && m.Type == memUInt8Type {
-			if p.Off < 0 || p.Off > int64(len(m.Elems)) || int64(len(b)) > int64(len(m.Elems))-p.Off {
+			if p.Off < 0 || p.Off > int64(m.Len()) || int64(len(b)) > int64(m.Len())-p.Off {
 				return vm.errorf("ccall: invalid pointer")
 			}
 			for i, c := range b {
-				m.Elems[p.Off+int64(i)] = c
+				m.Set(int(p.Off+int64(i)), c)
 			}
 			return nil
 		}
@@ -81,8 +81,8 @@ func (vm *VM) room(dst any) (int64, bool) {
 	}
 	switch t := p.Target.(type) {
 	case *Memory:
-		if t.Type == memUInt8Type && p.Off <= int64(len(t.Elems)) {
-			return int64(len(t.Elems)) - p.Off, true
+		if t.Type == memUInt8Type && p.Off <= int64(t.Len()) {
+			return int64(t.Len()) - p.Off, true
 		}
 	case string:
 		if w, ok := vm.writableBytes(t); ok && p.Off <= int64(len(w)) {
@@ -246,9 +246,9 @@ func (vm *VM) bootFileShims() {
 			vm.errno = -uvENOMEM
 			return vm.voidPtr(nil), nil
 		}
-		m := &Memory{Type: memUInt8Type, Elems: make([]any, max(n, 1))}
-		for i := range m.Elems {
-			m.Elems[i] = uint8(0)
+		m := newMemory(memUInt8Type, make([]any, max(n, 1)))
+		for i := range m.All() {
+			m.Set(i, uint8(0))
 		}
 		return vm.voidPtr(m), nil
 	}

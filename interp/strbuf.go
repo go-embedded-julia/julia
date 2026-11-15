@@ -73,7 +73,7 @@ func (vm *VM) stringToMemory(a []any) (any, error) {
 	for i := 0; i < len(s); i++ {
 		elems[i] = s[i]
 	}
-	return &Memory{Type: memUInt8Type, Elems: elems}, nil
+	return newMemory(memUInt8Type, elems), nil
 }
 
 // memoryToString is jl_genericmemory_to_string(m, len)
@@ -82,7 +82,7 @@ func (vm *VM) stringToMemory(a []any) (any, error) {
 func (vm *VM) memoryToString(a []any) (any, error) {
 	m, ok := a[0].(*Memory)
 	n, ok2 := a[1].(int64)
-	if !ok || m.Type != memUInt8Type || !ok2 || n < 0 || n > int64(len(m.Elems)) {
+	if !ok || m.Type != memUInt8Type || !ok2 || n < 0 || n > int64(m.Len()) {
 		return nil, fmt.Errorf("%w: jl_genericmemory_to_string of %s", ErrUnsupported, showValue(vm.newTuple(a)))
 	}
 	if n == 0 {
@@ -90,13 +90,13 @@ func (vm *VM) memoryToString(a []any) (any, error) {
 	}
 	b := make([]byte, n)
 	for i := range b {
-		c, ok := m.Elems[i].(uint8)
+		c, ok := m.Get(i).(uint8)
 		if !ok {
 			return nil, vm.exception(vm.tUndefRef)
 		}
 		b[i] = c
 	}
-	m.Elems = m.Elems[:0]
+	m.SetAll(m.Slice(0, 0))
 	return string(b), nil
 }
 
@@ -282,7 +282,7 @@ func (vm *VM) memset(a []any) (any, error) {
 				whole, _ := bytesValue(et, bytesOf(c, int(es)))
 				for off := p.Off; off < p.Off+int64(n); {
 					if off%es == 0 && off+es <= p.Off+int64(n) && whole != nil {
-						t.Elems[off/es] = whole
+						t.Set(int(off/es), whole)
 						off += es
 						continue
 					}
@@ -326,9 +326,9 @@ func memmoveElems(dm *Memory, doff int64, sm *Memory, soff int64, n uint64) bool
 		return false
 	}
 	k, di, si := int64(n)/sz, doff/sz, soff/sz
-	if di > int64(len(dm.Elems)) || si > int64(len(sm.Elems)) || k > int64(len(dm.Elems))-di || k > int64(len(sm.Elems))-si {
+	if di > int64(dm.Len()) || si > int64(sm.Len()) || k > int64(dm.Len())-di || k > int64(sm.Len())-si {
 		return false
 	}
-	copy(dm.Elems[di:di+k], sm.Elems[si:si+k])
+	copy(dm.Slice(int(di), int(di+k)), sm.Slice(int(si), int(si+k)))
 	return true
 }
