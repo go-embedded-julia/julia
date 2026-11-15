@@ -9,3 +9,5 @@
 # release notes, and check it against the .sha256 asset). A program that
 # imports julia pins the digest itself (interp.FetchImage): the digest of a
 # version cannot be in that version's own source, the image depends on it.
+
+v0.14.0 07b69e469f6fd1110d7acbdd31e6d760e0d0d593a8d4a63677b333f95c2ea922
