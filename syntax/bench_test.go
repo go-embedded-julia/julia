@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-embedded-julia/julia/expr"
 	"github.com/go-embedded-julia/julia/internal/gen"
 	"github.com/go-embedded-julia/julia/internal/oracle"
 )
@@ -99,6 +100,18 @@ func TestLongChainAllocation(t *testing.T) {
 	const limit = 24 << 20
 	if got := after.TotalAlloc - before.TotalAlloc; got > limit {
 		t.Errorf("a 100 000-term chain allocated %d bytes, want at most %d", got, limit)
+	}
+}
+
+// The ranges array starts at one per six bytes and doubles when full: an input
+// of one range per two bytes (`a.b.c.…`, a field access each) fills it, and the
+// tree that comes out is the same as a small input's.
+func TestManyRangesGrowTheArray(t *testing.T) {
+	src := strings.Repeat("a.", 3000) + "a"
+	// 16+len/6 = 1017 ranges at the start, 3000 needed
+	got := expr.Serialize(ParseAll([]byte(src), "ranges"))
+	if !strings.Contains(got, `(:"." (:"." (:"." `) || !strings.HasSuffix(got, " {Q :a}) {Q :a}))") || strings.Count(got, `(:"."`) != 3000 {
+		t.Fatalf("the tree of a.a.a…: %.60s … %s", got, got[max(0, len(got)-40):])
 	}
 }
 
