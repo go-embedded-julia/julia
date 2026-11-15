@@ -477,15 +477,15 @@ func TestBLASExtents(t *testing.T) {
 		got, want int
 	}{
 		{"no elements", vecExt(0, 5), 0},
-		{"one element", vecExt(1, 1<<40), 1},
+		{"one element", vecExt(1, math.MaxInt/2), 1},
 		{"stride 3", vecExt(4, 3), 10},
 		{"negative stride", vecExt(4, -3), 10},
 		{"the most negative stride", vecExt(2, math.MinInt), maxExt},
-		{"overflowing stride", vecExt(1<<40, 1<<40), maxExt},
+		{"overflowing stride", vecExt(math.MaxInt/2, 3), maxExt},
 		{"no matrix", matExt(0, 3, 2), 0},
 		{"2 x 3, ld 5", matExt(2, 3, 5), 12},
 		{"a negative ld", matExt(2, 3, -1), maxExt},
-		{"overflowing ld", matExt(2, 1<<40, 1<<40), maxExt},
+		{"overflowing ld", matExt(2, math.MaxInt/2, 3), maxExt},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s: %d, want %d", c.name, c.got, c.want)
