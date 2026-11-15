@@ -177,6 +177,7 @@ type VM struct {
 	intrHard atomic.Bool
 	intrTask *Struct // the task an interrupt is for: the cell's
 	intrSent bool    // the interrupt was scheduled into that task
+	ticks    uint32  // statements, counted on WebAssembly (yield_wasm.go)
 	intrCh   chan struct{}
 	allocs   int64
 	allocMax int64

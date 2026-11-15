@@ -214,6 +214,14 @@ r := k.Eval(ctx, `f(x) = x + 1; f(41)`)
   image sets on core's shared types, which an image sets once and another
   image may not change (`ErrImageConflict`, #49), so kernels over images of
   one release are safe and a second release is refused at its load.
+- **WebAssembly.** The Kernel runs as a `js/wasm` binary (the playground's
+  platform): CI runs the kernel tests under node with `wasm_exec`, loading an
+  image from bytes with its digest (`LoadOptions.Digest`). A program that ships
+  the image as a static asset passes the bytes in; `FetchImage` needs the
+  network and a cache directory and is for programs that have them.
+  `cmd/jlkernel` is a small program that does it from the command line
+  (`jlkernel --image FILE --digest SHA256 < cell`), the one that measures the
+  load of an image under node.
 - **Without Base** (a `Boot()`-only image) the value and the error are the Go
   repr, and cells use `Core`'s names; with the Base image they are julia's.
 
