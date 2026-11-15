@@ -80,6 +80,10 @@ func TestImageBaseOracleChild(t *testing.T) {
 	vm := loadBytes(t, img)
 	rep := oracleChild{LoadNs: time.Since(t0).Nanoseconds()}
 	if os.Getenv("JLGO_ORACLE_MODE") == "load" {
+		b, _ := json.Marshal(rep)
+		if err := os.WriteFile(os.Getenv("JLGO_ORACLE_OUT"), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
 		return
 	}
 	var again bytes.Buffer
@@ -165,28 +169,7 @@ func TestImageBaseOracle(t *testing.T) {
 	}
 
 	// a fresh process loads the image, saves it again, runs the same programs
-	run := func(mode string) (oracleChild, *os.ProcessState) {
-		out := filepath.Join(dir, "oracle-"+mode+".json")
-		os.Remove(out)
-		cmd := exec.Command(os.Args[0], "-test.run=^TestImageBaseOracleChild$", "-test.v", "-test.timeout=60m")
-		cmd.Env = append(os.Environ(), "JLGO_ORACLE_IMAGE="+file, "JLGO_ORACLE_OUT="+out, "JLGO_ORACLE_MODE="+mode)
-		if o, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("the fresh process (%s): %v\n%s", mode, err, o)
-		}
-		var rep oracleChild
-		if mode != "load" {
-			b, err := os.ReadFile(out)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := json.Unmarshal(b, &rep); err != nil {
-				t.Fatal(err)
-			}
-		}
-		return rep, cmd.ProcessState
-	}
-	load1 := loadAverage()
-	rep, _ := run("run")
+	rep, _ := runOracleChild(t, dir, file, "run")
 	if !rep.Identical {
 		t.Error("save, load, save in a fresh process gives other bytes than the image")
 	}
@@ -202,24 +185,67 @@ func TestImageBaseOracle(t *testing.T) {
 	t.Logf("image %d bytes, sha256 %x; 16 task programs: the loaded VM, the built VM and julia agree; save, load, save identical across processes: %v",
 		img.Len(), sum, rep.Identical)
 
-	// the measurements, on a quiet machine only
+	measureImage(t, dir, file)
+}
+
+// runOracleChild runs the fresh process on the image: mode "run" loads, saves
+// again and runs the programs; "load" only loads (and reports the time).
+func runOracleChild(t testing.TB, dir, file, mode string) (oracleChild, *os.ProcessState) {
+	t.Helper()
+	out := filepath.Join(dir, "oracle-"+mode+".json")
+	os.Remove(out)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestImageBaseOracleChild$", "-test.v", "-test.timeout=60m")
+	cmd.Env = append(os.Environ(), "JLGO_ORACLE_IMAGE="+file, "JLGO_ORACLE_OUT="+out, "JLGO_ORACLE_MODE="+mode)
+	if o, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the fresh process (%s): %v\n%s", mode, err, o)
+	}
+	var rep oracleChild
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &rep); err != nil {
+		t.Fatal(err)
+	}
+	return rep, cmd.ProcessState
+}
+
+// measureImage reports the load time of the image in a fresh process, the peak
+// RSS of a process that only loads it, and its zstd size, when the 1-minute
+// load average is at most 8 before and after; else it says it deferred them.
+func measureImage(t testing.TB, dir, file string) {
+	t.Helper()
+	img, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	load1 := loadAverage()
+	rep, ps := runOracleChild(t, dir, file, "load")
 	load2 := loadAverage()
 	if load1 < 0 || load2 < 0 || max(load1, load2) > 8 {
 		t.Logf("measurements deferred: the 1-minute load average is %.1f then %.1f (at most 8 is needed)", load1, load2)
 		return
 	}
-	_, ps := run("load")
-	rss := peakRSS(ps)
 	t.Logf("1-minute load %.1f then %.1f; load of the image in a fresh process: %v; peak RSS of a process that only loads it: %d MiB",
-		load1, load2, time.Duration(rep.LoadNs), rss>>20)
+		load1, load2, time.Duration(rep.LoadNs), peakRSS(ps)>>20)
 	for _, lvl := range []string{"3", "19"} {
 		cmd := exec.Command("zstd", "-q", "-"+lvl, "-c")
-		cmd.Stdin = bytes.NewReader(img.Bytes())
+		cmd.Stdin = bytes.NewReader(img)
 		z, err := cmd.Output()
 		if err != nil {
 			t.Logf("zstd -%s: %v (no zstd to measure the compressed size)", lvl, err)
 			break
 		}
-		t.Logf("zstd -%s: %d bytes (%.1f%% of %d)", lvl, len(z), 100*float64(len(z))/float64(img.Len()), img.Len())
+		t.Logf("zstd -%s: %d bytes (%.1f%% of %d)", lvl, len(z), 100*float64(len(z))/float64(len(img)), len(img))
 	}
+}
+
+// TestImageBaseMeasure repeats the measurements on the image the oracle left in
+// the cache directory, without building Base: JLGO_BASE=1.
+func TestImageBaseMeasure(t *testing.T) {
+	if os.Getenv("JLGO_BASE") != "1" {
+		t.Skip("set JLGO_BASE=1 (and run TestImageBaseOracle once)")
+	}
+	dir := oracleCache(t)
+	measureImage(t, dir, filepath.Join(dir, "oracle.img"))
 }
