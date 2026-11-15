@@ -14,8 +14,9 @@ import (
 // libopenblas64_.dylib, ILP64; build flags symbol_trimming, f2c_capable,
 // complex_retstyle; complex return style normal, f2c plain, cblas
 // unknown). The functions it forwards are the ones the VM implements in Go
-// for the forwarded library: none yet (go-numerics, #33), so a BLAS call
-// is refused as not ported and the configuration lists no exported symbol.
+// for the forwarded library: for libopenblas64_ the BLAS of go-blas (blas.go:
+// gemm, gemv and level 1, s and d), so the other BLAS and LAPACK calls are
+// refused as not ported (#67) and the configuration lists no exported symbol.
 const lbtLib = "libblastrampoline"
 
 // lbt_config_t build flags (lbt.jl:101-105)
@@ -134,6 +135,24 @@ func (vm *VM) bootLBT() {
 		},
 	}
 	vm.lbt.nthreads = 1
+	vm.bootBLAS()
+}
+
+// shimOf is the Go function a ccall of sym in the library lib reaches: the
+// library's own, and for libblastrampoline, the one of the libraries it was
+// told to forward to (lbt_forward), the first that has it.
+func (vm *VM) shimOf(lib string, sym expr.Symbol) shim {
+	if sh := vm.libShimsOf(lib)[sym]; sh != nil {
+		return sh
+	}
+	if _, name, ok := vm.libFile(lib); lib == lbtLib || (ok && name == lbtLib) {
+		for _, l := range vm.lbt.libs {
+			if sh := vm.libShims[l][sym]; sh != nil {
+				return sh
+			}
+		}
+	}
+	return nil
 }
 
 // ptrToArray1d is jl_ptr_to_array_1d(atype, data, nel, own) (array.c):

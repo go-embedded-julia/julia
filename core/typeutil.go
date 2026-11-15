@@ -1,5 +1,7 @@
 package core
 
+import "math"
+
 // typeEnv is jl_typeenv_t: a linked list binding type variables to values.
 type typeEnv struct {
 	v    *TypeVar
@@ -189,6 +191,15 @@ func HasTypeVar(t any, v *TypeVar) bool {
 // Egal is jl_egal (===) on the values this package handles
 // (builtins.c:243-299, julia.h:1869-1889).
 func Egal(a, b any) bool {
+	// floats are egal when their bits are: NaN === NaN, and 0.0 !== -0.0
+	switch x := a.(type) {
+	case float64:
+		y, ok := b.(float64)
+		return ok && math.Float64bits(x) == math.Float64bits(y)
+	case float32:
+		y, ok := b.(float32)
+		return ok && math.Float32bits(x) == math.Float32bits(y)
+	}
 	if a == b {
 		return true
 	}
@@ -246,7 +257,7 @@ func egalSlices(a, b []any) bool {
 // egalTypes is egal_types (builtins.c:167-224): structural equality,
 // matching bound variables pairwise.
 func egalTypes(a, b any, env *typeEnv, tvarNames bool) bool {
-	if a == b {
+	if sameParam(a, b) {
 		return true
 	}
 	switch x := a.(type) {

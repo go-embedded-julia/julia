@@ -442,6 +442,17 @@ func tupletypeFill(n int64, t any, check bool, nothrow int) any {
 // runtime allocate gigabytes from one literal.
 const maxTupleFill = 1 << 16
 
+// sameParam is the identity of two type parameters: the same pointer, or the
+// same value. A float is the same value when its bits are (jl_egal): 0.0 and
+// -0.0 are two parameters, a NaN is its own.
+func sameParam(a, b any) bool {
+	switch a.(type) {
+	case float64, float32:
+		return Egal(a, b)
+	}
+	return a == b
+}
+
 // typekeyEq is typekey_eq (jltypes.c:952-987).
 func typekeyEq(tt *DataType, key []any) bool {
 	if len(key) != len(tt.Parameters) {
@@ -449,11 +460,11 @@ func typekeyEq(tt *DataType, key []any) bool {
 	}
 	if tt.Name == TypeTypeName {
 		kj, tj := key[0], tt.Parameters[0]
-		return kj == tj || (TypeOf(tj) == TypeOf(kj) && TypesEqual(tj, kj))
+		return sameParam(kj, tj) || (TypeOf(tj) == TypeOf(kj) && TypesEqual(tj, kj))
 	}
 	for j, kj := range key {
 		tj := tt.Parameters[j]
-		if tj == kj {
+		if sameParam(tj, kj) {
 			continue
 		}
 		if tt.Name == TupleTypeName && (IsTypeType(tj) || IsTypeType(kj)) {

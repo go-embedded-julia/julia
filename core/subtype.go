@@ -287,7 +287,7 @@ func canonicalBottomSuper(a any) any {
 // obviouslyEgal is obviously_egal (subtype.c:397-434).
 func obviouslyEgal(a, b any) bool {
 	a, b = canonicalBottomSuper(a), canonicalBottomSuper(b)
-	if a == b {
+	if sameParam(a, b) {
 		return true
 	}
 	if TypeOf(a) != TypeOf(b) {
@@ -1748,7 +1748,7 @@ func findVarBody(t any, v *TypeVar) any {
 // obviousSubtype is obvious_subtype (subtype.c:1934-2235): ok reports that
 // the answer sub could be determined quickly.
 func obviousSubtype(x, y, y0 any, sub *bool) bool {
-	if x == y || y == any(AnyType) {
+	if sameParam(x, y) || y == any(AnyType) {
 		*sub = true
 		return true
 	}
@@ -1768,7 +1768,7 @@ func obviousSubtype(x, y, y0 any, sub *bool) bool {
 	}
 	y = UnwrapUnionAll(y)
 	x, y = canonicalBottomSuper(x), canonicalBottomSuper(y)
-	if x == y || y == any(AnyType) {
+	if sameParam(x, y) || y == any(AnyType) {
 		*sub = true
 		return true
 	}
@@ -2135,7 +2135,7 @@ func SubtypeEnv(x, y any, env []any) (sub bool, err error) {
 
 // TypesEqual is jl_types_equal (subtype.c:2319-2399), release build.
 func TypesEqual(a, b any) bool {
-	if a == b {
+	if sameParam(a, b) {
 		return true
 	}
 	if TypeOf(a) == TypeOf(b) && TypesEgal(a, b) {
