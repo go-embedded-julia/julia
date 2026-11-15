@@ -1,7 +1,9 @@
 package interp
 
 import (
+	"fmt"
 	"reflect"
+	"sync"
 	"weak"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -120,7 +122,9 @@ func (d *imgDec) internOne(st *internState, id uint32) {
 	for i, p := range dt.Parameters {
 		dt.Parameters[i] = d.canon(st, p, seen)
 	}
-	if c := core.Intern(dt); c != dt {
+	// the interner writes nothing to the shared caches: what it holds is put
+	// there by commit, when the whole image has been decoded
+	if c, _ := d.in.Resolve(dt); c != dt {
 		d.objs[id] = reflect.ValueOf(c)
 		d.redir[id] = true
 		st.redirect[dt] = c
@@ -128,18 +132,39 @@ func (d *imgDec) internOne(st *internState, id uint32) {
 	}
 }
 
-// transferInstances gives a type the process holds the cached instance of the
-// image's type it replaced, when it has none: the instance of a type is state
-// the VMs of a process share, as its hints are, and a process that has not run
-// the program has not made it.
-func (d *imgDec) transferInstances() {
+// instanceXfer is the cached instance of a type of the image, to give to the
+// type that replaced it.
+type instanceXfer struct {
+	to *core.DataType
+	v  any
+}
+
+// instanceTransfers is what a type the process holds takes from the image's
+// type it replaced: the instance of a type is state the VMs of a process
+// share, as its hints are, and a process that has not run the program has not
+// made it. Like a hint, an instance is set when the type has none, left when
+// the type has an equal one, and refused (ErrImageConflict) when it has
+// another. It writes nothing.
+func (d *imgDec) instanceTransfers() []instanceXfer {
+	var xfers []instanceXfer
+	pending := map[*core.DataType]any{}
 	for _, p := range d.replaced {
-		if _, has := p[1].CachedInstance(); !has {
-			if v, ok := p[0].CachedInstance(); ok {
-				p[1].SetCachedInstance(v)
-			}
+		v, ok := p[0].CachedInstance()
+		if !ok {
+			continue
+		}
+		cur, has := p[1].CachedInstance()
+		if !has {
+			cur, has = pending[p[1]]
+		}
+		if !has {
+			pending[p[1]] = v
+			xfers = append(xfers, instanceXfer{p[1], v})
+		} else if !d.vm.egal(cur, v) {
+			d.failf(ErrImageConflict, "the instance of %s is another value here than in the image: another image was loaded in this process", p[1].Name.Name)
 		}
 	}
+	return xfers
 }
 
 // canon is the type the process holds for x, in the parts of x that are types
@@ -241,15 +266,15 @@ func (d *imgDec) parseHints() []loadHint {
 		if !ok || !known {
 			d.failf(ErrImageCorrupt, "a hint %q of static object %d", field, idx)
 		}
+		h := loadHint{tn, field, val}
 		if field == "typeofWrapper" {
 			if val < 0 || val >= int64(len(d.fr.kinds)) {
 				d.failf(ErrImageCorrupt, "the Type{Wrapper} of %s is object %d of %d", tn.Name, val, len(d.fr.kinds))
 			}
-		} else if cur, _, set := hintValue(tn, field); set && cur != val {
-			d.failf(ErrImageConflict, "%s.%s is %d here and %d in the image: another image was loaded in this process",
-				tn.Name, field, cur, val)
+		} else {
+			d.hintConflict(h) // a numeric conflict is refused before anything is decoded
 		}
-		hints = append(hints, loadHint{tn, field, val})
+		hints = append(hints, h)
 	}
 	if len(d.cur) != 0 {
 		d.failf(ErrImageCorrupt, "%d bytes after the hints", len(d.cur))
@@ -257,13 +282,11 @@ func (d *imgDec) parseHints() []loadHint {
 	return hints
 }
 
-// applyHints sets the hints that are unset; one already set to the same value
-// is left, and a cached type another from the image's is a conflict.
-func (d *imgDec) applyHints(hints []loadHint) {
-	for _, h := range hints {
-		if h.field != "typeofWrapper" {
-			continue
-		}
+// hintConflict refuses (ErrImageConflict) a hint the process holds with another
+// value: a number that differs, or a cached Type{Wrapper} that is another type
+// than the image's. It writes nothing.
+func (d *imgDec) hintConflict(h loadHint) {
+	if h.field == "typeofWrapper" {
 		dt, ok := d.objs[h.val].Interface().(*core.DataType)
 		if !ok {
 			d.failf(ErrImageCorrupt, "the Type{Wrapper} of %s is not a type", h.tn.Name)
@@ -271,7 +294,41 @@ func (d *imgDec) applyHints(hints []loadHint) {
 		if cur := h.tn.TypeofWrapper(); cur != nil && cur != dt {
 			d.failf(ErrImageConflict, "%s.typeofWrapper is another type here than in the image", h.tn.Name)
 		}
+	} else if cur, _, set := hintValue(h.tn, h.field); set && cur != h.val {
+		d.failf(ErrImageConflict, "%s.%s is %d here and %d in the image: another image was loaded in this process",
+			h.tn.Name, h.field, cur, h.val)
 	}
+}
+
+// imageCommitMu serializes the commits of loads, so that the check of what a
+// load would write and the write are one step among them.
+var imageCommitMu sync.Mutex
+
+// commit is the only place a load writes to what the VMs of the process
+// share: the types it interned, the cached instances it gave and the hints it
+// set. The image has been decoded whole against structures of its own. Every
+// conflict is looked for first, and the first write is made when there is none
+// (a cache another goroutine grew since the interner read it is reported as
+// core.IsInternChanged, and the caller decodes again).
+func (d *imgDec) commit(hints []loadHint) {
+	imageCommitMu.Lock()
+	defer imageCommitMu.Unlock()
+	for _, h := range hints {
+		d.hintConflict(h)
+	}
+	xfers := d.instanceTransfers()
+	if err := d.in.Commit(); err != nil {
+		panic(imgFail{fmt.Errorf("%w: %w", ErrImageConflict, err)})
+	}
+	for _, x := range xfers {
+		x.to.SetCachedInstance(x.v)
+	}
+	d.applyHints(hints)
+}
+
+// applyHints sets the hints that are unset; one already set to the same value
+// is left. commit has checked them all (hintConflict) before it writes any.
+func (d *imgDec) applyHints(hints []loadHint) {
 	for _, h := range hints {
 		switch h.field {
 		case "MaxArgs":
