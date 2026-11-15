@@ -8,6 +8,7 @@ package syntax
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/go-embedded-julia/julia/expr"
@@ -128,6 +129,16 @@ func newParseStream(text []byte, index int, version [2]int, limits Limits) *pars
 		version:   version,
 		limits:    limits,
 	}
+}
+
+// pushToken appends to the output, doubling the array when it is full: append
+// grows a large slice by a quarter, which for an input of one token per byte
+// (a chain `a+a+a+...`) copies it five times over.
+func (s *parseStream) pushToken(t syntaxToken) {
+	if len(s.tokens) == cap(s.tokens) {
+		s.tokens = slices.Grow(s.tokens, len(s.tokens))
+	}
+	s.tokens = append(s.tokens, t)
 }
 
 func (s *parseStream) lastToken() int { return len(s.tokens) - 1 }
@@ -350,7 +361,7 @@ func (s *parseStream) bumpUntilN(n int, flags RawFlags, remap Kind) {
 		if trivia || remap == kNone {
 			outk = k
 		}
-		s.tokens = append(s.tokens, syntaxToken{SyntaxHead{outk, f}, k, tok.precedingWhitespace, tok.nextByte})
+		s.pushToken(syntaxToken{SyntaxHead{outk, f}, k, tok.precedingWhitespace, tok.nextByte})
 	}
 	s.lookaheadIndex = n + 1
 	// Defuse the time bomb
@@ -384,7 +395,7 @@ func (s *parseStream) bumpTrivia(flags RawFlags, skipNewlines bool, errMsg strin
 // bumpInvisible bumps an invisible zero-width token into the output.
 func (s *parseStream) bumpInvisible(k Kind, flags RawFlags, errMsg string) streamPosition {
 	b := s.nextByte()
-	s.tokens = append(s.tokens, syntaxToken{SyntaxHead{k, flags}, k, false, b})
+	s.pushToken(syntaxToken{SyntaxHead{k, flags}, k, false, b})
 	if errMsg != "" {
 		s.diagRange(b, b-1, levelError, errMsg)
 	}
@@ -395,7 +406,7 @@ func (s *parseStream) bumpInvisible(k Kind, flags RawFlags, errMsg string) strea
 // bumpGlue bumps two tokens, gluing them together into a single token.
 func (s *parseStream) bumpGlue(k Kind, flags RawFlags) streamPosition {
 	i := s.lookaheadIndex
-	s.tokens = append(s.tokens, syntaxToken{SyntaxHead{k, flags}, k, false, s.lookahead[i+1].nextByte})
+	s.pushToken(syntaxToken{SyntaxHead{k, flags}, k, false, s.lookahead[i+1].nextByte})
 	s.lookaheadIndex += 2
 	s.peekCount = 0
 	return s.position()
@@ -423,7 +434,7 @@ func (s *parseStream) bumpSplit(specs ...splitSpec) streamPosition {
 		if sp.kind == kDot {
 			orig = kDot
 		}
-		s.tokens = append(s.tokens, syntaxToken{SyntaxHead{sp.kind, sp.flags}, orig, false, b})
+		s.pushToken(syntaxToken{SyntaxHead{sp.kind, sp.flags}, orig, false, b})
 	}
 	// JuliaSyntax's @assert: the pieces must cover the token exactly. It
 	// fails where a split meets whitespace instead of the dots it expected
@@ -481,6 +492,9 @@ func (s *parseStream) emit(mark streamPosition, k Kind, flags RawFlags, errMsg s
 		fbyte := s.tokenFirstByte(firstToken)
 		lbyte := s.tokenLastByte(s.lastToken())
 		s.diagRange(fbyte, lbyte, levelError, errMsg)
+	}
+	if len(s.ranges) == cap(s.ranges) {
+		s.ranges = slices.Grow(s.ranges, len(s.ranges))
 	}
 	s.ranges = append(s.ranges, r)
 	return s.position()
@@ -585,22 +599,20 @@ func (s *parseStream) validateTokens() {
 	})
 }
 
-// buildNode is the make_node callback of build_tree: children is nil for
-// leaves.
-type buildEntry[T any] struct {
-	firstToken int
-	node       T
-}
-
 // buildTree is build_tree(make_node, stream): a depth-first postorder walk of
 // the output ranges. makeNode returns ok=false to drop a node. The children
 // slice it receives is reused from call to call: a node that keeps its
 // children must copy them.
 func buildTree[T any](s *parseStream, makeNode func(h SyntaxHead, first, last int, children []T, leaf bool) (T, bool)) T {
-	// The stack holds at most one entry per token: sized from the token
-	// count, it never grows by copying.
-	stack := make([]buildEntry[T], 0, len(s.tokens)/2+16)
-	children := make([]T, 0, 64)
+	// The stack holds at most one entry per token, and in a long flat node (a
+	// chain `a+a+...`) about that many: it starts at a quarter of the token
+	// count and doubles when full (append would grow it by a quarter each time).
+	//
+	// The stack is two parallel slices, the first token of each entry and its
+	// node, so that the children of a node are a view of the nodes (no copy, no
+	// buffer as wide as the widest node).
+	firsts := make([]int, 0, len(s.tokens)/4+16)
+	nodes := make([]T, 0, len(s.tokens)/4+16)
 	tokens := s.tokens
 	ranges := s.ranges
 	i := 1
@@ -619,7 +631,12 @@ func buildTree[T any](s *parseStream, makeNode func(h SyntaxHead, first, last in
 				continue // Ignore removed tokens
 			}
 			if node, ok := makeNode(t.head, tokens[i-1].nextByte, tokens[i].nextByte-1, nil, true); ok {
-				stack = append(stack, buildEntry[T]{i, node})
+				if len(nodes) == cap(nodes) {
+					nodes = slices.Grow(nodes, len(nodes))
+					firsts = slices.Grow(firsts, len(firsts))
+				}
+				firsts = append(firsts, i)
+				nodes = append(nodes, node)
 			}
 			i++
 		}
@@ -637,29 +654,23 @@ func buildTree[T any](s *parseStream, makeNode func(h SyntaxHead, first, last in
 				continue
 			}
 			// Collect children from the stack for this internal node
-			k := len(stack)
-			for k > 0 && r.firstToken <= stack[k-1].firstToken {
+			k := len(nodes)
+			for k > 0 && r.firstToken <= firsts[k-1] {
 				k--
 			}
-			children = children[:0]
-			for _, e := range stack[k:] {
-				children = append(children, e.node)
-			}
-			node, ok := makeNode(r.head, tokens[r.firstToken-1].nextByte, tokens[r.lastToken].nextByte-1, children, false)
-			stack = stack[:k]
+			node, ok := makeNode(r.head, tokens[r.firstToken-1].nextByte, tokens[r.lastToken].nextByte-1, nodes[k:], false)
+			clear(nodes[k:]) // the dropped entries hold nothing alive
+			nodes, firsts = nodes[:k], firsts[:k]
 			if ok {
-				stack = append(stack, buildEntry[T]{r.firstToken, node})
+				nodes = append(nodes, node)
+				firsts = append(firsts, r.firstToken)
 			}
 			j++
 		}
 	}
-	if len(stack) == 1 {
-		return stack[0].node
+	if len(nodes) == 1 {
+		return nodes[0]
 	}
-	children = children[:0]
-	for _, e := range stack {
-		children = append(children, e.node)
-	}
-	node, _ := makeNode(SyntaxHead{kWrapper, emptyFlags}, tokens[1].nextByte, tokens[len(tokens)-1].nextByte-1, children, false)
+	node, _ := makeNode(SyntaxHead{kWrapper, emptyFlags}, tokens[1].nextByte, tokens[len(tokens)-1].nextByte-1, nodes, false)
 	return node
 }

@@ -58,14 +58,12 @@ func syntaxNodeToExpr(source *SourceFile, txtbuf []byte, n *syntaxNode) any {
 		return leafToExpr(source, txtbuf, n.head, n.firstByte(), n.lastByte())
 	}
 	args := make([]any, len(n.children))
-	ranges := make([][2]int, len(n.children))
-	heads := make([]SyntaxHead, len(n.children))
+	children := make([]exprEntry, len(n.children))
 	for i, c := range n.children {
 		args[i] = syntaxNodeToExpr(source, txtbuf, c)
-		ranges[i] = [2]int{c.firstByte(), c.lastByte()}
-		heads[i] = c.head
+		children[i] = exprEntry{first: c.firstByte(), last: c.lastByte(), head: c.head}
 	}
-	return internalNodeToExpr(source, n.firstByte(), n.lastByte(), n.head, ranges, heads, args)
+	return internalNodeToExpr(source, n.firstByte(), n.lastByte(), n.head, children, args)
 }
 
 // firstError is _first_error.

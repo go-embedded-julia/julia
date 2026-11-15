@@ -242,7 +242,7 @@ func pushFirstArg(v any, a any) {
 
 // internalNodeToExpr converts an internal node of the parse tree to an Expr.
 func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
-	childRanges [][2]int, childHeads []SyntaxHead, args []any) any {
+	children []exprEntry, args []any) any {
 	k := head.Kind
 	if (k == kVar || k == kCharNode) && len(args) == 1 {
 		return args[0]
@@ -271,7 +271,7 @@ func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
 		args = []any{lhs, rhs}
 	case k == kMacrocall:
 		if len(args) >= 2 {
-			if a2, ok := args[1].(*expr.Expr); ok && a2.Head == "macrocall" && childHeads[0].Kind == kCmdMacroName {
+			if a2, ok := args[1].(*expr.Expr); ok && a2.Head == "macrocall" && children[0].head.Kind == kCmdMacroName {
 				// Fix up for custom cmd macros like foo`x`
 				args[1] = a2.Args[2]
 			}
@@ -287,9 +287,9 @@ func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
 			args = append(args, loc)
 		} else {
 			out := make([]any, 2*len(args))
-			for i := len(childRanges) - 1; i >= 0; i-- {
+			for i := len(children) - 1; i >= 0; i-- {
 				out[2*i+1] = args[i]
-				out[2*i] = lineNode(source, childRanges[i][0])
+				out[2*i] = lineNode(source, children[i].first)
 			}
 			args = out
 		}
@@ -341,7 +341,7 @@ func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
 			// Hack: Here we preserve the head of the operator to determine
 			// whether we need to coalesce it with the dot into a single
 			// symbol later on.
-			args[0] = dotOp{childHeads[0], args[0]}
+			args[0] = dotOp{children[0].head, args[0]}
 		}
 	case k == kRef || k == kCurly:
 		// Move parameters blocks to args[2]
@@ -371,7 +371,7 @@ func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
 			}
 		}
 	case k == kCatch:
-		if childHeads[0].Kind == kPlaceholder {
+		if children[0].head.Kind == kPlaceholder {
 			args[0] = false
 		}
 	case k == kTry:
@@ -434,7 +434,7 @@ func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
 			// TODO: This makes the Expr form objectively worse for the sake
 			// of compatibility.
 			if len(a1.Args) == 1 &&
-				(!childHeads[0].Flags.has(parensFlag) || !childHeads[0].Flags.has(trailingCommaFlag)) &&
+				(!children[0].head.Flags.has(parensFlag) || !children[0].head.Flags.has(trailingCommaFlag)) &&
 				!expr.Is(a1.Args[0], "parameters") {
 				// `(a) -> c` is parsed without tuple on lhs in Expr form
 				args[0] = a1.Args[0]
@@ -449,7 +449,7 @@ func internalNodeToExpr(source *SourceFile, first, last int, head SyntaxHead,
 						if e, ok := a111.(*expr.Expr); ok && e.Head == "kw" {
 							assgn = expr.New("=", e.Args...)
 						}
-						argloc := lineNode(source, childRanges[0][1])
+						argloc := lineNode(source, children[0].last)
 						args[0] = expr.New("block", a1.Args[1], argloc, assgn)
 					}
 				}
@@ -573,10 +573,6 @@ type exprEntry struct {
 func (s *parseStream) buildExpr(filename string, firstLine int) any {
 	source := s.sourceFile(filename, firstLine)
 	txtbuf := s.textbuf
-	// Scratch arrays reused from node to node, as expr.jl reuses its
-	// childranges and childheads buffers; args is retained by the Expr.
-	var ranges [][2]int
-	var heads []SyntaxHead
 	// Identifiers repeat: each distinct name is converted (and boxed as an
 	// Expr argument) once per parse.
 	symbols := map[string]any{}
@@ -596,15 +592,11 @@ func (s *parseStream) buildExpr(filename string, firstLine int) any {
 			}
 			return exprEntry{first, last, h, leafToExpr(source, txtbuf, h, first, last)}, true
 		}
-		ranges = ranges[:0]
-		heads = heads[:0]
 		args := make([]any, len(children))
 		for i, c := range children {
-			ranges = append(ranges, [2]int{c.first, c.last})
-			heads = append(heads, c.head)
 			args[i] = c.ex
 		}
-		return exprEntry{first, last, h, internalNodeToExpr(source, first, last, h, ranges, heads, args)}, true
+		return exprEntry{first, last, h, internalNodeToExpr(source, first, last, h, children, args)}, true
 	})
 	args := []any{entry.ex}
 	fixupExprChildren(SyntaxHead{kNone, emptyFlags}, args)
