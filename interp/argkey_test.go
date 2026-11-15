@@ -47,12 +47,12 @@ func TestArgTupleTypeCache(t *testing.T) {
 		if first != second {
 			t.Errorf("%s: the second call built another type", name)
 		}
-		if _, ok := vm.argKeyOf(args); !ok {
+		if _, _, ok := vm.argKeyOf(args); !ok {
 			t.Errorf("%s: not keyed", name)
 		}
 	}
 	for name, args := range unkeyed {
-		if _, ok := vm.argKeyOf(args); ok {
+		if _, _, ok := vm.argKeyOf(args); ok {
 			t.Errorf("%s: keyed", name)
 		}
 		if got, want := vm.argTupleType(args), vm.buildArgTupleType(args); !core.TypesEqual(got, want) {
@@ -68,25 +68,32 @@ func TestArgTupleTypeCache(t *testing.T) {
 		t.Error("two types have one tuple")
 	}
 	// bounded: past the limit a new key is built each time and not stored
-	argTupleCacheLen.Store(argTupleCacheMax)
-	defer argTupleCacheLen.Store(0)
+	argTupleMu.Lock()
+	saved := argTupleCache
+	full := make(map[argKey]argTupleEntry, argTupleCacheMax)
+	for i := 0; i < argTupleCacheMax; i++ {
+		full[argKey{uintptr(i) + 1000}] = argTupleEntry{}
+	}
+	argTupleCache = full
+	argTupleMu.Unlock()
+	defer func() {
+		argTupleMu.Lock()
+		argTupleCache = saved
+		argTupleMu.Unlock()
+	}()
 	fresh := []any{"a", "b", "c", int64(1), 1.0, true}
 	a, b := vm.argTupleType(fresh), vm.argTupleType(fresh)
 	if !core.TypesEqual(a, b) {
 		t.Error("past the limit the tuple differs")
 	}
-	if _, ok := argTupleCache.Load(mustKey(t, vm, fresh)); ok {
-		t.Error("past the limit the cache grew")
+	k, _, ok := vm.argKeyOf(fresh)
+	argTupleMu.RLock()
+	_, stored := argTupleCache[k]
+	n := len(argTupleCache)
+	argTupleMu.RUnlock()
+	if !ok || stored || n != argTupleCacheMax {
+		t.Errorf("past the limit the cache grew: keyed %v, stored %v, %d entries", ok, stored, n)
 	}
-}
-
-func mustKey(t *testing.T, vm *VM, args []any) argKey {
-	t.Helper()
-	k, ok := vm.argKeyOf(args)
-	if !ok {
-		t.Fatal("not keyed")
-	}
-	return k
 }
 
 // A method defined after a call cached its argument tuple is found by the next

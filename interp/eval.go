@@ -27,6 +27,40 @@ type frame struct {
 	// inline holds the locals of a small frame, so that a call allocates its
 	// frame once and not the frame and a slice (#71).
 	inline [frameInline]any
+	// argbuf holds the arguments of the generic-function call the frame is
+	// making (callFunction), so that a call allocates no argument slice;
+	// argBusy is set while it does, and a call made while it is (an argument
+	// that is itself a call) takes a slice of its own.
+	argbuf  [frameArgs]any
+	argBusy bool
+}
+
+// frameArgs is the number of arguments of a call that fit a frame's buffer.
+const frameArgs = 4
+
+// callFunction calls the generic function fn on the values of ops, which it
+// evaluates into the frame's own buffer. The invariant that makes this safe:
+// the slice is BORROWED by the callee (callTableB), it is not read after the
+// call returns, and it is cleared then, so that nothing outlives the call: a
+// julia method copies its arguments into its locals, a Go method is given a
+// copy, and the buffer is the frame's, so a recursive call, whose frame is its
+// own, never shares it.
+func (f *frame) callFunction(fn *Function, ops []op) (any, error) {
+	args := f.argbuf[:len(ops)]
+	f.argBusy = true
+	for i, a := range ops {
+		v, err := f.evalValue(a)
+		if err != nil {
+			clear(args)
+			f.argBusy = false
+			return nil, err
+		}
+		args[i] = v
+	}
+	v, err := f.vm.callTableB(fn.Table, fn, args, false, true)
+	clear(args)
+	f.argBusy = false
+	return v, err
 }
 
 // frameInline is the number of locals (slots and SSA values) a frame holds
@@ -238,15 +272,22 @@ func (f *frame) evalValue(o op) (any, error) {
 	case oSymbol:
 		return vm.globalValue(f.mod, x.name)
 	case oCall:
-		args := make([]any, len(x.args))
-		for i, a := range x.args {
+		fv, err := f.evalValue(x.args[0])
+		if err != nil {
+			return nil, err
+		}
+		if fn, ok := fv.(*Function); ok && !f.argBusy && len(x.args)-1 <= len(f.argbuf) {
+			return f.callFunction(fn, x.args[1:])
+		}
+		args := make([]any, len(x.args)-1)
+		for i, a := range x.args[1:] {
 			v, err := f.evalValue(a)
 			if err != nil {
 				return nil, err
 			}
 			args[i] = v
 		}
-		return vm.apply(args[0], args[1:])
+		return vm.apply(fv, args)
 	case oNew:
 		args := make([]any, len(x.args))
 		for i, a := range x.args {
@@ -798,9 +839,20 @@ func (vm *VM) methodErrorFor(f any, args []any) error {
 // on the dispatch tuple of the arguments, self's Type{…} first for a
 // constructor.
 func (vm *VM) callTable(tab *dispatch.Table, self any, args []any, ctor bool) (any, error) {
-	tt := vm.argTupleType(args)
+	return vm.callTableB(tab, self, args, ctor, false)
+}
+
+// callTableB is callTable, with args borrowed or owned. BORROWED args belong to
+// the caller's frame and are valid only until this call returns: the callee
+// must not keep the slice. A julia method (a lambda) copies them into its
+// locals (callLambda), and a method made in Go gets a copy; nothing else sees
+// the slice but the method error, which newTuple copies. (#71)
+func (vm *VM) callTableB(tab *dispatch.Table, self any, args []any, ctor, borrowed bool) (any, error) {
+	var tt *core.DataType
 	if ctor {
 		tt = vm.argTupleType(append([]any{self}, args...))
+	} else {
+		tt = vm.argTupleType(args)
 	}
 	m, env, err := tab.Lookup(tt, vm.taskWorld)
 	if err != nil {
@@ -809,12 +861,17 @@ func (vm *VM) callTable(tab *dispatch.Table, self any, args []any, ctor bool) (a
 		}
 		return nil, err
 	}
-	return vm.callMethod(m, env, self, args)
+	return vm.callMethodB(m, env, self, args, borrowed)
 }
 
 // callMethod runs method m of self on args, with env its static
 // parameters.
 func (vm *VM) callMethod(m *dispatch.Method, env []any, self any, args []any) (any, error) {
+	return vm.callMethodB(m, env, self, args, false)
+}
+
+// callMethodB is callMethod with args borrowed or owned (see callTableB).
+func (vm *VM) callMethodB(m *dispatch.Method, env []any, self any, args []any, borrowed bool) (any, error) {
 	if vm.depth >= vm.MaxDepth {
 		return nil, vm.exception(vm.tStackOverflow)
 	}
@@ -822,8 +879,14 @@ func (vm *VM) callMethod(m *dispatch.Method, env []any, self any, args []any) (a
 	defer func() { vm.depth-- }()
 	switch body := m.Def.(type) {
 	case goMethod:
+		if borrowed {
+			args = append([]any(nil), args...)
+		}
 		return body(vm, args)
 	case *goBody:
+		if borrowed {
+			args = append([]any(nil), args...)
+		}
 		return body.fn(vm, args)
 	case *lambda:
 		return vm.callLambda(body, self, args, env)
