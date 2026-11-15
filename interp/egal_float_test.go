@@ -25,6 +25,7 @@ const nan32b = Core.Intrinsics.bitcast(Float32, 0x7fc00001)
 const nz32 = Core.Intrinsics.bitcast(Float32, 0x80000000)
 struct SF; a::Float64; b::Float32; end
 struct V{x}; end
+struct R{T}; end
 g(::V{0.0}) = 1
 g(::V{nz}) = 2
 `
@@ -61,6 +62,52 @@ var egalBootCases = []egalCase{
 	{"V{nan64}() === V{nan64b}()", "false"},
 	{"g(V{nz}())", "2"},
 	{"g(V{0.0}())", "1"},
+}
+
+// Subtyping compares the values in the parameters by their bits too (julia's
+// jl_egal on non-type values): V{0.0} <: V{-0.0} is false, V{NaN} <: V{NaN} is
+// true, a NaN of another payload is another value; the same inside a Union, a
+// Tuple, an invariant parameter and under a UnionAll.
+var egalSubtypeCases = []egalCase{
+	{"V{0.0} <: V{nz}", "false"},
+	{"V{nz} <: V{0.0}", "false"},
+	{"V{0.0} <: V{0.0}", "true"},
+	{"V{nz} <: V{nz}", "true"},
+	{"V{nan64} <: V{nan64}", "true"},
+	{"V{nan64} <: V{nan64b}", "false"},
+	{"V{nan64b} <: V{nan64}", "false"},
+	{"V{nan32} <: V{nan32}", "true"},
+	{"V{nan32b} <: V{nan32}", "false"},
+	{"V{0.0f0} <: V{nz32}", "false"},
+	{"V{0.0} <: V{nan64}", "false"},
+	{"V{0.0}() isa V{nz}", "false"},
+	{"V{nan64}() isa V{nan64}", "true"},
+	// in a Union
+	{"Union{V{0.0}, Int64} <: Union{V{nz}, Int64}", "false"},
+	{"Union{V{0.0}, Int64} <: Union{V{0.0}, V{nz}, Int64}", "true"},
+	{"Union{V{nan64}, Int64} <: Union{V{nan64}, Int64}", "true"},
+	{"Union{V{nan64b}, Int64} <: Union{V{nan64}, Int64}", "false"},
+	{"Union{V{0.0}, V{nz}} <: V{0.0}", "false"},
+	{"V{nz} <: Union{V{0.0}, Int64}", "false"},
+	// in a Tuple and an invariant parameter
+	{"Tuple{V{0.0}} <: Tuple{V{nz}}", "false"},
+	{"Tuple{V{nan64}} <: Tuple{V{nan64}}", "true"},
+	{"Tuple{V{nan64b}} <: Tuple{V{nan64}}", "false"},
+	{"R{V{0.0}} <: R{V{nz}}", "false"},
+	{"R{V{nan64}} <: R{V{nan64}}", "true"},
+	{"R{V{nan64b}} <: R{V{nan64}}", "false"},
+	// under a UnionAll
+	{"V{0.0} <: (V{T} where T)", "true"},
+	{"(V{T} where T) <: V{0.0}", "false"},
+	{"R{V{0.0}} <: (R{V{T}} where T)", "true"},
+	{"(R{V{T}} where T) <: R{V{nz}}", "false"},
+	{"Tuple{V{0.0}, V{nz}} <: (Tuple{V{T}, V{T}} where T)", "false"},
+	{"Tuple{V{nan64}, V{nan64}} <: (Tuple{V{T}, V{T}} where T)", "true"},
+	{"Tuple{V{nan64}, V{nan64b}} <: (Tuple{V{T}, V{T}} where T)", "false"},
+	{"R{V{0.0}} <: (R{T} where T <: V{nz})", "false"},
+	{"R{V{nz}} <: (R{T} where T <: V{nz})", "true"},
+	{"R{V{nan64}} <: (R{T} where T <: V{nan64})", "true"},
+	{"R{V{nan64b}} <: (R{T} where T <: V{nan64})", "false"},
 }
 
 // What is only there on the Base image: ==, isequal, hash, and the tables
@@ -134,6 +181,8 @@ func TestEgalFloatsBoot(t *testing.T) {
 	}
 	egalRun(t, k, egalBootCases)
 	egalAgainstJulia(t, egalSetup, egalBootCases)
+	egalRun(t, k, egalSubtypeCases)
+	egalAgainstJulia(t, egalSetup, egalSubtypeCases)
 }
 
 // The Base image (JLGO_BASE=1): ==, isequal, hash, IdDict, Dict, Set, unique.
