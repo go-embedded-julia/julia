@@ -1,7 +1,8 @@
 # The cases of julia 1.12.6's stdlib/LinearAlgebra/test/blas.jl (MIT) for the
-# routines that go-blas serves, in single and double precision: dot, iamax, axpy
-# and axpby, nrm2 and asum on strided vectors, scal, gemv, gemm, and the
-# 0-stride refusals. The Test stdlib is not part of this interpreter, so the
+# routines that go-blas serves, in single and double precision: dot, iamax, axpy,
+# nrm2 and asum on strided vectors, scal, gemv, gemm, and the 0-stride
+# refusals. The axpby! cases are left out: OpenBLAS's daxpby is not in go-blas
+# v0.1.0. The Test stdlib is not part of this interpreter, so the
 # three macros the cases use are defined here; a case that fails is named in
 # `fails`. Run by interp/blas_oracle_test.go on the Base image.
 
@@ -44,6 +45,18 @@ end
 
 fabs(x::Real) = abs(x)
 
+# Random's rand and randn of a Float64 array use llvmcall, which this
+# interpreter does not have: the cases draw their values from a generator of
+# their own (a 64-bit linear congruential one), with the same distribution
+# shape (values around 0), which is all they ask of them.
+const lcgstate = Ref(UInt64(0x9e3779b97f4a7c15))
+function lcg()
+    lcgstate[] = lcgstate[] * 0x5851f42d4c957f2d + 0x14057b7ef767814f
+    Float64(lcgstate[] >> 11) / 9007199254740992.0
+end
+rnd1(::Type{T}) where {T<:AbstractFloat} = T(lcg() - 0.5)
+rnd(::Type{T}, dims::Integer...) where {T<:AbstractFloat} = reshape(T[rnd1(T) for _ in 1:prod(dims)], dims...)
+
 @testset "vec_pointer_stride" begin
     a = float(rand(1:20,4,4,4))
     @test BLAS.asum(a) == sum(a) # dense case
@@ -54,7 +67,6 @@ fabs(x::Real) = abs(x)
     @test_throws ArgumentError BLAS.asum(view(a,1:3:4,:,:)) # non-vector like
     @test_throws ArgumentError BLAS.asum(view(a,1:2,1:1,1:3))
 end
-Random.seed!(100)
 @testset for elty in [Float32, Float64]
     o4 = fill(elty(1), 4)
     z4 = zeros(elty, 4)
@@ -72,35 +84,34 @@ Random.seed!(100)
 
     let n = 10
         @testset "dot products" begin
-            x1 = randn(elty, n)
-            x2 = randn(elty, n)
+            x1 = rnd(elty,n)
+            x2 = rnd(elty,n)
             @test BLAS.dot(x1,x2) ≈ sum(x1.*x2)
-            @test_throws DimensionMismatch BLAS.dot(x1,rand(elty, n + 1))
+            @test_throws DimensionMismatch BLAS.dot(x1,rnd(elty,n + 1))
         end
         @testset "iamax" begin
-            x = randn(elty, n)
+            x = rnd(elty,n)
             @test BLAS.iamax(x) == findmax(fabs, x)[2]
         end
         @testset "axp(b)y" begin
-            x1 = randn(elty, n)
-            x2 = randn(elty, n)
-            α  = rand(elty)
-            β  = rand(elty)
+            x1 = rnd(elty,n)
+            x2 = rnd(elty,n)
+            α  = rnd1(elty)
+            β  = rnd1(elty)
             for X1 in (x1, view(x1,n:-1:1)), X2 in (x2, view(x2, n:-1:1))
                 @test BLAS.axpy!(α,deepcopy(X1),deepcopy(X2)) ≈ α*X1 + X2
-                @test BLAS.axpby!(α,deepcopy(X1),β,deepcopy(X2)) ≈ α*X1 + β*X2
             end
             for ind1 in (1:n, n:-1:1), ind2 in (1:n, n:-1:1)
                 @test BLAS.axpy!(α,copy(x1),ind1,copy(x2),ind2) ≈ x2 + α*(ind1 == ind2 ? x1 : reverse(x1))
             end
-            @test_throws DimensionMismatch BLAS.axpy!(α, copy(x1), rand(elty, n + 1))
-            @test_throws DimensionMismatch BLAS.axpby!(α, copy(x1), β, rand(elty, n + 1))
+            @test_throws DimensionMismatch BLAS.axpy!(α, copy(x1), rnd(elty,n + 1))
+            @test_throws DimensionMismatch BLAS.axpby!(α, copy(x1), β, rnd(elty,n + 1))
             @test_throws DimensionMismatch BLAS.axpy!(α, copy(x1), 1:div(n,2), copy(x2), 1:n)
             @test_throws ArgumentError BLAS.axpy!(α, copy(x1), 0:div(n,2), copy(x2), 1:(div(n, 2) + 1))
             @test_throws ArgumentError BLAS.axpy!(α, copy(x1), 1:div(n,2), copy(x2), 0:(div(n, 2) - 1))
         end
         @testset "nrm2, iamax, and asum for StridedVectors" begin
-            a = rand(elty,n)
+            a = rnd(elty, n)
             for ind in (2:2:n, n:-2:2)
                 b = view(a, ind, 1)
                 @test BLAS.nrm2(b) ≈ sqrt(sum(abs2, b))
@@ -116,8 +127,8 @@ Random.seed!(100)
             @test BLAS.nrm2(a) === abs2(elty(NaN))
         end
         @testset "scal" begin
-            α = rand(elty)
-            a = rand(elty,n)
+            α = rnd1(elty)
+            a = rnd(elty, n)
             @test BLAS.scal(n,α,a,1) ≈ α * a
             for v in (a, view(a, n:-1:1))
                 @test BLAS.scal!(α, deepcopy(v)) ≈ α * v
@@ -142,8 +153,8 @@ Random.seed!(100)
         @test all(BLAS.gemv('N', U4, o4) .== v41)
         @test all(BLAS.gemv('N', U4, o4) .== v41)
         @testset "non-standard strides" begin
-            A = rand(elty, 3, 4)
-            x = rand(elty, 5)
+            A = rnd(elty,3, 4)
+            x = rnd(elty,5)
             for y = (view(ones(elty, 5), 1:2:5), view(ones(elty, 7), 6:-2:2))
                 ycopy = copy(y)
                 @test BLAS.gemv!('N', elty(2), view(A, :, 2:2:4), view(x, 1:3:4), elty(3), y) ≈ 2*A[:,2:2:4]*x[1:3:4] + 3*ycopy
@@ -209,18 +220,16 @@ Random.seed!(100)
 end
 
 @testset "test for 0-strides" for elty in (Float32, Float64)
-    A = randn(elty, 10, 10);
-    a = view([randn(elty)], 1 .+ 0(1:10))
-    b = view([randn(elty)], 1 .+ 0(1:10))
-    α, β = randn(elty), randn(elty)
+    A = rnd(elty,10, 10);
+    a = view([rnd1(elty)], 1 .+ 0(1:10))
+    b = view([rnd1(elty)], 1 .+ 0(1:10))
+    α, β = rnd1(elty), rnd1(elty)
     @testset "dot" begin
         @test BLAS.dot(a,b) ≈ sum(a.*b)
     end
     @testset "axp(b)y!" begin
         @test BLAS.axpy!(α,a,copy(b)) ≈ α*a + b
-        @test BLAS.axpby!(α,a,β,copy(b)) ≈ α*a + β*b
         @test_throws "dest" BLAS.axpy!(α,a,b)
-        @test_throws "dest" BLAS.axpby!(α,a,β,b)
     end
     @test BLAS.iamax(a) == 0
     @test_throws "dest" BLAS.scal!(b[1], a)

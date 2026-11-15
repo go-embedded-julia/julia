@@ -66,7 +66,7 @@ y = [Float64(mod(2i+1, 9) - 4) / 8 for i in 1:n]
 
 const blasOracleCell = `
 bits(v) = join([string(reinterpret(UInt64, e)) for e in v], ",")
-join([bits(vec(A*B)), bits(vec(A'*B)), bits(vec(A*B')), bits(A*x), bits(A'*x), bits([x'*y])], ";")`
+println(join([bits(vec(A*B)), bits(vec(A'*B)), bits(vec(A*B')), bits(A*x), bits(A'*x), bits([x'*y])], ";"))`
 
 func oracleInputs() (A, B [][]float64, x, y []float64) {
 	n := 50
@@ -201,7 +201,7 @@ func TestBLASOnBase(t *testing.T) {
 	r = k.Eval(ctx, blasStdlibCases)
 	t.Logf("julia's cases: %v", time.Since(start))
 	if r.Err != nil {
-		t.Fatalf("julia's cases: %v\n%s", r.Err, r.Stderr)
+		t.Fatalf("julia's cases: %v\n%s\n%s", r.Err, r.Stderr, r.Stdout[max(0, len(r.Stdout)-600):])
 	}
 	m := regexp.MustCompile(`^\((\d+), (.*)\)$`).FindStringSubmatch(r.Value)
 	if m == nil || m[2] != "String[]" {
@@ -228,7 +228,7 @@ func TestBLASOnBase(t *testing.T) {
 			t.Errorf("the products never reached %s", name)
 		}
 	}
-	ours := strings.Split(strings.Trim(r.Value, `"`), ";")
+	ours := strings.Split(strings.TrimSpace(r.Stdout), ";")
 	want, bound := exactProducts(t)
 	if len(ours) != len(want) {
 		t.Fatalf("%d products, want %d", len(ours), len(want))
