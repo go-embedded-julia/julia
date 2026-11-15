@@ -125,6 +125,67 @@ func TestResetAfterLoad(t *testing.T) {
 	}
 }
 
+// Revert puts a table back in the state it had in a world: methods defined
+// since are gone, methods replaced or deleted since are back, and a lookup in a
+// later world answers as the lookup in that world did.
+func TestRevert(t *testing.T) {
+	tab := &Table{Name: "f"}
+	tup := func(ts ...any) any { return mustApply(t, core.AnyTupleType, ts...) }
+	tab.Add(tup(core.Int64Type))  // 0
+	tab.Add(tup(core.NumberType)) // 1
+	m2, _ := tab.Add(tup(core.Float64Type))
+	tab.Disable(m2, tab.World()) // already gone before the world reverted to
+	w := tab.World() + 1         // a world nothing was defined or deleted in
+	sigs := []any{tup(core.Int64Type), tup(core.Float64Type), tup(core.Int32Type), tup(core.StringType)}
+	answer := func(world uint64) string {
+		var b strings.Builder
+		for _, s := range sigs {
+			m, _, err := tab.Lookup(s, world)
+			if err != nil {
+				b.WriteString("-")
+			} else {
+				b.WriteString(string(rune('a' + m.Index)))
+			}
+		}
+		return b.String()
+	}
+	want := answer(w)
+	if want != "ab"+"b"+"b" && want != "abbb" || strings.Contains(want, "c") {
+		t.Fatalf("the table answers %q in the world to revert to", want)
+	}
+	// after w: a method replaced (Int64), one deleted (Number), one defined (Int32)
+	tab.Add(tup(core.Int64Type))
+	m4, _ := tab.Add(tup(core.Int32Type))
+	for _, m := range tab.Methods(tab.World()) {
+		if m.Index == 1 {
+			tab.Disable(m, tab.World())
+		}
+	}
+	if got := answer(tab.World() + 1); got == want || !strings.Contains(got, string(rune('a'+m4.Index))) {
+		t.Fatalf("the changes after w are not seen: %q", got)
+	}
+	tab.Revert(w)
+	if got := answer(w); got != want {
+		t.Errorf("in the world reverted to: %q, want %q", got, want)
+	}
+	later := tab.World() + 5
+	if got := answer(later); got != want {
+		t.Errorf("in a later world: %q, want %q", got, want)
+	}
+	if n := len(tab.Methods(later)); n != 2 {
+		t.Errorf("%d methods are current, want 2", n)
+	}
+	// the table goes on: a definition after a revert is seen, and a second revert undoes it
+	tab.Add(tup(core.Int32Type))
+	if got := answer(tab.World()); got == want {
+		t.Error("a definition after a revert is not seen")
+	}
+	tab.Revert(w)
+	if got := answer(tab.World() + 3); got != want {
+		t.Errorf("after a second revert: %q, want %q", got, want)
+	}
+}
+
 // sameSig is type equality, and a failure of the algebra's work bound is not
 // equality.
 func TestSameSig(t *testing.T) {

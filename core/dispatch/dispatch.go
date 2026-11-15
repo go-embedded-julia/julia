@@ -228,6 +228,39 @@ func sameSig(a, b any) (same bool) {
 func (t *Table) ResetAfterLoad() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.rebuildLocked()
+}
+
+// Revert returns the table to the methods it had in world w: a method defined
+// after w is removed, and one that was current in w and has ended since (it was
+// replaced, or deleted) is current again, so that a lookup in any later world
+// finds what a lookup at w found. The typemap and the caches are rebuilt as
+// after a load. It is what Kernel.Reset does to every table; the caller moves
+// its world counter past w first, so that no definition made later shares a
+// world with the ones undone. A method that ended at world w itself cannot be
+// told from one the world w ended when it was made: w must be a world nothing
+// was defined or deleted in.
+func (t *Table) Revert(w uint64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	kept := make([]*Method, 0, len(t.methods))
+	for _, m := range t.methods {
+		if m.PrimaryWorld > w {
+			continue
+		}
+		if m.MaxWorld >= w {
+			m.MaxWorld = ^uint64(0)
+		}
+		kept = append(kept, m)
+	}
+	t.methods = kept
+	t.world = min(t.world, w)
+	t.rebuildLocked()
+}
+
+// rebuildLocked drops what is derived from the methods and derives it again
+// (ResetAfterLoad); the caller holds t.mu.
+func (t *Table) rebuildLocked() {
 	t.leaf, t.canon, t.clips, t.changes = nil, nil, nil, 0
 	t.tm, t.replayed, t.failed = typemap{}, 0, nil
 	t.events = t.events[:0]
