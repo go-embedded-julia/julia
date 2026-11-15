@@ -311,7 +311,7 @@ func TestKernelGetEmptyAndOverflowingMatrices(t *testing.T) {
 		"1x5":                 {mat(mem(floats(5)...), 0, 1, 5), 1, 5},
 		"2x3 through offset":  {mat(mem(floats(8)...), 2, 2, 3), 2, 3},
 		"the whole memory":    {mat(mem(floats(6)...), 0, 2, 3), 2, 3},
-		"zero after a big 1d": {mat(mem(), 0, 1<<40, 0), 1 << 40, 0},
+		"zero after a big 1d": {mat(mem(), 0, math.MaxInt/2+1, 0), math.MaxInt/2 + 1, 0},
 	} {
 		got, err := vm.toGo(c.a)
 		m, ok := got.(Matrix[float64])
