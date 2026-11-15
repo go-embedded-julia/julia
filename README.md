@@ -316,6 +316,7 @@ with the official release tarball).
 | `core/dispatch` | method tables, world ages, dispatch of concrete calls (after gf.c) |
 | `interp` | the interpreter of lowered code (port of interpreter.c, with builtins.c and runtime_intrinsics.c in part) |
 | `internal/unitab` | Unicode tables from the reference build, utf8proc's grapheme breaks |
+| `internal/utf8proc` | a Go port of utf8proc v2.10.0 (Unicode 16.0.0), the library `Base.Unicode` calls: case mappings, category, width, grapheme breaks, normalization; tables generated from utf8proc's own data (`jloracle utf8proc`), checked over every code point against julia 1.12.6 (`uppercase`, `lowercase`, `normalize` work in a cell) |
 | `internal/oracle` | the reference julia as a differential oracle |
 | `internal/gen`, `cmd/jloracle` | the golden-file generators |
 
