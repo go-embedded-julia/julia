@@ -461,6 +461,12 @@ func (e *imgEnc) structv(v reflect.Value, owner string) {
 		return
 	case t.PkgPath() == "sync/atomic" && strings.HasPrefix(t.Name(), "Pointer["):
 		// atomic.Pointer[T]: a pointer to the T
+		if e.boot && owner == typeInstanceField {
+			// what running code caches on a type of core's process-wide
+			// caches (typeInstance) is not something New made: a fresh VM and
+			// one made after a long session must number the same objects
+			return
+		}
 		p := v.FieldByName("v").UnsafePointer()
 		if p == nil {
 			e.uv(0)
@@ -914,6 +920,11 @@ func (e *imgEnc) roots() {
 		e.value(rw(rv.Field(i)), label+"."+name)
 	}
 }
+
+// typeInstanceField names the field of core.DataType that holds the cached
+// instance of a type (core.DataType.SetCachedInstance): the boot enumeration
+// does not follow it.
+const typeInstanceField = "core.DataType.instance"
 
 // enumerateBoot numbers the objects New made, in the order of the walk the
 // encoder makes: a pointer reached from the roots that is not process-static
