@@ -40,13 +40,23 @@ var (
 type ConversionError struct {
 	Julia string // the julia type, for a Get
 	Go    string // the Go type, for a Set
+	// Why is set when the type is one the table converts but this value is not
+	// a valid one of it (a Matrix whose Rows*Cols is not len(Data)): the error
+	// then says so, and does not call the type unconverted.
+	Why string
 }
 
+// acceptedGo is the Go side of the table, as the error of a Set lists it.
+const acceptedGo = "int, int64, float64, bool, string, []float64, []int64, Matrix[float64], Matrix[int64]"
+
 func (e *ConversionError) Error() string {
-	if e.Julia != "" {
+	switch {
+	case e.Why != "":
+		return fmt.Sprintf("interp: a Go value of type %s cannot be set: %s", e.Go, e.Why)
+	case e.Julia != "":
 		return fmt.Sprintf("interp: a value of the julia type %s has no Go value in the kernel's table", e.Julia)
 	}
-	return fmt.Sprintf("interp: a Go value of type %s has no julia value in the kernel's table", e.Go)
+	return fmt.Sprintf("interp: Set takes %s; got %s", acceptedGo, e.Go)
 }
 
 func (e *ConversionError) Is(target error) bool { return target == ErrKernelType }
@@ -71,17 +81,56 @@ func (k *Kernel) Get(name string) (v any, ok bool, err error) {
 		return nil, false, err
 	}
 	defer k.busy.Store(false)
-	vm := k.vm
-	vm.taskWorld = vm.World()
-	b := vm.Main.lookup(expr.Symbol(name), vm.taskWorld)
-	if b == nil || b.Value == undef {
+	jv, bound := k.global(name)
+	if !bound {
 		return nil, false, nil
 	}
-	v, err = vm.toGo(b.Value)
+	v, err = k.vm.toGo(jv)
 	if err != nil {
 		return nil, false, err
 	}
 	return v, true, nil
+}
+
+// global is the value bound to name in Main, without copying it; the caller
+// holds the kernel (enter).
+func (k *Kernel) global(name string) (any, bool) {
+	vm := k.vm
+	vm.taskWorld = vm.World()
+	b := vm.Main.lookup(expr.Symbol(name), vm.taskWorld)
+	if b == nil || b.Value == undef {
+		return nil, false
+	}
+	return b.Value, true
+}
+
+// Has is whether the global name of Main is bound, whatever its type, without
+// copying the value. Like Get it is refused with ErrKernelBusy while a cell
+// runs: the answer is (false, ErrKernelBusy), never a plain false, which would
+// read as "not bound".
+func (k *Kernel) Has(name string) (bool, error) {
+	if err := k.enter(); err != nil {
+		return false, err
+	}
+	defer k.busy.Store(false)
+	_, bound := k.global(name)
+	return bound, nil
+}
+
+// TypeOf is the julia type of the global name of Main as text (Matrix{Float64}
+// is "Matrix{Float64}"), without copying the value, and whether the name is
+// bound. It answers for a type the table does not convert too. Refused with
+// ErrKernelBusy while a cell runs, as Has is.
+func (k *Kernel) TypeOf(name string) (string, bool, error) {
+	if err := k.enter(); err != nil {
+		return "", false, err
+	}
+	defer k.busy.Store(false)
+	jv, bound := k.global(name)
+	if !bound {
+		return "", false, nil
+	}
+	return showValue(k.vm.typeOf(jv)), true, nil
 }
 
 // Set assigns the Go value v to the global name of Main, as the cell
@@ -213,14 +262,28 @@ func (vm *VM) fromGo(v any) (any, error) {
 		return int64(x), nil
 	case int64, float64, bool, string:
 		return x, nil
+	// Every size is checked BEFORE toAny boxes the slice: a refused slice must
+	// cost a few words, not len(x) interface values and their boxed elements.
 	case []float64:
-		return vm.newVectorOf(core.Float64Type, toAny(x))
+		if err := vm.checkArraySize(len(x)); err != nil {
+			return nil, err
+		}
+		return vm.newVector(core.Float64Type, toAny(x)), nil
 	case []int64:
-		return vm.newVectorOf(core.Int64Type, toAny(x))
+		if err := vm.checkArraySize(len(x)); err != nil {
+			return nil, err
+		}
+		return vm.newVector(core.Int64Type, toAny(x)), nil
 	case Matrix[float64]:
-		return vm.newMatrixOf(core.Float64Type, toAny(x.Data), x.Rows, x.Cols)
+		if err := vm.checkMatrix("Matrix[float64]", x.Rows, x.Cols, len(x.Data)); err != nil {
+			return nil, err
+		}
+		return vm.newMatrixOf(core.Float64Type, toAny(x.Data), x.Rows, x.Cols), nil
 	case Matrix[int64]:
-		return vm.newMatrixOf(core.Int64Type, toAny(x.Data), x.Rows, x.Cols)
+		if err := vm.checkMatrix("Matrix[int64]", x.Rows, x.Cols, len(x.Data)); err != nil {
+			return nil, err
+		}
+		return vm.newMatrixOf(core.Int64Type, toAny(x.Data), x.Rows, x.Cols), nil
 	}
 	return nil, &ConversionError{Go: fmt.Sprintf("%T", v)}
 }
@@ -233,13 +296,23 @@ func toAny[T any](xs []T) []any {
 	return out
 }
 
-// newVectorOf is a Vector{elem} over the elements, which are copies (toAny
-// made them): the memory is the vector's own.
-func (vm *VM) newVectorOf(elem *core.DataType, elems []any) (any, error) {
-	if err := vm.checkArraySize(len(elems)); err != nil {
-		return nil, err
+// checkMatrix is the shape and size of a Matrix of rows by cols over n
+// elements, answered before anything is allocated: Rows and Cols are not
+// negative, Rows*Cols is n (without the product, which can overflow), and n is
+// within VM.MaxMemoryElems. goType names the Go type in the error.
+func (vm *VM) checkMatrix(goType string, rows, cols, n int) error {
+	ok := rows >= 0 && cols >= 0
+	switch {
+	case !ok:
+	case rows == 0 || cols == 0:
+		ok = n == 0
+	default:
+		ok = n%rows == 0 && n/rows == cols
 	}
-	return vm.newVector(elem, elems), nil
+	if !ok {
+		return &ConversionError{Go: goType, Why: fmt.Sprintf("Rows %d by Cols %d does not match the %d elements of Data", rows, cols, n)}
+	}
+	return vm.checkArraySize(n)
 }
 
 // checkArraySize is the bound of VM.MaxMemoryElems on one array.
@@ -250,28 +323,14 @@ func (vm *VM) checkArraySize(n int) error {
 	return nil
 }
 
-// newMatrixOf is a Matrix{elem} of rows by cols over the elements, column-major.
-func (vm *VM) newMatrixOf(elem *core.DataType, elems []any, rows, cols int) (any, error) {
-	n := len(elems)
-	ok := rows >= 0 && cols >= 0
-	switch {
-	case !ok:
-	case rows == 0 || cols == 0:
-		ok = n == 0
-	default:
-		ok = n%rows == 0 && n/rows == cols // without rows*cols, which can overflow
-	}
-	if !ok {
-		return nil, fmt.Errorf("%w: a matrix of %d by %d does not hold %d elements", ErrKernelType, rows, cols, n)
-	}
-	if err := vm.checkArraySize(n); err != nil {
-		return nil, err
-	}
+// newMatrixOf is a Matrix{elem} of rows by cols over the elements, column-major;
+// checkMatrix has been asked first.
+func (vm *VM) newMatrixOf(elem *core.DataType, elems []any, rows, cols int) any {
 	mt := must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), elem, core.CPU)).(*core.DataType)
 	rt := must(core.Apply(core.GenericMemoryRefType, expr.Symbol("not_atomic"), elem, core.CPU)).(*core.DataType)
 	at := must(core.Apply(core.ArrayType, elem, int64(2))).(*core.DataType)
 	return &Struct{Type: at, Fields: []any{
 		&MemoryRef{Type: rt, Mem: &Memory{Type: mt, Elems: elems}},
 		vm.newTuple([]any{int64(rows), int64(cols)}),
-	}}, nil
+	}}
 }
