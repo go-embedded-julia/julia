@@ -3,6 +3,7 @@ package interp
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"weak"
 
@@ -148,7 +149,11 @@ type instanceXfer struct {
 func (d *imgDec) instanceTransfers() []instanceXfer {
 	var xfers []instanceXfer
 	pending := map[*core.DataType]any{}
-	for _, p := range d.replaced {
+	pairs := slices.Clone(d.replaced)
+	for dt, sc := range d.shared { // a boot type in the caches takes the instance its record holds
+		pairs = append(pairs, [2]*core.DataType{sc, dt})
+	}
+	for _, p := range pairs {
 		v, ok := p[0].CachedInstance()
 		if !ok {
 			continue
@@ -179,6 +184,9 @@ func (d *imgDec) canon(st *internState, x any, seen map[any]bool) any {
 		if c, ok := st.redirect[t]; ok {
 			return c
 		}
+		if _, in := d.shared[t]; in {
+			return t // the process's own: canonical, and not ours to write
+		}
 		if id, ok := st.id[t]; ok && !st.done[id] {
 			d.internOne(st, id)
 			if c, ok := st.redirect[t]; ok {
@@ -190,47 +198,59 @@ func (d *imgDec) canon(st *internState, x any, seen map[any]bool) any {
 			return t
 		}
 		seen[t] = true
-		for i, p := range t.Parameters {
-			t.Parameters[i] = d.canon(st, p, seen)
+		for i := range t.Parameters {
+			d.canonSet(st, &t.Parameters[i], seen)
 		}
 	case *core.UnionAll:
 		if t == nil || seen[t] {
 			return x
 		}
 		seen[t] = true
-		t.Var, _ = d.canon(st, t.Var, seen).(*core.TypeVar)
-		t.Body = d.canon(st, t.Body, seen)
+		d.canon(st, t.Var, seen) // a type variable is never replaced, only its bounds are
+		d.canonSet(st, &t.Body, seen)
 	case *core.Union:
 		if t == nil || seen[t] {
 			return x
 		}
 		seen[t] = true
-		t.A, t.B = d.canon(st, t.A, seen), d.canon(st, t.B, seen)
+		d.canonSet(st, &t.A, seen)
+		d.canonSet(st, &t.B, seen)
 	case *core.TypeVar:
 		if t == nil || seen[t] {
 			return x
 		}
 		seen[t] = true
-		t.LB, t.UB = d.canon(st, t.LB, seen), d.canon(st, t.UB, seen)
+		d.canonSet(st, &t.LB, seen)
+		d.canonSet(st, &t.UB, seen)
 	case *core.Vararg:
 		if t == nil || seen[t] {
 			return x
 		}
 		seen[t] = true
-		t.T, t.N = d.canon(st, t.T, seen), d.canon(st, t.N, seen)
+		d.canonSet(st, &t.T, seen)
+		d.canonSet(st, &t.N, seen)
 	case *core.Tuple:
 		if t == nil || seen[t] {
 			return x
 		}
 		seen[t] = true
-		if c, ok := d.canon(st, t.Type, seen).(*core.DataType); ok {
+		if c, ok := d.canon(st, t.Type, seen).(*core.DataType); ok && c != t.Type {
 			t.Type = c
 		}
-		for i, e := range t.Elems {
-			t.Elems[i] = d.canon(st, e, seen)
+		for i := range t.Elems {
+			d.canonSet(st, &t.Elems[i], seen)
 		}
 	}
 	return x
+}
+
+// canonSet is *p = canon(*p), written only when it changes: a type the process
+// shares (core's own, a boot type) is canonical already, and writing the value
+// it holds would still race with the VMs that read it.
+func (d *imgDec) canonSet(st *internState, p *any, seen map[any]bool) {
+	if c := d.canon(st, *p, seen); c != *p {
+		*p = c
+	}
 }
 
 // ----- hints on core's shared types -----
@@ -320,6 +340,7 @@ func (d *imgDec) commit(hints []loadHint) {
 	if err := d.in.Commit(); err != nil {
 		panic(imgFail{fmt.Errorf("%w: %w", ErrImageConflict, err)})
 	}
+	d.applyShared()
 	for _, x := range xfers {
 		x.to.SetCachedInstance(x.v)
 	}
