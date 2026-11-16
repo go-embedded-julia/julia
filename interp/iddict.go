@@ -89,7 +89,7 @@ func (vm *VM) tableAssign(a *Memory, key, val any) (*Memory, bool, error) {
 			}
 			if vm.egal(key, k2) {
 				if tab[index+1] != undef {
-					tab[index+1] = val
+					a.Set(index+1, val)
 					return a, false, nil
 				}
 				// nothing is the deleted key: a search for nothing goes on
@@ -107,7 +107,8 @@ func (vm *VM) tableAssign(a *Memory, key, val any) (*Memory, bool, error) {
 			}
 		}
 		if empty != -1 {
-			tab[empty], tab[empty+1] = key, val
+			a.Set(empty, key)
+			a.Set(empty+1, val)
 			return a, true, nil
 		}
 		// table full: grow it fast (iddict.c:90-101)

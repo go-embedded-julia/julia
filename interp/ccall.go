@@ -220,8 +220,11 @@ func (vm *VM) bootShims() {
 		// julia 1.12's jl_genericmemory_owner is the memory itself (julia.h:1361-1364)
 		"jl_genericmemory_owner": func(vm *VM, a []any) (any, error) { return a[0], nil },
 		// jl_object_id (builtins.c), objectid: the identity hash egal shares
-		"jl_object_id":                 func(vm *VM, a []any) (any, error) { return vm.objectID(a[0]), nil },
-		"memmove":                      func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
+		"jl_object_id": func(vm *VM, a []any) (any, error) { return vm.objectID(a[0]), nil },
+		"memmove":      func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
+		// memcpy is memmove for regions that do not overlap, and moving is
+		// right for those too (Random.seed! copies the seed's words with it)
+		"memcpy":                       func(vm *VM, a []any) (any, error) { return vm.memmove(a) },
 		"memset":                       func(vm *VM, a []any) (any, error) { return vm.memset(a) },
 		"memcmp":                       func(vm *VM, a []any) (any, error) { return vm.memcmp(a) },
 		"memhash_seed":                 func(vm *VM, a []any) (any, error) { return vm.memhashShim(a) },

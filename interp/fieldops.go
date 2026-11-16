@@ -119,6 +119,7 @@ func biSwapfield(vm *VM, args []any) (any, error) {
 		return nil, vm.typeError("swapfield!", "", ft, args[2])
 	}
 	old := s.Fields[i]
+	s.logField(i)
 	s.Fields[i] = args[2]
 	syncArgs(s)
 	if old == undef {
@@ -150,6 +151,7 @@ func biModifyfield(vm *VM, args []any) (any, error) {
 	if !vm.isa(y, ft) {
 		return nil, vm.typeError("modifyfield!", "", ft, y)
 	}
+	s.logField(i)
 	s.Fields[i] = y
 	syncArgs(s)
 	return vm.modifyResult("modifyfield!", ft, old, y)
@@ -196,6 +198,7 @@ func biReplacefield(vm *VM, args []any) (any, error) {
 	}
 	success := vm.egal(old, args[2])
 	if success {
+		s.logField(i)
 		s.Fields[i] = args[3]
 		syncArgs(s)
 	}
@@ -219,6 +222,7 @@ func biSetfieldonce(vm *VM, args []any) (any, error) {
 	if s.Fields[i] != undef {
 		return false, nil
 	}
+	s.logField(i)
 	s.Fields[i] = args[2]
 	syncArgs(s)
 	return true, nil

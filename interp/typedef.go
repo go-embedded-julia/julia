@@ -652,6 +652,7 @@ func (vm *VM) defineCtor(tab *dispatch.Table, mod *Module, atypes []any, tvars [
 	if mod == nil {
 		mod = vm.Main
 	}
+	vm.touch(tab)
 	must(tab.Define(sig, vm.newWorld(), &lambda{c: c, nargs: len(atypes), mod: mod}))
 }
 

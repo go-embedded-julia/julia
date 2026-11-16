@@ -158,7 +158,10 @@ type VM struct {
 	// bootErr is why it could not.
 	bootIdx  map[imgKey]int32
 	bootList []reflect.Value // the same objects, by their number
-	bootErr  error
+	// undo logs the writes to the objects an image holds (undo.go), once a
+	// Kernel turns it on
+	undo    *undoLog
+	bootErr error
 	// typeinfTiming is the task's reentrant_timing bit 0 (gf.c:4944-4958).
 	typeinfTiming bool
 	// hrtick is the logical clock jl_hrtime reads while the VM generates an
@@ -292,7 +295,7 @@ func New() *VM {
 		sessions: map[*Module]*Session{}, openModules: map[*Module]int{}, others: &dispatch.Table{Name: "#callable"}, Sources: baseSources, BinDir: "/julia/bin", HomeDir: "/julia/home", WorkDir: "/julia/home",
 		MaxMemoryElems: DefaultMaxMemoryElems, emptyMemory: map[*core.DataType]*Memory{}, singletons: map[*core.DataType]any{},
 		reflected: map[*dispatch.Method]*reflected{}, reflectedOf: map[*Struct]*reflected{},
-		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard,
+		argVectors: map[weak.Pointer[expr.Expr]]*Struct{}, strBufs: map[uintptr]strBuf{}, Stdout: io.Discard, Stderr: io.Discard, undo: &undoLog{max: DefaultMaxUndo},
 		addrs: addrSpace{byTarget: map[any]uint64{}, byID: map[uint64]any{}}}
 	vm.world.Store(1)
 	vm.typeinfWorld = 1 // jl_typeinf_world's initial value (gf.c:955)

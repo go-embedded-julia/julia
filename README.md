@@ -251,6 +251,25 @@ r := k.Eval(ctx, `f(x) = x + 1; f(41)`)
   `Get` answers `(value, ok, err)`: `ok` is false for a name that is not bound;
   any other type is a `*ConversionError` (`ErrKernelType`) that names the julia
   type, and `Set` of a Go type outside the table names the Go type.
+- **Reset.** `k.Reset()` puts the kernel back in the state `NewKernel` returned
+  it in, for the next notebook run: what the cells defined, assigned, imported,
+  overloaded or mutated is gone (the generator of `rand` included), measured
+  against a fresh kernel cell for cell (`TestKernelResetBase`). It costs what
+  the cells changed, about 0.6 ms for a corpus of 18 cells that wrote 3790 times
+  to the image, not a load (about 0.85 s): every write to an object the image
+  holds is logged (`setfield!`, `swapfield!`, `modifyfield!`, `replacefield!`,
+  `setfieldonce!`, memory stores and copies) and replayed in reverse, the
+  methods of the functions a cell defined into are reverted to the world of the
+  start, and the bindings of every module are put back. Past `DefaultMaxUndo`
+  (262144) writes `Reset` loads the image again and says so
+  (`ResetInfo.Reloaded`), or, for a kernel made by `NewKernel` from a VM and so
+  without an image, answers `ErrResetOverflow` and changes nothing. It is
+  refused with `ErrKernelBusy` while a cell runs. Not undone, by design:
+  Go-side state reached by a `ccall` (files, sockets, the environment, the
+  working directory, the output already written, libgmp and libmpfr), tasks a
+  cell started, the caches (types a cell made stay in the weak type caches
+  until collected, specializations stay), limits set through `k.VM()` between
+  cells, and the world and object-id counters, which only move forward.
 - **Without Base** (a `Boot()`-only image) the value and the error are the Go
   repr, and cells use `Core`'s names; with the Base image they are julia's.
 

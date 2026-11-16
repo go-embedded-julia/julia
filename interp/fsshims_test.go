@@ -441,6 +441,38 @@ func TestPutBytesAndRoom(t *testing.T) {
 	}
 }
 
+// memcpy (as memmove) of a Ref of an integer into a Ref of a tuple of bytes, as
+// Random.seed! hashes a word of its seed, and the write is logged for Reset.
+func TestMemcpyRefIntoTuple(t *testing.T) {
+	f := newPCREFixture(t)
+	f.s.Eval("mutable struct RefU32m; x::UInt32; end; mutable struct RefT4m; x::NTuple{4, UInt8}; end")
+	src, _ := f.ref("RefU32m", uint32(0x04030201))
+	dst, _ := f.ref("RefT4m", f.vm.newTuple([]any{uint8(9), uint8(9), uint8(9), uint8(9)}))
+	srcp := &Pointer{Type: f.vm.ptrType(core.NothingType), Target: src.Target}
+	dstp := &Pointer{Type: f.vm.ptrType(core.NothingType), Target: dst.Target}
+	st := dst.Target.(*Struct)
+	st.undo = f.vm.undo
+	f.vm.undo.on = true
+	if _, err := f.sh("memcpy", dstp, srcp, uint64(4)); err != nil {
+		t.Fatal(err)
+	}
+	if got := showValue(st.Fields[0]); got != "(0x01, 0x02, 0x03, 0x04)" {
+		t.Errorf("the tuple: %s", got)
+	}
+	if len(f.vm.undo.entries) != 1 {
+		t.Errorf("%d writes logged", len(f.vm.undo.entries))
+	}
+	f.vm.undo.entries[0].undo()
+	if got := showValue(st.Fields[0]); got != "(0x09, 0x09, 0x09, 0x09)" {
+		t.Errorf("the tuple after the undo: %s", got)
+	}
+	for _, n := range []uint64{3, 5, 0} {
+		if _, err := f.sh("memcpy", dstp, srcp, n); err == nil {
+			t.Errorf("memcpy of %d bytes into a Ref of 4", n)
+		}
+	}
+}
+
 // memmove of the bytes a Ref of an integer holds, as unsafe_write(io, Ref(x),
 // sizeof(x)) copies them into an IOBuffer's data.
 func TestMemmoveRef(t *testing.T) {

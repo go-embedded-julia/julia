@@ -796,6 +796,7 @@ func (vm *VM) setStructField(s *Struct, i int, v any) (any, error) {
 	if ft, _ := s.Type.FieldTypes(); ft != nil && !vm.isa(v, ft[i]) {
 		return nil, vm.typeError("setfield!", "", ft[i], v)
 	}
+	s.logField(i)
 	s.Fields[i] = v
 	syncArgs(s) // an Expr's args vector: the Expr follows it
 	return v, nil

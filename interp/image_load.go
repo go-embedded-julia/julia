@@ -506,12 +506,12 @@ func (d *imgDec) shells() {
 			if k.idx >= len(d.vm.bootList) {
 				d.failf(ErrImageCorrupt, "boot object %d: index %d of %d", i, k.idx, len(d.vm.bootList))
 			}
-			d.objs[i] = d.vm.bootList[k.idx]
+			d.objs[i] = d.own(d.vm.bootList[k.idx])
 		case tierTask:
 			if t != structPtrType {
 				d.failf(ErrImageCorrupt, "the root task is a %s", t)
 			}
-			d.objs[i] = reflect.ValueOf(&Struct{})
+			d.objs[i] = d.own(reflect.ValueOf(&Struct{}))
 		default: // tierFull: the tier has two bits and the others are named above
 			d.objs[i] = d.shell(i, t, rec)
 		}
@@ -521,10 +521,22 @@ func (d *imgDec) shells() {
 	}
 }
 
+// own marks a Memory or a Struct the image holds with the VM's undo log, so that
+// a write to it can be undone (undo.go); anything else is returned as it is.
+func (d *imgDec) own(v reflect.Value) reflect.Value {
+	switch p := v.Interface().(type) {
+	case *Memory:
+		p.undo = d.vm.undo
+	case *Struct:
+		p.undo = d.vm.undo
+	}
+	return v
+}
+
 func (d *imgDec) shell(i int, t reflect.Type, rec []byte) reflect.Value {
 	switch t.Kind() {
 	case reflect.Pointer:
-		return reflect.New(t.Elem())
+		return d.own(reflect.New(t.Elem()))
 	case reflect.Slice, reflect.Map:
 		n, w := binary.Uvarint(rec)
 		if w <= 0 || n > uint64(len(rec)-w) {

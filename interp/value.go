@@ -25,6 +25,10 @@ type Tuple = core.Tuple
 type Struct struct {
 	Type   *core.DataType
 	Fields []any
+	// undo is the log of the VM that loaded this struct from an image, nil for
+	// a struct a cell made: a write to a field of an image object is recorded
+	// there while the log is on, so that Kernel.Reset can undo it (undo.go).
+	undo *undoLog
 	// exprOwner is the Expr whose args this Vector{Any} is (exprargs.go):
 	// setting its ref or size points the Expr at the new elements. Weak, so
 	// that the table of vectors does not keep the Expr alive.
