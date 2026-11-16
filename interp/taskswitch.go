@@ -164,6 +164,9 @@ type taskRec struct {
 	state   taskState
 	baton   chan baton
 	done    chan struct{} // closed when a killed task's goroutine ends
+	// task is the Task object, held weakly: Kernel.Reset marks it done when it
+	// stops the task (kernelreset.go)
+	task weak.Pointer[Struct]
 }
 
 // baton is the hand-over: the task that hands it (its tid is reset when it
@@ -182,6 +185,7 @@ func (vm *VM) newTaskRec(tid int16, pool int8) *taskRec {
 // addTaskRec records rec as t's, until nothing refers to t.
 func (vm *VM) addTaskRec(t *Struct, rec *taskRec) {
 	key := weak.Make(t)
+	rec.task = key
 	vm.taskMu.Lock()
 	if vm.taskRecs == nil {
 		vm.taskRecs = map[weak.Pointer[Struct]]*taskRec{}

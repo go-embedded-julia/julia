@@ -264,10 +264,17 @@ r := k.Eval(ctx, `f(x) = x + 1; f(41)`)
   (262144) writes `Reset` loads the image again and says so
   (`ResetInfo.Reloaded`), or, for a kernel made by `NewKernel` from a VM and so
   without an image, answers `ErrResetOverflow` and changes nothing. It is
-  refused with `ErrKernelBusy` while a cell runs. Not undone, by design:
-  Go-side state reached by a `ccall` (files, sockets, the environment, the
-  working directory, the output already written, libgmp and libmpfr), tasks a
-  cell started, the caches (types a cell made stay in the weak type caches
+  refused with `ErrKernelBusy` while a cell runs. Before it rolls back, `Reset`
+  stops the tasks a cell started that have not finished and closes the libuv
+  timers it opened (`ResetInfo.Tasks`, `ResetInfo.Timers`; `k.Tasks()` counts
+  them for an embedder): a stopped task never runs again and **none of its
+  `finally` or `catch` blocks runs**, since user code during a `Reset` could
+  print or write the state it restores. Base's own tasks are left alone. A
+  kernel yields once when it is made, so that the tasks Base makes in its
+  initializers are parked before the state `Reset` returns to. Not undone, by
+  design: Go-side state reached by a `ccall` (files, sockets, the environment,
+  the working directory, the output already written, libgmp and libmpfr), the
+  caches (types a cell made stay in the weak type caches
   until collected, specializations stay), limits set through `k.VM()` between
   cells, and the world and object-id counters, which only move forward.
 - **Without Base** (a `Boot()`-only image) the value and the error are the Go

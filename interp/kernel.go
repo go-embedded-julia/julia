@@ -160,6 +160,10 @@ func NewKernel(vm *VM, opts KernelOptions) (*Kernel, error) {
 	return newKernelOn(vm, opts)
 }
 
+// kernelYieldsFirst is whether a kernel yields once before it takes the state
+// Reset returns to. It is true; a test turns it off to show what it prevents.
+var kernelYieldsFirst = true
+
 func newKernelOn(vm *VM, opts KernelOptions) (*Kernel, error) {
 	switch {
 	case vm == nil || vm.GeneratingOutput:
@@ -177,6 +181,17 @@ func newKernelOn(vm *VM, opts KernelOptions) (*Kernel, error) {
 		}
 		if err := k.installHelpers(showSource, errTextSource, scheduleSource); err != nil {
 			return nil, err
+		}
+		// Base makes tasks in its initializers (the profile listeners) that start on
+		// the first yield and park in lists of Base's own. A first yield here starts
+		// them before the state Reset returns to is taken: started by a cell, they
+		// would be parked in lists the rollback then empties, and a later run would
+		// find "val already in a list" (#104).
+		if y, err := vm.globalValue(vm.baseModule, "yield"); err == nil && kernelYieldsFirst {
+			vm.taskWorld = vm.World()
+			if _, err := vm.apply(y, nil); err != nil {
+				return nil, err
+			}
 		}
 	}
 	k.sess = vm.sessionFor(vm.Main)
