@@ -1,6 +1,8 @@
 package interp
 
 import (
+	"sync"
+
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
@@ -80,8 +82,25 @@ func (vm *VM) bootCTypes() {
 		"TypeofVararg": 2, "UpsilonNode": 1} {
 		if b := vm.Core.own(expr.Symbol(name)); b != nil {
 			if d, ok := core.UnwrapUnionAll(b.Value).(*core.DataType); ok {
+				if _, static := core.StaticIndex(d.Name); static {
+					// core's own name, every VM's: set once per process (two New
+					// calls at once wrote it together, issue #109)
+					staticUninit.Store(d.Name, n)
+					continue
+				}
 				d.Name.NUninitialized = n
 			}
 		}
 	}
+	staticUninitOnce.Do(func() {
+		staticUninit.Range(func(k, v any) bool {
+			k.(*core.TypeName).NUninitialized = v.(int32)
+			return true
+		})
+	})
 }
+
+var (
+	staticUninitOnce sync.Once
+	staticUninit     sync.Map // *core.TypeName -> int32
+)
