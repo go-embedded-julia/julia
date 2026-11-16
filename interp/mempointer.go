@@ -77,7 +77,7 @@ func (vm *VM) memoryCopyto(a []any) error {
 	if !ok1 || !ok2 || n < 0 || di+n > int64(dest.Len()) || si+n > int64(src.Len()) {
 		return fmt.Errorf("%w: jl_genericmemory_copyto of %d elements outside its memories (undefined in C)", ErrUnsupported, n)
 	}
-	copy(dest.Slice(int(di), int(di+n)), src.Slice(int(si), int(si+n)))
+	copy(dest.Written(int(di), int(di+n)), src.Slice(int(si), int(si+n)))
 	return nil
 }
 

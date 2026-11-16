@@ -785,6 +785,7 @@ func (f *frame) methodDef(s sMethodDef) error {
 	if len(parts) > 2 {
 		lam.file, lam.line = functionLoc(parts[2])
 	}
+	vm.touch(tab)
 	if _, err = tab.Define(sig, vm.newWorld(), lam); err != nil {
 		return err
 	}

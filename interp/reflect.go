@@ -103,6 +103,7 @@ func (vm *VM) methodTableDisable(a []any) (any, error) {
 		return nil, vm.typeError("ccall", "", vm.tMethod, a[0])
 	}
 	r := vm.reflectedOf[ms]
+	vm.touch(r.tab)
 	if !r.tab.Disable(r.m, vm.World()) {
 		return nil, vm.errorf("Method of %s already disabled", ms.Fields[0])
 	}

@@ -329,6 +329,6 @@ func memmoveElems(dm *Memory, doff int64, sm *Memory, soff int64, n uint64) bool
 	if di > int64(dm.Len()) || si > int64(sm.Len()) || k > int64(dm.Len())-di || k > int64(sm.Len())-si {
 		return false
 	}
-	copy(dm.Slice(int(di), int(di+k)), sm.Slice(int(si), int(si+k)))
+	copy(dm.Written(int(di), int(di+k)), sm.Slice(int(si), int(si+k)))
 	return true
 }

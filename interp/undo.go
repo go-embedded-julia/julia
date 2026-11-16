@@ -1,5 +1,7 @@
 package interp
 
+import "github.com/go-embedded-julia/julia/core/dispatch"
+
 // The undo log of a Kernel (#93): every write to an object the image holds
 // (a Memory or a Struct the loader made, or one of the boot objects New made)
 // is recorded, with the value it replaces, while the log is on; Kernel.Reset
@@ -15,7 +17,23 @@ type undoEntry struct {
 	st   *Struct
 	idx  int
 	old  any   // the element or field replaced
-	olds []any // the whole store replaced (SetAll)
+	olds []any // the whole store replaced (SetAll), or the range from idx (ranged)
+
+	ranged bool
+}
+
+// undo puts back what e replaced.
+func (e *undoEntry) undo() {
+	switch {
+	case e.st != nil:
+		e.st.Fields[e.idx] = e.old
+	case e.ranged:
+		copy(e.mem.elems[e.idx:], e.olds)
+	case e.idx < 0:
+		e.mem.elems = e.olds
+	default:
+		e.mem.elems[e.idx] = e.old
+	}
 }
 
 type undoLog struct {
@@ -23,6 +41,8 @@ type undoLog struct {
 	max      int
 	entries  []undoEntry
 	overflow bool
+	// tables are the method tables a cell defined into or deleted from
+	tables map[*dispatch.Table]struct{}
 }
 
 func (l *undoLog) full() bool {
@@ -42,6 +62,13 @@ func (l *undoLog) recordElem(m *Memory, i int) {
 func (l *undoLog) recordAll(m *Memory) {
 	if !l.full() {
 		l.entries = append(l.entries, undoEntry{mem: m, idx: -1, olds: m.elems})
+	}
+}
+
+// recordRange records the values of elements lo to hi (exclusive) as one entry.
+func (l *undoLog) recordRange(m *Memory, lo, hi int) {
+	if hi > lo && !l.full() {
+		l.entries = append(l.entries, undoEntry{mem: m, idx: lo, olds: append([]any(nil), m.elems[lo:hi]...), ranged: true})
 	}
 }
 

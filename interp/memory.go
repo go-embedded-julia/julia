@@ -56,6 +56,16 @@ func (m *Memory) Slice(lo, hi int) []any { return m.elems[lo:hi] }
 // All is every element, as Slice(0, Len()) shares the store.
 func (m *Memory) All() []any { return m.elems }
 
+// Written is Slice for a caller that is about to write the range: the old
+// values are recorded first, when the memory is one the image holds (undo.go).
+// Slice and All are for reading, and for writing a memory the caller made.
+func (m *Memory) Written(lo, hi int) []any {
+	if l := m.undo; l != nil && l.on {
+		l.recordRange(m, lo, hi)
+	}
+	return m.elems[lo:hi]
+}
+
 // SetAll replaces the elements by es, which the memory takes over.
 func (m *Memory) SetAll(es []any) {
 	if l := m.undo; l != nil && l.on {

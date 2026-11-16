@@ -144,12 +144,23 @@ type Kernel struct {
 	// Base: the display of a value, the text of an exception, and the
 	// delivery of an exception to a task that waits
 	show, errText, schedule any
+	// snap is the state Reset returns to; img and lo the image the VM came
+	// from, nil for a kernel made from a VM (Reset reloads it past the log's
+	// bound), and ko the options the kernel was made with
+	snap *kernelSnap
+	img  []byte
+	lo   LoadOptions
+	ko   KernelOptions
 }
 
 // NewKernel makes vm a kernel: a VM from LoadImage (or Boot, for a core-only
 // one), whose module initializers run here if they have not. It takes the VM:
 // Close closes it.
 func NewKernel(vm *VM, opts KernelOptions) (*Kernel, error) {
+	return newKernelOn(vm, opts)
+}
+
+func newKernelOn(vm *VM, opts KernelOptions) (*Kernel, error) {
 	switch {
 	case vm == nil || vm.GeneratingOutput:
 		return nil, ErrKernelState
@@ -158,7 +169,7 @@ func NewKernel(vm *VM, opts KernelOptions) (*Kernel, error) {
 	case vm.Host && !opts.Host:
 		return nil, ErrKernelHost
 	}
-	k := &Kernel{vm: vm, opts: DefaultCellOptions.over(opts.CellOptions)}
+	k := &Kernel{vm: vm, opts: DefaultCellOptions.over(opts.CellOptions), ko: opts}
 	vm.Host = opts.Host
 	if vm.baseModule != nil {
 		if err := vm.RunModuleInitializers(); err != nil {
@@ -171,7 +182,11 @@ func NewKernel(vm *VM, opts KernelOptions) (*Kernel, error) {
 	k.sess = vm.sessionFor(vm.Main)
 	vm.kernel = k
 	// from here on, a write to an object of the image is logged: the state
-	// Reset returns to is this one, after the initializers and the helpers
+	// Reset returns to is this one, after the initializers and the helpers.
+	// The world moves past the last one used, so that no method of this state
+	// ends in the world Reset reverts to.
+	vm.newWorld()
+	k.snap = vm.takeSnap()
 	vm.undo.on = true
 	return k, nil
 }
@@ -198,11 +213,21 @@ func (k *Kernel) installHelpers(show, errText, schedule string) (err error) {
 
 // LoadKernel loads an image into a VM and makes it a kernel.
 func LoadKernel(r io.Reader, lo LoadOptions, ko KernelOptions) (*Kernel, error) {
-	vm, err := LoadImage(r, lo)
+	// the bytes are kept (the image's size) so that Reset can load them again
+	img, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
-	return NewKernel(vm, ko) // a VM that no kernel took has run nothing: nothing to close
+	vm, err := LoadImage(bytes.NewReader(img), lo)
+	if err != nil {
+		return nil, err
+	}
+	k, err := NewKernel(vm, ko) // a VM that no kernel took has run nothing: nothing to close
+	if err != nil {
+		return nil, err
+	}
+	k.img, k.lo = img, lo
+	return k, nil
 }
 
 // FetchKernel fetches the image of a release by its pinned digest

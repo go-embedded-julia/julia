@@ -150,12 +150,22 @@ func TestRevert(t *testing.T) {
 		return b.String()
 	}
 	want := answer(w)
-	if want != "ab"+"b"+"b" && want != "abbb" || strings.Contains(want, "c") {
+	// Int64 -> 0, Float64 -> Number (its own method was deleted), Int32 ->
+	// Number, String -> nothing
+	if want != "abb-" {
 		t.Fatalf("the table answers %q in the world to revert to", want)
 	}
 	// after w: a method replaced (Int64), one deleted (Number), one defined (Int32)
-	tab.Add(tup(core.Int64Type))
-	m4, _ := tab.Add(tup(core.Int32Type))
+	// (a VM takes its next world from one counter, and w was taken from it)
+	add := func(sig any) *Method {
+		m, err := tab.Define(sig, tab.World()+2, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	add(tup(core.Int64Type))
+	m4 := add(tup(core.Int32Type))
 	for _, m := range tab.Methods(tab.World()) {
 		if m.Index == 1 {
 			tab.Disable(m, tab.World())
@@ -176,7 +186,7 @@ func TestRevert(t *testing.T) {
 		t.Errorf("%d methods are current, want 2", n)
 	}
 	// the table goes on: a definition after a revert is seen, and a second revert undoes it
-	tab.Add(tup(core.Int32Type))
+	add(tup(core.Int32Type))
 	if got := answer(tab.World()); got == want {
 		t.Error("a definition after a revert is not seen")
 	}
