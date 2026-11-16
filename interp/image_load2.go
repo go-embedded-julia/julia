@@ -3,6 +3,7 @@ package interp
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"weak"
 
@@ -148,7 +149,11 @@ type instanceXfer struct {
 func (d *imgDec) instanceTransfers() []instanceXfer {
 	var xfers []instanceXfer
 	pending := map[*core.DataType]any{}
-	for _, p := range d.replaced {
+	pairs := slices.Clone(d.replaced)
+	for dt, sc := range d.shared { // a boot type in the caches takes the instance its record holds
+		pairs = append(pairs, [2]*core.DataType{sc, dt})
+	}
+	for _, p := range pairs {
 		v, ok := p[0].CachedInstance()
 		if !ok {
 			continue
@@ -179,7 +184,7 @@ func (d *imgDec) canon(st *internState, x any, seen map[any]bool) any {
 		if c, ok := st.redirect[t]; ok {
 			return c
 		}
-		if d.shared[t] {
+		if _, in := d.shared[t]; in {
 			return t // the process's own: canonical, and not ours to write
 		}
 		if id, ok := st.id[t]; ok && !st.done[id] {
@@ -201,9 +206,7 @@ func (d *imgDec) canon(st *internState, x any, seen map[any]bool) any {
 			return x
 		}
 		seen[t] = true
-		if v, ok := d.canon(st, t.Var, seen).(*core.TypeVar); ok && v != t.Var {
-			t.Var = v
-		}
+		d.canon(st, t.Var, seen) // a type variable is never replaced, only its bounds are
 		d.canonSet(st, &t.Body, seen)
 	case *core.Union:
 		if t == nil || seen[t] {
@@ -337,6 +340,7 @@ func (d *imgDec) commit(hints []loadHint) {
 	if err := d.in.Commit(); err != nil {
 		panic(imgFail{fmt.Errorf("%w: %w", ErrImageConflict, err)})
 	}
+	d.applyShared()
 	for _, x := range xfers {
 		x.to.SetCachedInstance(x.v)
 	}
