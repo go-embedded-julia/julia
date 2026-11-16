@@ -359,6 +359,9 @@ type imgDec struct {
 	// put in core's caches by commit, when nothing can fail
 	in    *core.Interner
 	redir map[uint32]bool // objects replaced by the type the process already holds
+	// shared holds the boot types the loading VM made in core's caches (see
+	// sharedType): the decoder does not write to them
+	shared map[*core.DataType]bool
 	// replaced pairs each type of the image with the one the process holds
 	replaced [][2]*core.DataType
 
@@ -387,7 +390,7 @@ func (vm *VM) loadImage(r io.Reader, opts LoadOptions, spec *imageSpec) error {
 
 // decodeImage writes the image over a fresh VM.
 func (vm *VM) decodeImage(fr *imgFrame, spec *imageSpec) (err error) {
-	d := &imgDec{vm: vm, spec: spec, fr: fr, redir: map[uint32]bool{}, fields: map[reflect.Type][]encField{}, in: core.NewInterner()}
+	d := &imgDec{vm: vm, spec: spec, fr: fr, redir: map[uint32]bool{}, shared: map[*core.DataType]bool{}, fields: map[reflect.Type][]encField{}, in: core.NewInterner()}
 	defer func() {
 		if r := recover(); r != nil {
 			if f, ok := r.(imgFail); ok {
@@ -426,11 +429,23 @@ var imageDecoded = func() {}
 // cache it read grew before it could commit.
 const maxCommitTries = 4
 
+// imageBootMu serializes the VMs that loads make for themselves: booting one
+// writes to core's static type names (bootCTypes sets n_uninitialized on them),
+// and two boots at once race on those writes (found by -race with concurrent
+// loads, issue #105). It does not order a load against a New called elsewhere.
+var imageBootMu sync.Mutex
+
+func newVMForLoad() *VM {
+	imageBootMu.Lock()
+	defer imageBootMu.Unlock()
+	return New()
+}
+
 // decodeCommitted decodes fr into a fresh VM, again into another when a
 // cache another goroutine grew made the commit refuse.
 func decodeCommitted(fr *imgFrame, spec *imageSpec) (vm *VM, err error) {
 	for try := 0; try < maxCommitTries; try++ {
-		vm = New()
+		vm = newVMForLoad()
 		if err = vm.decodeImage(fr, spec); !core.IsInternChanged(err) {
 			break
 		}
@@ -507,6 +522,9 @@ func (d *imgDec) shells() {
 				d.failf(ErrImageCorrupt, "boot object %d: index %d of %d", i, k.idx, len(d.vm.bootList))
 			}
 			d.objs[i] = d.own(d.vm.bootList[k.idx])
+			if t == dataTypePtrType {
+				d.shared[d.objs[i].Interface().(*core.DataType)] = true
+			}
 		case tierTask:
 			if t != structPtrType {
 				d.failf(ErrImageCorrupt, "the root task is a %s", t)
@@ -551,18 +569,38 @@ func (d *imgDec) shell(i int, t reflect.Type, rec []byte) reflect.Value {
 	return reflect.Value{}
 }
 
+// sharedType reports whether object i is a type of the VM's own that New put in
+// core's caches. Such a type is every VM's of the process, as
+// the types of core are: it is not written to (the one the loading VM made
+// holds what the image's would, since the image is of this interpreter's
+// boot), because a load that is refused after it has written to it has changed
+// what the other VMs read, and a load that is not has written to it while they
+// read (issue #105).
+func (d *imgDec) sharedType(i int) bool {
+	if d.fr.kinds[i].tier != tierBoot {
+		return false
+	}
+	dt, ok := d.objs[i].Interface().(*core.DataType)
+	return ok && d.shared[dt]
+}
+
 // records fills every object from its record.
 func (d *imgDec) records() {
 	for i, k := range d.fr.kinds {
 		if k.tier == tierStatic || k.tier == tierTask || d.redir[uint32(i)] {
 			continue
 		}
-		d.record(i)
+		if d.sharedType(i) {
+			// read as the others are, so that a record that is not one is refused,
+			// into a type that is nobody's
+			d.recordTo(i, reflect.New(dataTypePtrType.Elem()))
+			continue
+		}
+		d.recordTo(i, d.objs[i])
 	}
 }
 
-func (d *imgDec) record(i int) {
-	o := d.objs[i]
+func (d *imgDec) recordTo(i int, o reflect.Value) {
 	d.cur, d.depth = d.fr.recs[i], 0
 	switch o.Kind() {
 	case reflect.Pointer:

@@ -514,10 +514,25 @@ func TestWriteImageFuzzSeeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := seedBody(t)
+	// refused while the records are read, after those of the boot types the
+	// loading VM put in the shared caches: before #105 it left Type{Expr}
+	// without its parameter, for every VM of the process
+	var img bytes.Buffer
+	if err := New().SaveImage(&img, SaveOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	c := craftOfImage(t, img.Bytes())
+	for i, o := range c.objs {
+		if o.tier == tierFull && o.typ == "[]interface {}" {
+			c.objs[i].rec = append(c.objs[i].rec, 1, 2)
+			break
+		}
+	}
 	for name, b := range map[string][]byte{
-		"fresh-vm":              body,
-		"fresh-vm-half":         body[:len(body)/2],
-		"fresh-vm-cut-near-end": body[:len(body)-len(body)/20],
+		"refused-over-boot-types": c.body(),
+		"fresh-vm":                body,
+		"fresh-vm-half":           body[:len(body)/2],
+		"fresh-vm-cut-near-end":   body[:len(body)-len(body)/20],
 	} {
 		text := "go test fuzz v1\n[]byte(" + strconv.Quote(string(b)) + ")\n"
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
