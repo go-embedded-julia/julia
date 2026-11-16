@@ -177,9 +177,73 @@ func (vm *VM) memmove(a []any) (any, error) {
 				return nil, err
 			}
 			return dp, nil
+		} else if ok {
+			// into a Ref of a primitive of the same width (what Random's
+			// seeding and RandomDevice copy words with): the value
+			if st, ok := dp.Target.(*Struct); ok && dp.Off == 0 && len(st.Fields) == 1 {
+				if ft, _ := st.Type.FieldTypes(); len(ft) == 1 {
+					if v, ok := vm.valueOfBytes(ft[0], b); ok {
+						st.logField(0)
+						st.Fields[0] = v
+						return dp, nil
+					}
+				}
+			}
 		}
 	}
-	return nil, fmt.Errorf("%w: memmove of %s", ErrUnsupported, showValue(vm.newTuple(a)))
+	return nil, fmt.Errorf("%w: memmove of %s%s", ErrUnsupported, showValue(vm.newTuple(a)), pointerTargets(a))
+}
+
+// valueOfBytes is the value of type t that the little-endian bytes b make, when
+// t is a primitive type or a tuple of primitive types and b is exactly its size.
+func (vm *VM) valueOfBytes(t any, b []byte) (any, bool) {
+	et, ok := t.(*core.DataType)
+	if !ok {
+		return nil, false
+	}
+	if et.Name.Bits > 0 {
+		if et.Name.Bits%8 != 0 || len(b) != et.Name.Bits/8 {
+			return nil, false
+		}
+		v, _ := bytesValue(et, b)
+		return v, v != nil
+	}
+	if !core.IsTupleType(et) || len(et.Parameters) == 0 {
+		return nil, false
+	}
+	vals := make([]any, len(et.Parameters))
+	for i, p := range et.Parameters {
+		pt, ok := p.(*core.DataType)
+		if !ok || pt.Name.Bits == 0 || pt.Name.Bits%8 != 0 || len(b) < pt.Name.Bits/8 {
+			return nil, false
+		}
+		w := pt.Name.Bits / 8
+		v, _ := bytesValue(pt, b[:w])
+		if v == nil {
+			return nil, false
+		}
+		vals[i], b = v, b[w:]
+	}
+	if len(b) != 0 {
+		return nil, false
+	}
+	return vm.newTuple(vals), true
+}
+
+// pointerTargets names what the pointers of a memmove or memcpy point into,
+// for the error that refuses it.
+func pointerTargets(a []any) string {
+	s := ""
+	for _, x := range a[:min(len(a), 2)] {
+		if p, ok := x.(*Pointer); ok {
+			if st, ok := p.Target.(*Struct); ok {
+				s += fmt.Sprintf(" [%s of %d fields at %d]", st.Type, len(st.Fields), p.Off)
+				continue
+			}
+			s += fmt.Sprintf(" [%T at %d]", p.Target, p.Off)
+		}
+	}
+	return s
 }
 
 // refBytes is the first n little-endian bytes of the primitive value a Ref

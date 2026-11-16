@@ -241,7 +241,8 @@ func (k *Kernel) Reset() (ResetInfo, error) {
 
 // resetSession gives Main the lowering state of a session never used.
 func (k *Kernel) resetSession() {
-	k.sess.low = lower.NewState()
+	vm := k.vm
+	k.sess.low = lower.NewStateIn(exprModule(k.sess.Mod), vm.baseRelativeTo(k.sess.Mod).Name)
 	k.sess.file, k.sess.line = "", 0
 }
 

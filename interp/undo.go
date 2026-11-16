@@ -10,7 +10,7 @@ import "github.com/go-embedded-julia/julia/core/dispatch"
 // is recorded, the overflow is noted, and Reset reloads the image instead.
 
 // DefaultMaxUndo is the most entries a log holds.
-const DefaultMaxUndo = 1 << 20
+const DefaultMaxUndo = 1 << 18 // entries of about 70 bytes: at most about 18 MiB
 
 type undoEntry struct {
 	mem  *Memory
@@ -22,17 +22,18 @@ type undoEntry struct {
 	ranged bool
 }
 
-// undo puts back what e replaced.
+// undo puts back what e replaced, through the accessors of Memory: the log is
+// off while it runs, so that putting back is not recorded.
 func (e *undoEntry) undo() {
 	switch {
 	case e.st != nil:
 		e.st.Fields[e.idx] = e.old
 	case e.ranged:
-		copy(e.mem.elems[e.idx:], e.olds)
+		copy(e.mem.Slice(e.idx, e.idx+len(e.olds)), e.olds)
 	case e.idx < 0:
-		e.mem.elems = e.olds
+		e.mem.SetAll(e.olds)
 	default:
-		e.mem.elems[e.idx] = e.old
+		e.mem.Set(e.idx, e.old)
 	}
 }
 
@@ -55,20 +56,20 @@ func (l *undoLog) full() bool {
 
 func (l *undoLog) recordElem(m *Memory, i int) {
 	if !l.full() {
-		l.entries = append(l.entries, undoEntry{mem: m, idx: i, old: m.elems[i]})
+		l.entries = append(l.entries, undoEntry{mem: m, idx: i, old: m.Get(i)})
 	}
 }
 
 func (l *undoLog) recordAll(m *Memory) {
 	if !l.full() {
-		l.entries = append(l.entries, undoEntry{mem: m, idx: -1, olds: m.elems})
+		l.entries = append(l.entries, undoEntry{mem: m, idx: -1, olds: m.All()})
 	}
 }
 
 // recordRange records the values of elements lo to hi (exclusive) as one entry.
 func (l *undoLog) recordRange(m *Memory, lo, hi int) {
 	if hi > lo && !l.full() {
-		l.entries = append(l.entries, undoEntry{mem: m, idx: lo, olds: append([]any(nil), m.elems[lo:hi]...), ranged: true})
+		l.entries = append(l.entries, undoEntry{mem: m, idx: lo, olds: append([]any(nil), m.Slice(lo, hi)...), ranged: true})
 	}
 }
 

@@ -17,8 +17,12 @@ import (
 // overload a method of Base, make a struct and a method on it, import a stdlib,
 // draw random numbers (unseeded first, then seeded), mutate a global of Base,
 // delete a method of Base, and fail.
+//
+// An unseeded rand() differs from one fresh kernel to the next (the generator
+// is seeded when the kernel starts), so the cells say whether it is in [0, 1);
+// TestKernelResetRNG checks the generator's state, and the draws.
 var resetCorpus = []string{
-	`rand()`,
+	`0 <= rand() < 1`,
 	`x = 10; y = x + 1`,
 	`f(x) = x + 1; f(2)`,
 	`f(x) = x + 2; f(2)`,
@@ -27,7 +31,7 @@ var resetCorpus = []string{
 	`Base.show(io::IO, x::Int8) = print(io, "int8!"); Int8(3)`,
 	`using LinearAlgebra; norm([3.0, 4.0])`,
 	`using Random; Random.seed!(42); rand(3)`,
-	`rand()`,
+	`0 <= rand() < 1`,
 	`push!(Base.LOAD_PATH, "/zz"); length(Base.LOAD_PATH)`,
 	`const K = 7; K`,
 	`Base.delete_method(first(methods(iseven, (Int64,)))); try iseven(2) catch e; "gone" end`,
@@ -40,7 +44,7 @@ var resetCorpus = []string{
 
 // resetProbes is run on a kernel that has been reset and on a fresh one.
 var resetProbes = []string{
-	`rand()`,
+	`0 <= rand() < 1`,
 	`isdefined(Main, :x)`,
 	`isdefined(Main, :P)`,
 	`isdefined(Main, :M)`,
@@ -53,7 +57,7 @@ var resetProbes = []string{
 	`length(methods(show))`,
 	`using LinearAlgebra; norm([3.0, 4.0])`,
 	`f = 1; f`,
-	`rand(2)`,
+	`size(rand(2))`,
 	`1 + 1`,
 }
 
@@ -118,6 +122,12 @@ func TestKernelResetBase(t *testing.T) {
 	wantProbes := resetRun(t, fresh, resetProbes)
 	freshC := resetKernel(t, img)
 	wantCorpus := resetRun(t, freshC, resetCorpus)
+	// equal errors would make the oracle agree on a cell neither runs
+	for i, w := range append(append([]string(nil), wantProbes...), wantCorpus...) {
+		if strings.Contains(w, "not ported yet") {
+			t.Fatalf("the oracle kernel does not run cell %d: %s", i, w)
+		}
+	}
 
 	k := resetKernel(t, img)
 	resetSame(t, "first corpus", resetCorpus, resetRun(t, k, resetCorpus), wantCorpus)
@@ -128,6 +138,10 @@ func TestKernelResetBase(t *testing.T) {
 		if err != nil || info.Reloaded {
 			t.Fatalf("Reset %d: %+v, %v", round, info, err)
 		}
+		// the corpus has to change something, or the test proves nothing
+		if info.Undone < 100 || info.Tables < 3 {
+			t.Errorf("the corpus changed too little to prove anything: %+v", info)
+		}
 		t.Logf("Reset %d: %v for %d writes and %d method tables", round, d, info.Undone, info.Tables)
 		resetSame(t, "probes after a reset", resetProbes, resetRun(t, k, resetProbes), wantProbes)
 		if _, err := k.Reset(); err != nil {
@@ -135,9 +149,50 @@ func TestKernelResetBase(t *testing.T) {
 		}
 		resetSame(t, "the corpus after a reset", resetCorpus, resetRun(t, k, resetCorpus), wantCorpus)
 	}
-	// the corpus has to change something, or the test proves nothing
-	if info, _ := k.Reset(); info.Undone < 10 || info.Tables < 3 {
-		t.Errorf("the corpus changed too little to prove anything: %+v", info)
+}
+
+// TestKernelResetRNG: the generator of the task is where the kernel started
+// it, whatever the cells drew or seeded, so that the draws after a Reset are the
+// ones the kernel would have made first (an unseeded rand() cannot be compared
+// with another kernel's, which was seeded by its own start).
+func TestKernelResetRNG(t *testing.T) {
+	img := resetImage(t)
+	k := resetKernel(t, img)
+	const state = "let t = current_task(); string(t.rngState0, ',', t.rngState1, ',', t.rngState2, ',', t.rngState3, ',', t.rngState4) end"
+	const draw = "string(rand(3), rand(UInt8, 2), randn())"
+	eval := func(src string) string {
+		r := k.Eval(context.Background(), src)
+		if r.Err != nil {
+			t.Fatalf("%s: %v", src, r.Err)
+		}
+		return r.Value
+	}
+	s0 := eval(state)
+	d0 := eval(draw)
+	if s1 := eval(state); s1 == s0 {
+		t.Fatalf("drawing did not move the state %s", s0)
+	}
+	eval(`using Random; Random.seed!(7); rand(3); rand()`)
+	if _, err := k.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if s := eval(state); s != s0 {
+		t.Errorf("state after Reset %s, at the start %s", s, s0)
+	}
+	if d := eval(draw); d != d0 {
+		t.Errorf("draws after Reset %s, the first draws of the kernel %s", d, d0)
+	}
+	// a seeded sequence is the same in every kernel, and after a Reset
+	const seeded = "using Random; Random.seed!(42); string(rand(3), randn())"
+	a := eval(seeded)
+	if _, err := k.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if b := eval(seeded); a != b {
+		t.Errorf("seeded draws %s, then after a Reset %s", a, b)
+	}
+	if c := eval(seeded); a != c {
+		t.Errorf("seeded draws %s, then again %s", a, c)
 	}
 }
 
@@ -207,6 +262,34 @@ func TestKernelResetRefusals(t *testing.T) {
 	}
 }
 
+// BenchmarkMemorySet is what a write costs through Memory.Set: of a memory a
+// cell made (one nil test), of an image memory with the log off, with it on (an
+// entry appended; the log is emptied every 100k writes, as Reset empties it).
+func BenchmarkMemorySet(b *testing.B) {
+	for _, c := range []struct {
+		name  string
+		owned bool
+		on    bool
+	}{{"cell-owned", false, false}, {"image, log off", true, false}, {"image, log on", true, true}} {
+		b.Run(c.name, func(b *testing.B) {
+			l := &undoLog{max: 1 << 20}
+			m := newMemory(memAnyType, make([]any, 1024))
+			if c.owned {
+				m.undo = l
+			}
+			l.on = c.on
+			v := any(int64(1))
+			b.ReportAllocs()
+			for i := 0; b.Loop(); i++ {
+				m.Set(i&1023, v)
+				if i%100_000 == 99_999 {
+					l.entries = l.entries[:0]
+				}
+			}
+		})
+	}
+}
+
 // the log and its coverage, on the objects the image holds, without Base: a
 // write of every kind is undone, in reverse, and the range writers log too.
 func TestUndoLogKinds(t *testing.T) {
@@ -221,15 +304,16 @@ func TestUndoLogKinds(t *testing.T) {
 	copy(m.Written(1, 3), []any{int64(20), int64(30)})
 	s.logField(1)
 	s.Fields[1] = "B"
-	old := m.elems
+	old := m.All()
 	m.SetAll([]any{int64(9)})
 	if len(l.entries) != 5 {
 		t.Fatalf("%d entries", len(l.entries))
 	}
+	l.on = false // as Reset does while it replays
 	for i := len(l.entries) - 1; i >= 0; i-- {
 		l.entries[i].undo()
 	}
-	if got := strings.Join([]string{showValue(m.elems[0]), showValue(m.elems[1]), showValue(m.elems[2]), showValue(m.elems[3])}, ","); got != "1,2,3,4" || &m.elems[0] != &old[0] {
+	if got := strings.Join([]string{showValue(m.Get(0)), showValue(m.Get(1)), showValue(m.Get(2)), showValue(m.Get(3))}, ","); got != "1,2,3,4" || &m.All()[0] != &old[0] {
 		t.Errorf("memory after the undo: %s", got)
 	}
 	if s.Fields[1] != "b" {
