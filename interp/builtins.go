@@ -505,7 +505,7 @@ func (vm *VM) fieldMaskPtr(mask []bool) *Pointer {
 		}
 	}
 	mt := must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), core.UInt32Type, core.CPU)).(*core.DataType)
-	return &Pointer{Type: voidp, Target: &Memory{Type: mt, Elems: words}}
+	return &Pointer{Type: voidp, Target: newMemory(mt, words)}
 }
 
 func (vm *VM) kindField(v, arg any) (any, error) {
@@ -755,7 +755,7 @@ func (vm *VM) getfieldOf(args []any) (any, error) {
 			if i == 1 {
 				return vm.memPtr(v), true
 			}
-			return int64(len(v.Elems)), true
+			return int64(v.Len()), true
 		}, args[1])
 	case *MemoryRef:
 		// (ptr_or_offset, mem) (jltypes.c:3340-3341)

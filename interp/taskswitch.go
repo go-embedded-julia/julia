@@ -624,8 +624,7 @@ func (vm *VM) bootTaskShims() {
 		return nil, nil
 	})
 	// the thread counts Base reads with cglobal (threadingconstructs.jl:47-124)
-	perPool := &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), core.Int32Type, core.CPU)).(*core.DataType),
-		Elems: []any{threadsPerPool[0], threadsPerPool[1]}}
+	perPool := newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), core.Int32Type, core.CPU)).(*core.DataType), []any{threadsPerPool[0], threadsPerPool[1]})
 	vm.cglobals["jl_n_threads"] = &ptrSlot{name: "jl_n_threads", val: int32(nThreads)}
 	vm.cglobals["jl_n_threadpools"] = &ptrSlot{name: "jl_n_threadpools", val: int32(nThreadPools)}
 	vm.cglobals["jl_n_threads_per_pool"] = &ptrSlot{name: "jl_n_threads_per_pool",

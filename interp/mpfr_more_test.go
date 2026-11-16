@@ -33,11 +33,11 @@ func TestMPFRArguments(t *testing.T) {
 	f.fail(nil, "mpfr_set", z, 5, rnd)
 	// a precision that is zero, or does not fit the memory
 	bad := f.one()
-	bfMem(bad).Elems[0] = uint64(0)
+	bfMem(bad).Set(0, uint64(0))
 	f.fail(nil, "mpfr_set", z, bad, rnd)
-	bfMem(bad).Elems[0] = uint64(1000)
+	bfMem(bad).Set(0, uint64(1000))
 	f.fail(nil, "mpfr_set", z, bad, rnd)
-	bfMem(bad).Elems[0] = "x"
+	bfMem(bad).Set(0, "x")
 	f.fail(nil, "mpfr_set", z, bad, rnd)
 	// rounding modes: faithful and numbers that are no mode are refused
 	f.fail(ErrUnsupported, "mpfr_set", z, x, f.rnd(5))
@@ -47,17 +47,17 @@ func TestMPFRArguments(t *testing.T) {
 	f.fail(nil, "mpfr_add_z", z, x, zz, rnd)
 	// operands that are not numbers
 	corrupt := f.one()
-	bfMem(corrupt).Elems[mpfrLimbWord] = "x"
+	bfMem(corrupt).Set(mpfrLimbWord, "x")
 	f.fail(nil, "mpfr_set", z, corrupt, rnd)
 	unnorm := f.one()
-	bfMem(unnorm).Elems[mpfrLimbWord] = uint64(1)
+	bfMem(unnorm).Set(mpfrLimbWord, uint64(1))
 	f.fail(nil, "mpfr_set", z, unnorm, rnd)
 	undefLimb := f.one()
-	bfMem(undefLimb).Elems[mpfrLimbWord] = undef
+	bfMem(undefLimb).Set(mpfrLimbWord, undef)
 	f.fail(nil, "mpfr_set", z, undefLimb, rnd)
 	// a pointer kept in the memory's limb pointer word is no number either
 	word := f.one()
-	bfMem(word).Elems[2] = &Pointer{Type: f.u64p}
+	bfMem(word).Set(2, &Pointer{Type: f.u64p})
 	f.fail(nil, "mpfr_set", z, word, rnd)
 	// the shims are made again by a VM that has none
 	f.vm.libShims = nil
@@ -204,12 +204,12 @@ func TestPointerInWord(t *testing.T) {
 	if got, err := f.vm.ptrLoad("pointerref", at(0), 1); err != nil || got.(*Pointer).Target != nil {
 		t.Errorf("zero word: %v, %v", got, err)
 	}
-	m.Elems[3] = undef
+	m.Set(3, undef)
 	if got, err := f.vm.ptrLoad("pointerref", at(24), 1); err != nil || got.(*Pointer).Target != nil {
 		t.Errorf("undef word: %v, %v", got, err)
 	}
 	// a word of other bits is no pointer; nor is half a word or past the end
-	m.Elems[3] = uint64(5)
+	m.Set(3, uint64(5))
 	if _, err := f.vm.ptrLoad("pointerref", at(24), 1); err == nil {
 		t.Error("loaded a pointer from the bits 5")
 	}

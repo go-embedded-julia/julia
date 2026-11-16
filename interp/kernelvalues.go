@@ -221,10 +221,10 @@ func (vm *VM) arrayToGo(a *Struct) (any, bool) {
 		n *= int(di)
 	}
 	// ... and compared once with what the memory holds from the offset
-	if ref.Off < 0 || ref.Off > len(ref.Mem.Elems) || n > len(ref.Mem.Elems)-ref.Off {
+	if ref.Off < 0 || ref.Off > ref.Mem.Len() || n > ref.Mem.Len()-ref.Off {
 		return nil, false
 	}
-	elems := ref.Mem.Elems[ref.Off : ref.Off+n]
+	elems := ref.Mem.Slice(ref.Off, ref.Off+n)
 	switch a.Type.Parameters[0] {
 	case any(core.Float64Type):
 		data, ok := copyElems[float64](elems)
@@ -337,7 +337,7 @@ func (vm *VM) newMatrixOf(elem *core.DataType, elems []any, rows, cols int) any 
 	rt := must(core.Apply(core.GenericMemoryRefType, expr.Symbol("not_atomic"), elem, core.CPU)).(*core.DataType)
 	at := must(core.Apply(core.ArrayType, elem, int64(2))).(*core.DataType)
 	return &Struct{Type: at, Fields: []any{
-		&MemoryRef{Type: rt, Mem: &Memory{Type: mt, Elems: elems}},
+		&MemoryRef{Type: rt, Mem: newMemory(mt, elems)},
 		vm.newTuple([]any{int64(rows), int64(cols)}),
 	}}
 }

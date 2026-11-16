@@ -80,8 +80,8 @@ func TestVectorPushLeavesSharedEmptyMemory(t *testing.T) {
 		if int64(len(elems)) != i || elems[i-1] != any(i) {
 			t.Fatalf("after %d pushes: %v", i, elems)
 		}
-		if len(shared.Elems) != 0 {
-			t.Fatalf("the shared empty memory holds %d slots after %d pushes", len(shared.Elems), i)
+		if shared.Len() != 0 {
+			t.Fatalf("the shared empty memory holds %d slots after %d pushes", shared.Len(), i)
 		}
 	}
 	if _, _, elems, _ := arrayOf(b); len(elems) != 0 || b.Fields[0].(*MemoryRef).Mem != shared {
@@ -89,8 +89,8 @@ func TestVectorPushLeavesSharedEmptyMemory(t *testing.T) {
 	}
 	// a spare slot is filled in place, the rest of the memory stays undef
 	ref := a.Fields[0].(*MemoryRef)
-	if len(ref.Mem.Elems) != 16 || ref.Mem.Elems[9] != undef || ref.Mem.Elems[15] != undef {
-		t.Errorf("grown memory: %d slots, %v", len(ref.Mem.Elems), ref.Mem.Elems[9:])
+	if ref.Mem.Len() != 16 || ref.Mem.Get(9) != undef || ref.Mem.Get(15) != undef {
+		t.Errorf("grown memory: %d slots, %v", ref.Mem.Len(), ref.Mem.Slice(9, ref.Mem.Len()))
 	}
 }
 
@@ -105,7 +105,7 @@ func TestPromoteCIsToCurrent(t *testing.T) {
 	b := f.newCI(w, nil)
 	skipped := f.newCI(w, nil)
 	memT := must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), vm.tCodeInstance, core.CPU)).(*core.DataType)
-	mem := &Memory{Type: memT, Elems: []any{skipped, a, b}}
+	mem := newMemory(memT, []any{skipped, a, b})
 	ptr := func(off int64) *Pointer { return &Pointer{Type: vm.ptrType(vm.tCodeInstance), Target: mem, Off: off} }
 	// another world: nothing changes
 	if _, err := f.sh("jl_promote_cis_to_current", ptr(8), uint64(2), w+1); err != nil || a.Fields[ciMaxWorld] != any(w) {
@@ -132,7 +132,7 @@ func TestPromoteCIsToCurrent(t *testing.T) {
 		{"misaligned", []any{ptr(4), uint64(1), w}, "!not ported yet: jl_promote_cis_to_current of"},
 		{"past the memory", []any{ptr(8), uint64(3), w}, "!not ported yet: jl_promote_cis_to_current past the memory"},
 		{"offset past the memory", []any{ptr(32), uint64(1), w}, "!not ported yet: jl_promote_cis_to_current past the memory"},
-		{"not a CodeInstance", []any{&Pointer{Type: vm.ptrType(vm.tCodeInstance), Target: &Memory{Type: memT, Elems: []any{int64(1)}}}, uint64(1), w}, "!TypeError(:ccall"},
+		{"not a CodeInstance", []any{&Pointer{Type: vm.ptrType(vm.tCodeInstance), Target: newMemory(memT, []any{int64(1)})}, uint64(1), w}, "!TypeError(:ccall"},
 	} {
 		v, err := f.sh("jl_promote_cis_to_current", c.args...)
 		check(t, c.name, v, err, c.want)

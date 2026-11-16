@@ -106,14 +106,14 @@ func (f *gmpFixture) raw(fields []any) string {
 	}
 	d := fields[2].(*Pointer)
 	m := d.Target.(*Memory)
-	if int(alloc) != len(m.Elems) || alloc < n || alloc < 1 || d.Off != 0 || d.Type != f.u64p {
-		f.t.Errorf("alloc %d, size %d, %d limbs at offset %d of type %s", alloc, size, len(m.Elems), d.Off, showValue(d.Type))
+	if int(alloc) != m.Len() || alloc < n || alloc < 1 || d.Off != 0 || d.Type != f.u64p {
+		f.t.Errorf("alloc %d, size %d, %d limbs at offset %d of type %s", alloc, size, m.Len(), d.Off, showValue(d.Type))
 	}
 	var limbs []string
 	for i := int32(0); i < n; i++ {
-		limbs = append(limbs, strconv.FormatUint(m.Elems[i].(uint64), 16))
+		limbs = append(limbs, strconv.FormatUint(m.Get(int(i)).(uint64), 16))
 	}
-	if n > 0 && m.Elems[n-1].(uint64) == 0 {
+	if n > 0 && m.Get(int(n-1)).(uint64) == 0 {
 		f.t.Errorf("a zero top limb in size %d", size)
 	}
 	return fmt.Sprintf("Z:%d;%s", size, strings.Join(limbs, ","))
@@ -311,16 +311,16 @@ func (f *gmpFixture) limbPtr(p any) (*Pointer, int) {
 
 func (f *gmpFixture) getStr(z any, base int32) ([]string, error) {
 	room := int(gmpSizeInBase(f.value(z), int(max(base, -base)))) + 3
-	m := &Memory{Type: memUInt8Type, Elems: make([]any, room)}
-	for i := range m.Elems {
-		m.Elems[i] = uint8(0)
+	m := newMemory(memUInt8Type, make([]any, room))
+	for i := range m.All() {
+		m.Set(i, uint8(0))
 	}
 	buf := &Pointer{Type: f.u8p, Target: m}
 	if _, err := f.call("__gmpz_get_str", buf, base, z); err != nil {
 		return nil, err
 	}
 	var text []byte
-	for _, e := range m.Elems {
+	for _, e := range m.All() {
 		if e.(uint8) == 0 {
 			break
 		}
@@ -333,10 +333,10 @@ func (f *gmpFixture) export(a []any) ([]string, error) {
 	size, order, endian, nails := a[1].(uint64), a[2].(int32), a[3].(int32), a[4].(uint64)
 	et := map[uint64]*core.DataType{1: core.UInt8Type, 2: core.UInt16Type, 4: core.Int32Type, 8: core.UInt64Type}[size]
 	n := int(cld64(gmpSizeInBase(f.value(a[0]), 2), 8*size-nails))
-	m := &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), et, core.CPU)).(*core.DataType), Elems: make([]any, n)}
+	m := newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), et, core.CPU)).(*core.DataType), make([]any, n))
 	zero, _ := bitsValue(et, u128{})
-	for i := range m.Elems {
-		m.Elems[i] = zero
+	for i := range m.All() {
+		m.Set(i, zero)
 	}
 	count, cst := f.newStruct("GRef64")
 	cst.Fields[0] = uint64(0)
@@ -346,7 +346,7 @@ func (f *gmpFixture) export(a []any) ([]string, error) {
 	}
 	got := cst.Fields[0].(uint64)
 	var words []string
-	for _, e := range m.Elems[:got] {
+	for _, e := range m.Slice(0, int(got)) {
 		bits, _, _ := primBits(e)
 		w := bits.lo
 		if size < 8 {

@@ -163,16 +163,16 @@ func (vm *VM) vectorPush(vec *Struct, v any) {
 	ref := vec.Fields[0].(*MemoryRef)
 	n := vec.Fields[1].(*Tuple).Elems[0].(int64)
 	at := ref.Off + int(n)
-	if at < len(ref.Mem.Elems) {
-		ref.Mem.Elems[at] = v
+	if at < ref.Mem.Len() {
+		ref.Mem.Set(at, v)
 	} else {
-		elems := make([]any, max(2*len(ref.Mem.Elems), at+1, 4))
-		copy(elems, ref.Mem.Elems)
-		for i := len(ref.Mem.Elems); i < len(elems); i++ {
+		elems := make([]any, max(2*ref.Mem.Len(), at+1, 4))
+		copy(elems, ref.Mem.All())
+		for i := ref.Mem.Len(); i < len(elems); i++ {
 			elems[i] = undef
 		}
 		elems[at] = v
-		vec.Fields[0] = &MemoryRef{Type: ref.Type, Mem: &Memory{Type: ref.Mem.Type, Elems: elems}, Off: ref.Off}
+		vec.Fields[0] = &MemoryRef{Type: ref.Type, Mem: newMemory(ref.Mem.Type, elems), Off: ref.Off}
 	}
 	vec.Fields[1] = vm.newTuple([]any{n + 1})
 }
@@ -617,8 +617,8 @@ func (s *irEncoder) encode(v any, lit bool) error {
 			if err := s.encode(m.Type, false); err != nil {
 				return err
 			}
-			s.encodeInt64(int64(len(m.Elems)))
-			return s.encodeSlice(m.Type.Parameters[1], m.Elems)
+			s.encodeInt64(int64(m.Len()))
+			return s.encodeSlice(m.Type.Parameters[1], m.All())
 		}
 	}
 	general := lit
@@ -1122,7 +1122,7 @@ func (d *irDecoder) decode() (any, error) {
 			return nil, errMalformedIR
 		}
 		elems, err := d.slice(t.Parameters[1], k)
-		return &Memory{Type: t, Elems: elems}, err
+		return newMemory(t, elems), err
 	case irExpr, irLongExpr, irCall1, irCall2:
 		return d.expr(tag)
 	case irPhinode, irLongPhinode:

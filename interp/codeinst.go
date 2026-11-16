@@ -250,12 +250,12 @@ func (vm *VM) promoteCIsToCurrent(a []any) (any, error) {
 		return nil, fmt.Errorf("%w: jl_promote_cis_to_current of %s", ErrUnsupported, vm.argTypes(a))
 	}
 	i := ptr.Off / 8
-	if i > int64(len(m.Elems)) || n > uint64(int64(len(m.Elems))-i) {
+	if i > int64(m.Len()) || n > uint64(int64(m.Len())-i) {
 		return nil, fmt.Errorf("%w: jl_promote_cis_to_current past the memory", ErrUnsupported)
 	}
 	cis := make([]*Struct, n)
 	for k := range cis {
-		ci, err := vm.codeInstanceArg(m.Elems[i+int64(k)])
+		ci, err := vm.codeInstanceArg(m.Get(int(i + int64(k))))
 		if err != nil {
 			return nil, err
 		}

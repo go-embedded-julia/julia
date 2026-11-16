@@ -45,12 +45,12 @@ func (s *goIdSet) has(k any) bool { return s.call("jl_idset_peek_bp", s.list, s.
 func (s *goIdSet) push(x any) {
 	idx := s.call("jl_idset_peek_bp", s.list, s.idxs, x).(int64)
 	if idx >= 0 {
-		s.list.Elems[idx] = x
+		s.list.Set(int(idx), x)
 		return
 	}
-	if s.max < len(s.list.Elems) {
+	if s.max < s.list.Len() {
 		idx = int64(s.max)
-		s.list.Elems[idx] = x
+		s.list.Set(int(idx), x)
 		s.max = int(idx) + 1
 	} else {
 		s.list = s.call("jl_idset_put_key", s.list, x, s.ref).(*Memory)
@@ -68,7 +68,7 @@ func (s *goIdSet) push(x any) {
 func (s *goIdSet) pop(x any) {
 	if s.call("jl_idset_pop", s.list, s.idxs, x).(int64) != -1 {
 		s.count--
-		for s.max > 0 && s.list.Elems[s.max-1] == undef {
+		for s.max > 0 && s.list.Get(s.max-1) == undef {
 			s.max--
 		}
 	}
@@ -88,11 +88,11 @@ func idKeyString(k any) string {
 
 // dump is testdata/idset.jl's dump.
 func (s *goIdSet) dump(name string) string {
-	n := len(s.list.Elems)
+	n := s.list.Len()
 	// int64: the checksum of 70000 keys passes 2^31
 	ks := int64(0)
 	var parts []string
-	for i, k := range s.list.Elems {
+	for i, k := range s.list.All() {
 		if k == undef {
 			parts = append(parts, "#")
 			continue
@@ -118,7 +118,7 @@ func (s *goIdSet) want(got, want string) {
 	s.t.Helper()
 	f := strings.Fields(want)
 	want = strings.Join(append(append([]string(nil), f[:3]...), f[5:]...), " ")
-	for _, k := range s.list.Elems {
+	for _, k := range s.list.All() {
 		if k != undef && !s.has(k) {
 			s.t.Errorf("%s: key %v is not found in the index", f[0], k)
 		}
@@ -230,7 +230,7 @@ func TestIdSetShims(t *testing.T) {
 		t.Errorf("rehash 0: %v", err)
 	}
 	v, err = vm.shims["jl_idset_rehash"](vm, []any{s.list, s.idxs, uint64(100)})
-	if err != nil || len(v.(*Memory).Elems) != 128 {
+	if err != nil || v.(*Memory).Len() != 128 {
 		t.Errorf("rehash 100: %v %v", v, err)
 	}
 	// a full rehash (a negative index) after removals
@@ -250,16 +250,16 @@ func TestIdSetShims(t *testing.T) {
 	if _, err := vm2.smallintsetInsert(&Memory{Type: memUInt8Type}, func(int) uint64 { return 0 }, 0); err == nil {
 		t.Error("smallintsetInsert past the limit")
 	}
-	if _, _, err := vm2.idsetPutKey(&Memory{Type: memAnyType, Elems: []any{int64(1), int64(2), int64(3), int64(4)}}, int64(5)); err == nil {
+	if _, _, err := vm2.idsetPutKey(newMemory(memAnyType, []any{int64(1), int64(2), int64(3), int64(4)}), int64(5)); err == nil {
 		t.Error("idsetPutKey past the limit")
 	}
 	// the same limit met inside each shim, and by an index whose width must grow
-	if _, err := vm2.smallintsetInsert(&Memory{Type: memUInt8Type, Elems: make([]any, 8)}, func(int) uint64 { return 0 }, 254); err == nil {
+	if _, err := vm2.smallintsetInsert(newMemory(memUInt8Type, make([]any, 8)), func(int) uint64 { return 0 }, 254); err == nil {
 		t.Error("smallintsetInsert of a wider value past the limit")
 	}
 	old := vm.MaxMemoryElems
 	vm.MaxMemoryElems = 1
-	_, err = vm.shims["jl_idset_put_key"](vm, []any{&Memory{Type: memAnyType, Elems: []any{int64(1), int64(2)}}, int64(99), null})
+	_, err = vm.shims["jl_idset_put_key"](vm, []any{newMemory(memAnyType, []any{int64(1), int64(2)}), int64(99), null})
 	check(t, "put_key past the limit", nil, err, "!MaxMemoryElems")
 	_, err = vm.shims["jl_idset_put_idx"](vm, []any{s.list, &Memory{Type: memUInt8Type}, int64(-3)})
 	check(t, "put_idx past the limit", nil, err, "!MaxMemoryElems")
@@ -267,21 +267,21 @@ func TestIdSetShims(t *testing.T) {
 	// an index that is no Memory is refused, not dereferenced
 	_, err = vm.shims["jl_idset_peek_bp"](vm, []any{s.list, int64(1), int64(5)})
 	check(t, "peek_bp of a non-Memory index", nil, err, "!not ported")
-	if h := vm.idsetHash(&Memory{Type: memAnyType, Elems: []any{undef}})(0); h != 0 {
+	if h := vm.idsetHash(newMemory(memAnyType, []any{undef}))(0); h != 0 {
 		t.Errorf("the hash of a removed key: %d", h)
 	}
 	// a UInt32 index, and the widths' tombstones
-	m := &Memory{Type: memUInt32Type, Elems: []any{uint32(0), uint32(0xFFFFFFFF), uint32(7)}}
+	m := newMemory(memUInt32Type, []any{uint32(0), uint32(0xFFFFFFFF), uint32(7)})
 	if intref(m, 1) != 0 || intrefAcquire(m, 1) != -1 || intrefAcquire(m, 2) != 7 {
 		t.Error("UInt32 tombstone")
 	}
 	intsetRelease(m, 0, 9)
-	if m.Elems[0] != uint32(9) {
+	if m.Get(0) != uint32(9) {
 		t.Error("UInt32 release")
 	}
-	m16 := &Memory{Type: memUInt16Type, Elems: []any{uint16(0)}}
+	m16 := newMemory(memUInt16Type, []any{uint16(0)})
 	intsetRelease(m16, 0, -1)
-	if m16.Elems[0] != uint16(0xFFFF) {
+	if m16.Get(0) != uint16(0xFFFF) {
 		t.Error("UInt16 tombstone")
 	}
 	if _, ok := intWidth(&Memory{Type: memUInt16Type}); !ok {
@@ -300,24 +300,24 @@ func TestIdSetShims(t *testing.T) {
 	if smallintsetLookup(&Memory{Type: memUInt8Type}, func(int) bool { return true }, 1, false) != -1 {
 		t.Error("lookup in an empty table")
 	}
-	full := &Memory{Type: memUInt8Type, Elems: []any{uint8(1), uint8(2), uint8(3), uint8(4)}}
+	full := newMemory(memUInt8Type, []any{uint8(1), uint8(2), uint8(3), uint8(4)})
 	if smallintsetLookup(full, func(int) bool { return false }, 1, false) != -1 {
 		t.Error("lookup in a full table")
 	}
-	if smallintsetInsertAt(&Memory{Type: memUInt8Type, Elems: []any{uint8(0)}}, 0, 1) {
+	if smallintsetInsertAt(newMemory(memUInt8Type, []any{uint8(0)}), 0, 1) {
 		t.Error("a table of one entry takes none")
 	}
 	if smallintsetInsertAt(full, 0, 5) {
 		t.Error("a full table takes none")
 	}
 	// a rehash that does not fit: one slot short, so the table doubles
-	small := &Memory{Type: memUInt8Type, Elems: make([]any, 5)}
+	small := newMemory(memUInt8Type, make([]any, 5))
 	smallintsetEmpty(small)
 	for i, v := range []uint8{1, 2, 3, 4, 5} {
-		small.Elems[i] = v
+		small.Set(i, v)
 	}
 	newa, err := vm.smallintsetRehash(small, func(int) uint64 { return 0 }, 4, 0)
-	if err != nil || len(newa.Elems) <= 4 {
+	if err != nil || newa.Len() <= 4 {
 		t.Errorf("rehash of colliding keys: %v", err)
 	}
 }

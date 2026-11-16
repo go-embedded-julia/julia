@@ -354,7 +354,7 @@ func TestShowCircular(t *testing.T) {
 		check(t, c.src, v, err, c.want)
 	}
 	v := vm.newVector(core.AnyType, []any{int64(1), nil})
-	v.Fields[0].(*MemoryRef).Mem.Elems[1] = v
+	v.Fields[0].(*MemoryRef).Mem.Set(1, v)
 	if got := Repr(v); got != "Any[1, Any[#= circular reference @-1 =#]]" {
 		t.Errorf("a vector: %s", got)
 	}

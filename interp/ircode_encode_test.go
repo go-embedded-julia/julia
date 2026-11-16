@@ -66,7 +66,7 @@ func TestIRLongAndErrors(t *testing.T) {
 
 	// values julia could write but whose memory this VM cannot lay out
 	mem := func(elt any, elems []any) *Memory {
-		return &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), elt, core.CPU)).(*core.DataType), Elems: elems}
+		return newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), elt, core.CPU)).(*core.DataType), elems)
 	}
 	if _, err := f.s.Eval("struct SU\na::Union{Int,Nothing}\nend\nstruct Outer\na::Int8\nt::Two\nend"); err != nil {
 		t.Fatal(err)

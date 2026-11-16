@@ -221,7 +221,7 @@ func TestTypeinfWorld(t *testing.T) {
 	}
 	tuple := coreValue(t, vm, "tuple")
 	at := func(off int64, xs ...any) *Pointer {
-		return &Pointer{Type: vm.ptrType(core.AnyType), Target: &Memory{Type: memAnyType, Elems: xs}, Off: off}
+		return &Pointer{Type: vm.ptrType(core.AnyType), Target: newMemory(memAnyType, xs), Off: off}
 	}
 	call := vm.shims["jl_call_in_typeinf_world"]
 	for _, c := range []struct {

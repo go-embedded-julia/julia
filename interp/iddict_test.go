@@ -121,8 +121,8 @@ func TestEqTable(t *testing.T) {
 		t.Errorf("%d entries after growth", e.len())
 	}
 	re := e.call("jl_idtable_rehash", e.ht, uint64(4096)).(*Memory)
-	if len(re.Elems) != 4096 {
-		t.Errorf("rehash to %d slots", len(re.Elems))
+	if re.Len() != 4096 {
+		t.Errorf("rehash to %d slots", re.Len())
 	}
 	// C_NULL for the result pointer: none wanted
 	e.call("jl_eqtable_put", e.ht, int64(5000), int64(1), &Pointer{Type: vm.ptrType(core.NothingType)})
@@ -132,13 +132,13 @@ func TestEqTable(t *testing.T) {
 	// an empty table grows on the first put; nextind past the end and on an
 	// odd-length table
 	empty := &Memory{Type: memAnyType}
-	if m := e.call("jl_eqtable_put", empty, int64(1), int64(2), e.ptr()).(*Memory); len(m.Elems) != htNInline {
-		t.Errorf("an empty table grew to %d", len(m.Elems))
+	if m := e.call("jl_eqtable_put", empty, int64(1), int64(2), e.ptr()).(*Memory); m.Len() != htNInline {
+		t.Errorf("an empty table grew to %d", m.Len())
 	}
 	if e.call("jl_eqtable_get", empty, int64(1), "d") != "d" {
 		t.Error("get from an empty table")
 	}
-	odd := &Memory{Type: memAnyType, Elems: []any{int64(1), int64(2), int64(3)}}
+	odd := newMemory(memAnyType, []any{int64(1), int64(2), int64(3)})
 	if e.call("jl_eqtable_nextind", odd, uint64(1)) != ^uint64(0) || e.call("jl_eqtable_nextind", odd, uint64(0)) != uint64(0) {
 		t.Error("nextind of an odd-length table")
 	}
@@ -154,27 +154,27 @@ func TestEqTable(t *testing.T) {
 		t.Error("nothing put again after its pop")
 	}
 	// a table shorter than HT_N_INLINE grows to it when full
-	small := &Memory{Type: memAnyType, Elems: []any{undef, undef}}
+	small := newMemory(memAnyType, []any{undef, undef})
 	for i := int64(0); i < 3; i++ {
 		var err error
 		if small, _, err = vm.tableAssign(small, i, i); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(small.Elems) != htNInline {
-		t.Errorf("a full 2-slot table grew to %d", len(small.Elems))
+	if small.Len() != htNInline {
+		t.Errorf("a full 2-slot table grew to %d", small.Len())
 	}
 	// a key whose value is undef is not found (an insertion C would be
 	// finishing on another thread); nothing's is passed over, to the end
-	half := &Memory{Type: memAnyType, Elems: []any{int64(1), undef, undef, undef}}
+	half := newMemory(memAnyType, []any{int64(1), undef, undef, undef})
 	if vm.tablePeek(half, int64(1)) != -1 {
 		t.Error("a half-inserted key was found")
 	}
-	deleted := &Memory{Type: memAnyType, Elems: []any{nil, undef, nil, undef}}
+	deleted := newMemory(memAnyType, []any{nil, undef, nil, undef})
 	if vm.tablePeek(deleted, nil) != -1 {
 		t.Error("nothing found in a table of deleted slots")
 	}
-	full := &Memory{Type: memAnyType, Elems: []any{int64(7), int64(7), int64(9), int64(9)}}
+	full := newMemory(memAnyType, []any{int64(7), int64(7), int64(9), int64(9)})
 	if vm.tablePeek(full, int64(11)) != -1 {
 		t.Error("a missing key found in a full table")
 	}

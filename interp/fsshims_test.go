@@ -13,8 +13,8 @@ import (
 
 // the same bytes, as the shims keep them
 func memBytes(m *Memory) []byte {
-	b := make([]byte, len(m.Elems))
-	for i, e := range m.Elems {
+	b := make([]byte, m.Len())
+	for i, e := range m.All() {
 		b[i] = e.(uint8)
 	}
 	return b
@@ -202,10 +202,10 @@ func TestRequestShims(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := p.(*Pointer)
-	if m, ok := req.Target.(*Memory); !ok || len(m.Elems) != 448 || req.Type != vm.ptrType(core.NothingType) {
+	if m, ok := req.Target.(*Memory); !ok || m.Len() != 448 || req.Type != vm.ptrType(core.NothingType) {
 		t.Fatalf("malloc: %v", showValue(p))
 	}
-	if q, _ := f.sh("malloc", uint64(0)); len(q.(*Pointer).Target.(*Memory).Elems) != 1 {
+	if q, _ := f.sh("malloc", uint64(0)); q.(*Pointer).Target.(*Memory).Len() != 1 {
 		t.Error("malloc of 0")
 	}
 	vm.MaxMemoryElems = 100
@@ -336,7 +336,7 @@ func TestCRC32C(t *testing.T) {
 	if got := crc(0, f.str(""), 0); got != "0" {
 		t.Errorf("empty: %s", got)
 	}
-	m := &Memory{Type: memUInt8Type, Elems: []any{uint8(0x68), uint8(0x65), uint8(0x6c), uint8(0x6c), uint8(0x6f)}}
+	m := newMemory(memUInt8Type, []any{uint8(0x68), uint8(0x65), uint8(0x6c), uint8(0x6c), uint8(0x6f)})
 	if got := crc(0, &Pointer{Type: f.u8p, Target: m}, 5); got != "9a71bb4c" { // julia: open(_crc32c, file) of "hello"
 		t.Errorf("a memory: %s", got)
 	}

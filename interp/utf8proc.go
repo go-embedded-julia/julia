@@ -218,9 +218,9 @@ func (vm *VM) utf8procReencode(a []any) (any, error) {
 // its own, which for the megabytes of a normalization is most of its time.
 func (vm *VM) putBytes8(dst any, b []byte) error {
 	if p, ok := dst.(*Pointer); ok {
-		if m, ok := p.Target.(*Memory); ok && m.Type == memUInt8Type && p.Off >= 0 && p.Off+int64(len(b)) <= int64(len(m.Elems)) {
+		if m, ok := p.Target.(*Memory); ok && m.Type == memUInt8Type && p.Off >= 0 && p.Off+int64(len(b)) <= int64(m.Len()) {
 			for i, c := range b {
-				m.Elems[int(p.Off)+i] = c
+				m.Set(int(p.Off)+i, c)
 			}
 			return nil
 		}

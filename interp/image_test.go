@@ -798,12 +798,12 @@ func TestImageNullPointers(t *testing.T) {
 		mut := mustType("Main", "NullHost", core.AnyType, false, []expr.Symbol{"p"}, []any{core.AnyType})
 		mut.Name.Mutable = !immutable
 		vm.singletons[mustType("Main", "NullKey", core.AnyType, false, nil, nil)] = &Struct{Type: mut, Fields: []any{p}}
-		mem := &Memory{Type: memAnyType, Elems: []any{p}}
+		mem := newMemory(memAnyType, []any{p})
 		vm.singletons[mustType("Main", "NullMem", core.AnyType, false, nil, nil)] = mem
 		vm.Main.declare("nullptr", vm.newWorld()).Value = p
 		return saveBytes(t, vm)
 	}
-	m1, m2 := &Memory{Type: memAnyType, Elems: []any{int64(1)}}, &Memory{Type: memAnyType, Elems: []any{int64(2), int64(3)}}
+	m1, m2 := newMemory(memAnyType, []any{int64(1)}), newMemory(memAnyType, []any{int64(2), int64(3)})
 	_ = m1
 	_ = m2
 	// mutable struct, Memory element and binding: the pointer is nulled, so
@@ -854,7 +854,7 @@ func TestImageWeak(t *testing.T) {
 	vm.Main.declare("ex1", vm.newWorld()).Value = ex1
 	// two more entries ready in the same round, of the same map and of the
 	// address table, which come in the order of their maps and then keys
-	ex3, held := expr.New("call", expr.Symbol("k")), &Memory{Type: memUInt8Type, Elems: make([]any, 2)}
+	ex3, held := expr.New("call", expr.Symbol("k")), newMemory(memUInt8Type, make([]any, 2))
 	vm.exprArgs(ex3)
 	vm.Main.declare("ex3", vm.newWorld()).Value = ex3
 	if _, err := vm.addressOf(&Pointer{Type: vm.ptrType(core.UInt8Type), Target: held}); err != nil {
@@ -906,7 +906,7 @@ func TestImageWeak(t *testing.T) {
 // its number, one whose memory is not is dropped.
 func TestImageAddressRegions(t *testing.T) {
 	vm := bootedVM(t)
-	held, loose := &Memory{Type: memUInt8Type, Elems: make([]any, 4)}, &Memory{Type: memUInt8Type, Elems: make([]any, 4)}
+	held, loose := newMemory(memUInt8Type, make([]any, 4)), newMemory(memUInt8Type, make([]any, 4))
 	for _, m := range []*Memory{held, loose} {
 		if _, err := vm.addressOf(&Pointer{Type: vm.ptrType(core.UInt8Type), Target: m}); err != nil {
 			t.Fatal(err)

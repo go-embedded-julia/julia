@@ -10,7 +10,7 @@ import (
 )
 
 func newHandle(vm *VM) *Pointer {
-	return vm.voidPtr(&Memory{Type: memUInt8Type, Elems: make([]any, 64)})
+	return vm.voidPtr(newMemory(memUInt8Type, make([]any, 64)))
 }
 
 // callback is a cfunction pointer whose function is f.
@@ -201,7 +201,7 @@ func TestUVShims(t *testing.T) {
 	vm := New()
 	loop := vm.voidPtr(vm.uv())
 	notHandle := []any{int64(1)}
-	offset := &Pointer{Type: vm.ptrType(core.NothingType), Target: &Memory{Type: memUInt8Type, Elems: make([]any, 8)}, Off: 4}
+	offset := &Pointer{Type: vm.ptrType(core.NothingType), Target: newMemory(memUInt8Type, make([]any, 8)), Off: 4}
 	for _, c := range []struct {
 		name string
 		args []any

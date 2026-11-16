@@ -344,7 +344,7 @@ func (e *imgEnc) structFields(t reflect.Type) []encField {
 	for i := range f {
 		f[i].name = t.String() + "." + t.Field(i).Name
 		_, f[i].skip = e.spec.skip[f[i].name]
-		f[i].nullPtr = f[i].name == "interp.Memory.Elems" || f[i].name == "interp.Binding.Value"
+		f[i].nullPtr = f[i].name == "interp.Memory.elems" || f[i].name == "interp.Binding.Value"
 		f[i].structFl = f[i].name == "interp.Struct.Fields"
 	}
 	e.fields[t] = f

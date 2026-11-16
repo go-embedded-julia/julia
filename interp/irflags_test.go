@@ -117,7 +117,7 @@ func TestIRFlagsAgainstJulia(t *testing.T) {
 		}
 		var got any
 		if m, ok := p.Target.(*Memory); ok {
-			got = m.Elems[0]
+			got = m.Get(0)
 		}
 		if got != c.want {
 			t.Errorf("field %d of %s: %v, julia %v", c.field, c.tn.Name, got, c.want)
@@ -193,17 +193,17 @@ func TestUnsetThroughPointer(t *testing.T) {
 	voidpp := vm.ptrType(vm.ptrType(core.NothingType))
 	cnull := &Pointer{Type: vm.ptrType(core.NothingType)}
 	mem := func(et any, elems ...any) *Memory {
-		return &Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), et, core.CPU)).(*core.DataType), Elems: elems}
+		return newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), et, core.CPU)).(*core.DataType), elems)
 	}
 	pair := must(core.Apply(core.AnyTupleType, core.Int64Type, core.StringType)).(*core.DataType)
 	boxed := mem(core.AnyType, int64(1), int64(2))
 	inline := mem(pair, vm.newTuple([]any{int64(1), "a"}), vm.newTuple([]any{int64(2), "b"}))
 	// the second element's second word, as _unsetindex! writes it
-	if err := vm.ptrStore("atomic_pointerset", &Pointer{Type: voidpp, Target: inline, Off: 16}, cnull, 2); err != nil || inline.Elems[1] != undef || inline.Elems[0] == undef {
-		t.Errorf("inline element: %v %v", inline.Elems, err)
+	if err := vm.ptrStore("atomic_pointerset", &Pointer{Type: voidpp, Target: inline, Off: 16}, cnull, 2); err != nil || inline.Get(1) != undef || inline.Get(0) == undef {
+		t.Errorf("inline element: %v %v", inline.All(), err)
 	}
-	if err := vm.ptrStore("atomic_pointerset", &Pointer{Type: voidpp, Target: boxed}, cnull, 1); err != nil || boxed.Elems[0] != undef {
-		t.Errorf("boxed slot: %v %v", boxed.Elems, err)
+	if err := vm.ptrStore("atomic_pointerset", &Pointer{Type: voidpp, Target: boxed}, cnull, 1); err != nil || boxed.Get(0) != undef {
+		t.Errorf("boxed slot: %v %v", boxed.All(), err)
 	}
 	for _, c := range []struct {
 		name string

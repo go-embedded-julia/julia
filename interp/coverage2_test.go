@@ -225,9 +225,9 @@ func TestCstrToString(t *testing.T) {
 		t.Fatal(err)
 	}
 	u8p := vm.ptrType(core.UInt8Type)
-	m := &Memory{Type: memType(core.UInt8Type), Elems: []any{uint8('a'), uint8('b'), uint8(0), uint8('c')}}
-	short := &Memory{Type: memType(core.UInt8Type), Elems: []any{uint8('a')}}
-	i32 := &Memory{Type: memType(core.Int32Type), Elems: []any{int32(1)}}
+	m := newMemory(memType(core.UInt8Type), []any{uint8('a'), uint8('b'), uint8(0), uint8('c')})
+	short := newMemory(memType(core.UInt8Type), []any{uint8('a')})
+	i32 := newMemory(memType(core.Int32Type), []any{int32(1)})
 	for _, c := range []struct {
 		name string
 		p    any
@@ -264,7 +264,7 @@ func TestMemoryBytes(t *testing.T) {
 	}
 	p16 := must(s.Eval("P16")).(*core.DataType)
 	u32 := memType(core.UInt32Type)
-	newMem := func(elems ...any) *Memory { return &Memory{Type: u32, Elems: elems} }
+	newMem := func(elems ...any) *Memory { return newMemory(u32, elems) }
 	u8p := vm.ptrType(core.UInt8Type)
 
 	// stores and loads of bytes, through UInt8 pointers into UInt32s
@@ -285,21 +285,21 @@ func TestMemoryBytes(t *testing.T) {
 		v, err := c.f(vm, c.args)
 		check(t, c.name, v, err, c.want)
 	}
-	if m.Elems[0] != uint32(0x0403ff01) {
-		t.Errorf("after the byte store: %#x", m.Elems[0])
+	if m.Get(0) != uint32(0x0403ff01) {
+		t.Errorf("after the byte store: %#x", m.Get(0))
 	}
 	// an element that is no value: uninitialized bits read as zeros, bytes
 	// the VM cannot take are refused
-	m.Elems[1] = undef
+	m.Set(1, undef)
 	v, err := biPointerref(vm, []any{&Pointer{Type: u8p, Target: m, Off: 4}, int64(1), int64(1)})
 	check(t, "an uninitialized element", v, err, "0x00")
-	m.Elems[1] = "not bits"
+	m.Set(1, "not bits")
 	_, err = biPointerref(vm, []any{&Pointer{Type: u8p, Target: m, Off: 4}, int64(1), int64(1)})
 	check(t, "an element that is not bits", nil, err, "!the bits of a")
 	_, err = biPointerset(vm, []any{&Pointer{Type: u8p, Target: m, Off: 4}, uint8(1), int64(1), int64(1)})
 	check(t, "a store over an element that is not bits", nil, err, "!the bits of a")
 	// a load of a program's own primitive type: its bits, little-endian
-	pm := &Memory{Type: memType(core.UInt8Type), Elems: []any{uint8(1), uint8(2)}}
+	pm := newMemory(memType(core.UInt8Type), []any{uint8(1), uint8(2)})
 	v, err = vm.memLoadBytes("pointerref", pm, 0, p16)
 	if err != nil || v != any(PrimValue{p16, from64(0x0201)}) {
 		t.Errorf("a load of a custom primitive: %v, %v", v, err)
@@ -311,10 +311,10 @@ func TestMemoryBytes(t *testing.T) {
 	check(t, "a store of a string", nil, err, "!pointerset of a")
 	err = vm.memStoreBytes("pointerset", newMem(uint32(0)), 2, uint32(1))
 	check(t, "a store past the end", nil, err, "!invalid pointer")
-	pe := &Memory{Type: memType(p16), Elems: []any{undef, undef}}
+	pe := newMemory(memType(p16), []any{undef, undef})
 	err = vm.memStoreBytes("pointerset", pe, 0, uint16(0x0102))
-	if err != nil || pe.Elems[0] != any(PrimValue{p16, from64(0x0102)}) {
-		t.Errorf("a store into a custom primitive: %v, %v", pe.Elems[0], err)
+	if err != nil || pe.Get(0) != any(PrimValue{p16, from64(0x0102)}) {
+		t.Errorf("a store into a custom primitive: %v, %v", pe.Get(0), err)
 	}
 	// memIndex of a pointer whose type is not the memory's
 	_, err = vm.memIndex("pointerref", &Pointer{Type: u8p, Target: m}, m, core.Int64Type, 1)
@@ -327,20 +327,21 @@ func TestMemoryBytes(t *testing.T) {
 	p := &Pointer{Type: u8p, Target: m}
 	_, err = vm.memset([]any{p, int32(0xab), uint64(12)})
 	check(t, "memset whole", nil, err, "")
-	if m.Elems[2] != uint32(0xabababab) {
-		t.Errorf("memset whole: %#x", m.Elems[2])
+	if m.Get(2) != uint32(0xabababab) {
+		t.Errorf("memset whole: %#x", m.Get(2))
 	}
-	m.Elems[0], m.Elems[1] = uint32(0), uint32(0)
+	m.Set(0, uint32(0))
+	m.Set(1, uint32(0))
 	_, err = vm.memset([]any{&Pointer{Type: u8p, Target: m, Off: 1}, int32(0x11), uint64(6)})
 	check(t, "memset partial", nil, err, "")
-	if m.Elems[0] != uint32(0x11111100) || m.Elems[1] != uint32(0x00111111) {
-		t.Errorf("memset partial: %#x %#x", m.Elems[0], m.Elems[1])
+	if m.Get(0) != uint32(0x11111100) || m.Get(1) != uint32(0x00111111) {
+		t.Errorf("memset partial: %#x %#x", m.Get(0), m.Get(1))
 	}
 	_, err = vm.memset([]any{p, int32(1), uint64(13)})
 	check(t, "memset past the end", nil, err, "!invalid pointer")
 	_, err = vm.memset([]any{&Pointer{Type: u8p, Target: pe}, int32(1), uint64(2)})
-	if err != nil || pe.Elems[0] != any(PrimValue{p16, from64(0x0101)}) {
-		t.Errorf("memset of a custom primitive: %v, %v", pe.Elems[0], err)
+	if err != nil || pe.Get(0) != any(PrimValue{p16, from64(0x0101)}) {
+		t.Errorf("memset of a custom primitive: %v, %v", pe.Get(0), err)
 	}
 	str, err := vm.allocString([]any{int64(4)})
 	if err != nil {

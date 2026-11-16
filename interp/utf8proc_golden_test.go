@@ -31,7 +31,7 @@ func TestUtf8procAgainstJulia(t *testing.T) {
 		n, _ := strconv.ParseUint(s, 10, 32)
 		return uint32(n)
 	}
-	state := &Memory{Type: memType(core.Int32Type), Elems: []any{int32(0)}}
+	state := newMemory(memType(core.Int32Type), []any{int32(0)})
 	sp := &Pointer{Type: vm.ptrType(core.Int32Type), Target: state}
 	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
 	if len(lines) != 45 {
@@ -43,7 +43,7 @@ func TestUtf8procAgainstJulia(t *testing.T) {
 		switch {
 		case f[0] == "s":
 			brk := call("utf8proc_grapheme_break_stateful", u32(f[1]), u32(f[2]), sp)
-			got = fmt.Sprintf("s\t%s\t%s\t%v\t%d", f[1], f[2], brk, state.Elems[0])
+			got = fmt.Sprintf("s\t%s\t%s\t%v\t%d", f[1], f[2], brk, state.Get(0))
 		case len(f) == 3:
 			got = fmt.Sprintf("%s\t%s\t%v", f[0], f[1], call("utf8proc_grapheme_break", u32(f[0]), u32(f[1])))
 		default:

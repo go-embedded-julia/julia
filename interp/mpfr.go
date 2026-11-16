@@ -248,22 +248,22 @@ func (vm *VM) mpfrRefOf(fname string, i int, v any) (*mpfrRef, error) {
 	if ok {
 		m, ok = p.Target.(*Memory)
 	}
-	if !ok || p.Off != 0 || m.Type != memUInt64Type || len(m.Elems) < mpfrLimbWord {
+	if !ok || p.Off != 0 || m.Type != memUInt64Type || m.Len() < mpfrLimbWord {
 		return nil, vm.errorf("%s: argument %d is %s, not a BigFloat", fname, i+1, showValue(v))
 	}
 	prec, ok := memWord(m, 0)
-	if !ok || int64(prec) < 1 || int64(prec) > math.MaxInt64-63 || (int64(prec)-1)/64+1 > int64(len(m.Elems)-mpfrLimbWord) {
-		return nil, vm.errorf("%s: argument %d is a BigFloat whose precision %d does not fit its %d words", fname, i+1, int64(prec), len(m.Elems))
+	if !ok || int64(prec) < 1 || int64(prec) > math.MaxInt64-63 || (int64(prec)-1)/64+1 > int64(m.Len()-mpfrLimbWord) {
+		return nil, vm.errorf("%s: argument %d is a BigFloat whose precision %d does not fit its %d words", fname, i+1, int64(prec), m.Len())
 	}
 	return &mpfrRef{m: m, prec: int64(prec)}, nil
 }
 
 // memWord is word k of a Memory{UInt64}: an unset one reads as zero.
 func memWord(m *Memory, k int) (uint64, bool) {
-	if w, ok := m.Elems[k].(uint64); ok {
+	if w, ok := m.Get(k).(uint64); ok {
 		return w, true
 	}
-	return 0, m.Elems[k] == undef
+	return 0, m.Get(k) == undef
 }
 
 // mpfrRead is the number a BigFloat holds.
@@ -292,7 +292,7 @@ func (vm *VM) mpfrRead(r *mpfrRef) (*mpfrNum, error) {
 	for i := range limbs {
 		w, ok := memWord(r.m, mpfrLimbWord+i)
 		if !ok {
-			return nil, vm.errorf("mpfr: a limb of a BigFloat is %s", showValue(r.m.Elems[mpfrLimbWord+i]))
+			return nil, vm.errorf("mpfr: a limb of a BigFloat is %s", showValue(r.m.Get(mpfrLimbWord+i)))
 		}
 		limbs[i] = w
 	}
@@ -309,7 +309,7 @@ func (vm *VM) mpfrRead(r *mpfrRef) (*mpfrNum, error) {
 // mpfrWrite leaves x in a BigFloat, which x fits (its mantissa has at most
 // the precision's bits).
 func (vm *VM) mpfrWrite(r *mpfrRef, x *mpfrNum) {
-	setWord := func(k int, w uint64) { r.m.Elems[k] = w }
+	setWord := func(k int, w uint64) { r.m.Set(k, w) }
 	setSign := func(neg bool) {
 		old, _ := memWord(r.m, 1)
 		s := int32(1)

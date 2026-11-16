@@ -58,8 +58,9 @@ func (f *mpfrFixture) rnd(r int) PrimValue {
 // newBF is BigFloat(precision=p): NaN, sign +1, as mpfr.jl makes one.
 func (f *mpfrFixture) newBF(prec int64) *Pointer {
 	m := f.vm.newLimbs(mpfrLimbWord + int((prec-1)/64+1))
-	m.Elems[0], m.Elems[1] = uint64(prec), uint64(1)
-	m.Elems[2] = expWord(math.MinInt64 + 2)
+	m.Set(0, uint64(prec))
+	m.Set(1, uint64(1))
+	m.Set(2, expWord(math.MinInt64+2))
 	return &Pointer{Type: f.u64p, Target: m}
 }
 
@@ -77,18 +78,18 @@ func (f *mpfrFixture) bf(tok string) *Pointer {
 	p := f.newBF(prec)
 	m := bfMem(p)
 	sign := must(strconv.ParseInt(parts[3], 10, 32))
-	m.Elems[1] = uint64(uint32(int32(sign)))
+	m.Set(1, uint64(uint32(int32(sign))))
 	switch parts[2] {
 	case "n":
-		m.Elems[2] = expWord(math.MinInt64 + 2)
+		m.Set(2, expWord(math.MinInt64+2))
 	case "i":
-		m.Elems[2] = expWord(math.MinInt64 + 3)
+		m.Set(2, expWord(math.MinInt64+3))
 	case "z":
-		m.Elems[2] = expWord(math.MinInt64 + 1)
+		m.Set(2, expWord(math.MinInt64+1))
 	default:
-		m.Elems[2] = uint64(must(strconv.ParseInt(parts[4], 10, 64)))
+		m.Set(2, uint64(must(strconv.ParseInt(parts[4], 10, 64))))
 		for i, l := range strings.Split(parts[5], ",") {
-			m.Elems[mpfrLimbWord+i] = must(strconv.ParseUint(l, 16, 64))
+			m.Set(mpfrLimbWord+i, must(strconv.ParseUint(l, 16, 64)))
 		}
 	}
 	return p
@@ -97,9 +98,9 @@ func (f *mpfrFixture) bf(tok string) *Pointer {
 // enc is the fields julia's code reads, as the golden prints them.
 func (f *mpfrFixture) enc(p *Pointer) string {
 	m := bfMem(p)
-	prec := int64(m.Elems[0].(uint64))
-	sign := int32(m.Elems[1].(uint64))
-	exp := int64(m.Elems[2].(uint64))
+	prec := int64(m.Get(0).(uint64))
+	sign := int32(m.Get(1).(uint64))
+	exp := int64(m.Get(2).(uint64))
 	kind, limbs := "r", ""
 	switch exp {
 	case math.MinInt64 + 1:
@@ -111,7 +112,7 @@ func (f *mpfrFixture) enc(p *Pointer) string {
 	default:
 		var l []string
 		for i := 0; i < int((prec-1)/64+1); i++ {
-			l = append(l, strconv.FormatUint(m.Elems[mpfrLimbWord+i].(uint64), 16))
+			l = append(l, strconv.FormatUint(m.Get(mpfrLimbWord+i).(uint64), 16))
 		}
 		limbs = strings.Join(l, ",")
 	}

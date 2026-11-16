@@ -103,7 +103,7 @@ func TestPCREHandlesAndRefusals(t *testing.T) {
 	}{
 		{"a literal", f.str("literal literal literal literal")},
 		{"no pointer", bad},
-		{"past its memory", &Pointer{Type: f.u8p, Target: &Memory{Type: memUInt8Type, Elems: make([]any, 4)}, Off: 100}},
+		{"past its memory", &Pointer{Type: f.u8p, Target: newMemory(memUInt8Type, make([]any, 4)), Off: 100}},
 	} {
 		_, err := f.call("pcre2_get_error_message_8", int32(101), c.dst, uint64(32))
 		check(t, "a message into "+c.name, nil, err, "!")
@@ -149,7 +149,7 @@ func TestPCREHandlesAndRefusals(t *testing.T) {
 	// a Cstring that is no address, one that is an address of nothing, one
 	// that has no NUL, and the name table of a pattern without names
 	cs := must(f.s.Eval("PCStr")).(*core.DataType)
-	noNUL := &Memory{Type: memUInt8Type, Elems: []any{uint8('a')}}
+	noNUL := newMemory(memUInt8Type, []any{uint8('a')})
 	for _, name := range []any{PrimValue{cs, from64(12345)}, &Pointer{Type: f.u8p, Target: noNUL}, "x", float64(1)} {
 		_, err := f.call("pcre2_substring_number_from_name_8", re3, name)
 		check(t, "a bad Cstring", nil, err, "!pcre2_substring_number_from_name of")

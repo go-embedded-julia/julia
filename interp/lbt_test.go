@@ -159,12 +159,12 @@ func TestPtrToArray1d(t *testing.T) {
 	if err := vm.Boot(); err != nil {
 		t.Fatal(err)
 	}
-	mem := &Memory{Type: memType(core.UInt8Type), Elems: []any{uint8(1), uint8(2), uint8(3)}}
+	mem := newMemory(memType(core.UInt8Type), []any{uint8(1), uint8(2), uint8(3)})
 	vec := must(core.Apply(core.ArrayType, core.UInt8Type, int64(1)))
 	p := &Pointer{Type: vm.ptrType(core.UInt8Type), Target: mem, Off: 1}
 	v, err := vm.ptrToArray1d([]any{vec, p, uint64(2), int32(0)})
 	check(t, "two bytes from the second", v, err, "UInt8[0x02, 0x03]")
-	mem.Elems[2] = uint8(9)
+	mem.Set(2, uint8(9))
 	check(t, "sharing them", v, nil, "UInt8[0x02, 0x09]")
 	for _, c := range []struct {
 		name string
@@ -182,7 +182,7 @@ func TestPtrToArray1d(t *testing.T) {
 		check(t, c.name, v, err, c.want)
 	}
 	// an offset between elements
-	w := &Pointer{Type: vm.ptrType(core.UInt16Type), Target: &Memory{Type: memType(core.UInt16Type), Elems: []any{uint16(1)}}, Off: 1}
+	w := &Pointer{Type: vm.ptrType(core.UInt16Type), Target: newMemory(memType(core.UInt16Type), []any{uint16(1)}), Off: 1}
 	_, err = vm.ptrToArray1d([]any{must(core.Apply(core.ArrayType, core.UInt16Type, int64(1))), w, uint64(0), int32(0)})
 	check(t, "between elements", nil, err, "!jl_ptr_to_array_1d: invalid pointer")
 }

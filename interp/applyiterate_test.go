@@ -60,14 +60,14 @@ func TestMemoryCopyto(t *testing.T) {
 		return v.(*Memory)
 	}
 	m := mem("Core.Memory{Any}(undef, 4)")
-	copy(m.Elems, []any{int64(1), int64(2), int64(3), int64(4)})
+	copy(m.All(), []any{int64(1), int64(2), int64(3), int64(4)})
 	at := func(m *Memory, i int) *Pointer { return vm.refPtrOrOffset(&MemoryRef{Mem: m, Off: i}) }
 	cp := vm.shims["jl_genericmemory_copyto"]
 	// overlapping, forwards: memmove's answer
 	if _, err := cp(vm, []any{m, at(m, 1), m, at(m, 0), int64(3)}); err != nil {
 		t.Fatal(err)
 	}
-	if got := showValue(vm.newTuple(m.Elems)); got != "(1, 1, 2, 3)" {
+	if got := showValue(vm.newTuple(m.All())); got != "(1, 1, 2, 3)" {
 		t.Errorf("overlapping move: %s", got)
 	}
 	u := mem("Core.Memory{Union{Nothing, Int8}}(undef, 2)")

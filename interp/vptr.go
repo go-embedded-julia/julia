@@ -174,10 +174,10 @@ func (vm *VM) ptrLoad(fname string, p *Pointer, i int64) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if t.Elems[k] == undef {
+		if t.Get(k) == undef {
 			return nil, vm.exception(vm.tUndefRef)
 		}
-		return t.Elems[k], nil
+		return t.Get(k), nil
 	case layoutOf:
 		st, ok := p.Type.Parameters[0].(*core.DataType)
 		// the field descriptors follow the 20-byte jl_datatype_layout_t
@@ -282,8 +282,8 @@ func (vm *VM) cstrToString(a []any) (any, error) {
 	case *Memory:
 		if t.Type.Parameters[1] == any(core.UInt8Type) && p.Off >= 0 {
 			var b []byte
-			for i := p.Off; i < int64(len(t.Elems)); i++ {
-				c, _ := t.Elems[i].(uint8)
+			for i := p.Off; i < int64(t.Len()); i++ {
+				c, _ := t.Get(int(i)).(uint8)
 				if c == 0 {
 					return string(b), nil
 				}
@@ -312,7 +312,7 @@ func stringBytes(ptr, count any) (string, bool) {
 		if t.Type.Parameters[1] != any(core.UInt8Type) {
 			return "", false
 		}
-		size = int64(len(t.Elems))
+		size = int64(t.Len())
 	default:
 		return "", false
 	}
@@ -336,7 +336,7 @@ func stringBytes(ptr, count any) (string, bool) {
 	}
 	// only the bytes asked for are copied; an undefined one cannot be read
 	b := make([]byte, n)
-	for i, e := range p.Target.(*Memory).Elems[p.Off : p.Off+n] {
+	for i, e := range p.Target.(*Memory).Slice(int(p.Off), int(p.Off+n)) {
 		c, isByte := e.(uint8)
 		if !isByte {
 			return "", false
@@ -475,7 +475,7 @@ func biSizeof(vm *VM, args []any) (any, error) {
 		if union {
 			size++
 		}
-		return int64(size) * int64(len(x.Elems)), nil
+		return int64(size) * int64(x.Len()), nil
 	case *Struct, *Tuple:
 		// any other value's size is its type's layout size (builtins.c:563-569)
 		return biSizeof(vm, []any{vm.typeOf(x)})

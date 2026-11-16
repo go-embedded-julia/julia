@@ -20,13 +20,13 @@ func bytesBuf(vm *VM, n int) *Pointer {
 	for i := range elems {
 		elems[i] = uint8(0)
 	}
-	return &Pointer{Type: vm.ptrType(core.UInt8Type), Target: &Memory{Type: memUInt8Type, Elems: elems}}
+	return &Pointer{Type: vm.ptrType(core.UInt8Type), Target: newMemory(memUInt8Type, elems)}
 }
 
 func bufBytes(p *Pointer) []byte {
 	m := p.Target.(*Memory)
-	b := make([]byte, len(m.Elems))
-	for i, e := range m.Elems {
+	b := make([]byte, m.Len())
+	for i, e := range m.All() {
 		b[i] = e.(uint8)
 	}
 	return b
@@ -88,7 +88,7 @@ func TestUtf8procCharFunctions(t *testing.T) {
 // grapheme_break_stateful through a Ref{Int32}.
 func TestUtf8procGraphemeBreakStateful(t *testing.T) {
 	vm := bootedVM(t)
-	state := &Memory{Type: memType(core.Int32Type), Elems: []any{int32(0)}}
+	state := newMemory(memType(core.Int32Type), []any{int32(0)})
 	ptr := &Pointer{Type: vm.ptrType(core.Int32Type), Target: state}
 	brk := vm.shims["utf8proc_grapheme_break_stateful"]
 	// the regional indicators: break after two
@@ -104,7 +104,7 @@ func TestUtf8procGraphemeBreakStateful(t *testing.T) {
 	if got[0] || !got[1] {
 		t.Errorf("regional indicators: %v", got)
 	}
-	if state.Elems[0] == int32(0) {
+	if state.Get(0) == int32(0) {
 		t.Error("the state was not written back")
 	}
 	// a null pointer, and a pointer into something that is not a Ref

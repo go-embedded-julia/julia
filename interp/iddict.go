@@ -37,9 +37,9 @@ func (vm *VM) newEqTable(n uint64) (*Memory, error) {
 	if n > uint64(vm.MaxMemoryElems) {
 		return nil, fmt.Errorf("%w: an IdDict table of %d slots (VM.MaxMemoryElems is %d)", ErrMemoryLimit, n, vm.MaxMemoryElems)
 	}
-	m := &Memory{Type: memAnyType, Elems: make([]any, n)}
-	for i := range m.Elems {
-		m.Elems[i] = undef
+	m := newMemory(memAnyType, make([]any, n))
+	for i := range m.All() {
+		m.Set(i, undef)
 	}
 	return m, nil
 }
@@ -51,9 +51,9 @@ func (vm *VM) idtableRehash(a *Memory, newsz uint64) (*Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i := 0; i+1 < len(a.Elems); i += 2 {
-		if a.Elems[i+1] != undef {
-			if newa, _, err = vm.tableAssign(newa, a.Elems[i], a.Elems[i+1]); err != nil {
+	for i := 0; i+1 < a.Len(); i += 2 {
+		if a.Get(i+1) != undef {
+			if newa, _, err = vm.tableAssign(newa, a.Get(i), a.Get(i+1)); err != nil {
 				return nil, err
 			}
 		}
@@ -64,18 +64,18 @@ func (vm *VM) idtableRehash(a *Memory, newsz uint64) (*Memory, error) {
 // tableAssign is jl_table_assign_bp (iddict.c:32-108): key's value set to
 // val, in a or the larger table it grows into, and whether key is new.
 func (vm *VM) tableAssign(a *Memory, key, val any) (*Memory, bool, error) {
-	sz := len(a.Elems) / 2
+	sz := a.Len() / 2
 	if sz == 0 {
 		var err error
 		if a, err = vm.newEqTable(htNInline); err != nil {
 			return nil, false, err
 		}
-		sz = len(a.Elems) / 2
+		sz = a.Len() / 2
 	}
 	maxprobe := maxProbe(sz)
 	hv := vm.objectID(key)
 	for {
-		tab := a.Elems
+		tab := a.All()
 		index := int(hv&uint64(sz-1)) * 2
 		sz *= 2
 		orig, empty := index, -1
@@ -112,7 +112,7 @@ func (vm *VM) tableAssign(a *Memory, key, val any) (*Memory, bool, error) {
 		}
 		// table full: grow it fast (iddict.c:90-101)
 		var newsz int
-		switch sz = len(a.Elems); {
+		switch sz = a.Len(); {
 		case sz < htNInline:
 			newsz = htNInline
 		case sz >= 1<<19 || sz <= 1<<8:
@@ -124,7 +124,7 @@ func (vm *VM) tableAssign(a *Memory, key, val any) (*Memory, bool, error) {
 		if a, err = vm.idtableRehash(a, uint64(newsz)); err != nil {
 			return nil, false, err
 		}
-		sz = len(a.Elems) / 2
+		sz = a.Len() / 2
 		maxprobe = maxProbe(sz)
 	}
 }
@@ -132,7 +132,7 @@ func (vm *VM) tableAssign(a *Memory, key, val any) (*Memory, bool, error) {
 // tablePeek is jl_table_peek_bp (iddict.c:111-141): the index of key's
 // value, -1 when key is not in a.
 func (vm *VM) tablePeek(a *Memory, key any) int {
-	sz := len(a.Elems) / 2
+	sz := a.Len() / 2
 	if sz == 0 {
 		return -1
 	}
@@ -141,12 +141,12 @@ func (vm *VM) tablePeek(a *Memory, key any) int {
 	sz *= 2
 	orig := index
 	for iter := 0; ; {
-		k2 := a.Elems[index]
+		k2 := a.Get(index)
 		if k2 == undef {
 			return -1
 		}
 		if vm.egal(key, k2) {
-			if a.Elems[index+1] != undef {
+			if a.Get(index+1) != undef {
 				return index + 1
 			}
 			if key != nil {
@@ -215,7 +215,7 @@ func (vm *VM) bootEqtableShims() {
 			return nil, err
 		}
 		if i := vm.tablePeek(t, a[1]); i >= 0 {
-			return t.Elems[i], nil
+			return t.Get(i), nil
 		}
 		return a[2], nil
 	}
@@ -235,8 +235,9 @@ func (vm *VM) bootEqtableShims() {
 		if i < 0 {
 			return a[2], nil
 		}
-		val := t.Elems[i]
-		t.Elems[i-1], t.Elems[i] = nil, undef // the key becomes nothing
+		val := t.Get(i)
+		t.Set(i-1, nil) // the key becomes nothing
+		t.Set(i, undef)
 		return val, nil
 	}
 	vm.shims["jl_eqtable_nextind"] = func(vm *VM, a []any) (any, error) {
@@ -251,10 +252,10 @@ func (vm *VM) bootEqtableShims() {
 		// an odd-length table's last slot has no value: C reads past the
 		// memory there, here it ends the table
 		i += i & 1
-		for i+1 < uint64(len(t.Elems)) && t.Elems[i+1] == undef {
+		for i+1 < uint64(t.Len()) && t.Get(int(i+1)) == undef {
 			i += 2
 		}
-		if i+1 >= uint64(len(t.Elems)) {
+		if i+1 >= uint64(t.Len()) {
 			return ^uint64(0), nil
 		}
 		return i, nil

@@ -141,7 +141,7 @@ func biApplyIterate(vm *VM, args []any) (any, error) {
 		case *Tuple:
 			err = add(x.Elems...)
 		case *Memory:
-			err = addElems(x.Elems)
+			err = addElems(x.All())
 		default:
 			if s, ok := a.(*Struct); ok && s.Type.Name == core.NamedTupleTypeName {
 				// a NamedTuple spreads its fields, as a tuple (builtins.c:773)

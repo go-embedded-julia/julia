@@ -29,11 +29,11 @@ func TestUVRandom(t *testing.T) {
 	if _, err := call(&Pointer{Type: voidp, Target: box}, 8); err != nil || box.(*Struct).Fields[0] == first {
 		t.Errorf("two draws: %v %v, %v", first, box.(*Struct).Fields[0], err)
 	}
-	mem := &Memory{Type: memType(core.UInt32Type), Elems: []any{uint32(0), uint32(0), uint32(0), uint32(0)}}
+	mem := newMemory(memType(core.UInt32Type), []any{uint32(0), uint32(0), uint32(0), uint32(0)})
 	v, err = call(&Pointer{Type: voidp, Target: mem, Off: 4}, 8)
 	check(t, "8 bytes of a Memory{UInt32}", v, err, "0")
-	if mem.Elems[0] != any(uint32(0)) || mem.Elems[3] != any(uint32(0)) || (mem.Elems[1] == any(uint32(0)) && mem.Elems[2] == any(uint32(0))) {
-		t.Errorf("Memory after uv_random: %v", mem.Elems)
+	if mem.Get(0) != any(uint32(0)) || mem.Get(3) != any(uint32(0)) || (mem.Get(1) == any(uint32(0)) && mem.Get(2) == any(uint32(0))) {
+		t.Errorf("Memory after uv_random: %v", mem.All())
 	}
 	for _, c := range []struct {
 		name string
@@ -45,7 +45,7 @@ func TestUVRandom(t *testing.T) {
 		{"an offset into the Ref", &Pointer{Type: voidp, Target: box, Off: 1}, uint64(8), "!not ported yet: uv_random of 8 bytes"},
 		{"past the memory", &Pointer{Type: voidp, Target: mem, Off: 12}, uint64(8), "!uv_random: invalid pointer"},
 		{"a huge count", &Pointer{Type: voidp, Target: mem}, uint64(1) << 40, "!uv_random: invalid pointer"},
-		{"a memory of boxes", &Pointer{Type: voidp, Target: &Memory{Type: memType(core.AnyType), Elems: []any{nil}}}, uint64(1), "!not ported yet: uv_random into a Memory"},
+		{"a memory of boxes", &Pointer{Type: voidp, Target: newMemory(memType(core.AnyType), []any{nil})}, uint64(1), "!not ported yet: uv_random into a Memory"},
 		{"a string", vm.stringPtrOf("ab"), uint64(1), "!not ported yet: uv_random into"},
 		{"no pointer", int64(0), uint64(1), "!not ported yet: uv_random into"},
 		{"a signed count", &Pointer{Type: voidp, Target: box}, int64(8), "!not ported yet: uv_random into"},
