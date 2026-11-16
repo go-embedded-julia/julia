@@ -69,11 +69,10 @@ func (vm *VM) stringToMemory(a []any) (any, error) {
 	if !ok {
 		return nil, vm.typeError("ccall", "", core.StringType, a[0])
 	}
-	elems := make([]any, len(s))
-	for i := 0; i < len(s); i++ {
-		elems[i] = s[i]
-	}
-	return newMemory(memUInt8Type, elems), nil
+	m := newMemoryN(memUInt8Type, len(s))
+	b, _ := m.Bytes(0, len(s))
+	copy(b, s)
+	return m, nil
 }
 
 // memoryToString is jl_genericmemory_to_string(m, len)
@@ -88,16 +87,10 @@ func (vm *VM) memoryToString(a []any) (any, error) {
 	if n == 0 {
 		return "", nil // jl_an_empty_string
 	}
-	b := make([]byte, n)
-	for i := range b {
-		c, ok := m.Get(i).(uint8)
-		if !ok {
-			return nil, vm.exception(vm.tUndefRef)
-		}
-		b[i] = c
-	}
-	m.SetAll(m.Slice(0, 0))
-	return string(b), nil
+	b, _ := m.Bytes(0, int(n)) // a memory of UInt8 is typed: every byte is there
+	s := string(b)
+	m.SetAll(nil)
+	return s, nil
 }
 
 // pcharToString is jl_pchar_to_string(p, len) (array.c): a String of the
@@ -298,12 +291,20 @@ func (vm *VM) memchr(a []any, last bool) (any, error) {
 // bytesAt is the n bytes from p, in a String or a memory of bytes, false
 // when they are not all there.
 func (vm *VM) bytesAt(p *Pointer, n uint64) ([]byte, bool) {
+	if m, ok := p.Target.(*Memory); ok && m.kind == kindU8 {
+		// a memory of bytes: a copy of the range, in one move
+		size := int64(m.Len())
+		if n > uint64(size) || p.Off < 0 || p.Off > size || int64(n) > size-p.Off {
+			return nil, false
+		}
+		bs, _ := m.Bytes(int(p.Off), int(p.Off)+int(n))
+		return bytes.Clone(bs), true
+	}
 	if s, ok := stringBytes(p, n); ok {
 		return []byte(s), true
 	}
 	m, ok := p.Target.(*Memory)
-	if !ok || n > uint64(vm.MaxMemoryElems) || m.Type == memUInt8Type {
-		// stringBytes read a memory of bytes already: these are not there
+	if !ok || n > uint64(vm.MaxMemoryElems) {
 		return nil, false
 	}
 	// a memory of other primitive values, read as its bytes
@@ -388,6 +389,6 @@ func memmoveElems(dm *Memory, doff int64, sm *Memory, soff int64, n uint64) bool
 	if di > int64(dm.Len()) || si > int64(sm.Len()) || k > int64(dm.Len())-di || k > int64(sm.Len())-si {
 		return false
 	}
-	copy(dm.Written(int(di), int(di+k)), sm.Slice(int(si), int(si+k)))
+	dm.CopyFrom(int(di), sm, int(si), int(k))
 	return true
 }

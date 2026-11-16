@@ -37,7 +37,7 @@ func TestStringMemoryShims(t *testing.T) {
 		{"a negative length", []any{u8mem(uint8(1)), int64(-1)}, "!jl_genericmemory_to_string of"},
 		{"a length past the memory", []any{u8mem(uint8(1)), int64(2)}, "!jl_genericmemory_to_string of"},
 		{"a length that is no Int", []any{u8mem(uint8(1)), "1"}, "!jl_genericmemory_to_string of"},
-		{"an element left undefined", []any{u8mem(uint8(1), undef), int64(2)}, "!UndefRefError"},
+		{"a memory of UInt16", []any{newMemory(memUInt16Type, []any{uint16(1)}), int64(1)}, "!jl_genericmemory_to_string of"},
 	} {
 		v, err := sh("jl_genericmemory_to_string", c.args...)
 		check(t, c.name, v, err, c.want)
@@ -165,7 +165,6 @@ func TestStringMemoryBytes(t *testing.T) {
 		args []any
 	}{
 		{"a String past its end into a memory", []any{mp(dst, 0), f.str("xy"), uint64(3)}},
-		{"a memory with an undefined byte", []any{&Pointer{Type: f.u8p, Target: str}, mp(u8mem(uint8(1), undef), 0), uint64(2)}},
 		{"a memory past its end", []any{&Pointer{Type: f.u8p, Target: str}, mp(src, 1), uint64(2)}},
 		{"a String into a String the VM did not make", []any{f.str("lit"), f.str("abc"), uint64(2)}},
 		{"no pointer", []any{int64(1), f.str("a"), uint64(1)}},
@@ -197,7 +196,6 @@ func TestStringMemoryBytes(t *testing.T) {
 		{"past a memory of UInt16", &Pointer{Type: f.u8p, Target: newMemory(memUInt16Type, []any{uint16(0x6261)})}, f.str("abc"), 3, "!memcmp of"},
 		{"a memory of Any", &Pointer{Type: f.u8p, Target: newMemory(memAnyType, []any{int64(1)})}, f.str("a"), 1, "!memcmp of"},
 		{"a negative offset", mp(src, -1), f.str("a"), 1, "!memcmp of"},
-		{"an undefined byte", mp(u8mem(undef), 0), f.str("a"), 1, "!memcmp of"},
 		{"no pointer", int64(1), f.str("a"), 1, "!memcmp of"},
 		{"another target", &Pointer{Type: f.u8p}, f.str("a"), 1, "!memcmp of"},
 	} {

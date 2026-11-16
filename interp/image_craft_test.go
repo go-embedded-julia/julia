@@ -248,7 +248,7 @@ func hostCraft(field string, w func(r *rb, c *craft)) *craft {
 // A hand-made image loads, and each kind of field comes back as it was written.
 func TestImageCraftedValid(t *testing.T) {
 	c := newCraft()
-	mem := c.obj(tMem, new(rb).uv(0).uv(0).uv(0).b)
+	mem := c.obj(tMem, new(rb).uv(0).uv(0).uv(0).uv(0).uv(0).b) // Type, elems, u8, kind, id
 	slice := c.obj(tSlice, new(rb).uv(2).uv(0).uv(c.str("x")+0).b)
 	// the slice holds nil and an int8 boxed
 	c.objs[slice].rec = new(rb).uv(2).uv(0).uv(uint64(c.ti("int8")) + 1).zz(-3).b

@@ -29,7 +29,9 @@ func (e *undoEntry) undo() {
 	case e.st != nil:
 		e.st.Fields[e.idx] = e.old
 	case e.ranged:
-		copy(e.mem.Slice(e.idx, e.idx+len(e.olds)), e.olds)
+		for i, v := range e.olds {
+			e.mem.Set(e.idx+i, v)
+		}
 	case e.idx < 0:
 		e.mem.SetAll(e.olds)
 	default:

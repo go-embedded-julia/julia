@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -280,14 +281,12 @@ func (vm *VM) cstrToString(a []any) (any, error) {
 		}
 		return s, nil
 	case *Memory:
-		if t.Type.Parameters[1] == any(core.UInt8Type) && p.Off >= 0 {
-			var b []byte
-			for i := p.Off; i < int64(t.Len()); i++ {
-				c, _ := t.Get(int(i)).(uint8)
-				if c == 0 {
-					return string(b), nil
+		if p.Off >= 0 && p.Off <= int64(t.Len()) {
+			// a memory of UInt8 must hold the NUL, as C would read past it
+			if bs, ok := t.Bytes(int(p.Off), t.Len()); ok {
+				if i := bytes.IndexByte(bs, 0); i >= 0 {
+					return string(bs[:i]), nil
 				}
-				b = append(b, c)
 			}
 		}
 	}
@@ -334,15 +333,8 @@ func stringBytes(ptr, count any) (string, bool) {
 	if str, isStr := p.Target.(string); isStr {
 		return str[p.Off : p.Off+n], true
 	}
-	// only the bytes asked for are copied; an undefined one cannot be read
-	b := make([]byte, n)
-	for i, e := range p.Target.(*Memory).Slice(int(p.Off), int(p.Off+n)) {
-		c, isByte := e.(uint8)
-		if !isByte {
-			return "", false
-		}
-		b[i] = c
-	}
+	// only the bytes asked for are copied
+	b, _ := p.Target.(*Memory).Bytes(int(p.Off), int(p.Off+n))
 	return string(b), true
 }
 

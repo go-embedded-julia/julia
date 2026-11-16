@@ -219,9 +219,8 @@ func (vm *VM) utf8procReencode(a []any) (any, error) {
 func (vm *VM) putBytes8(dst any, b []byte) error {
 	if p, ok := dst.(*Pointer); ok {
 		if m, ok := p.Target.(*Memory); ok && m.Type == memUInt8Type && p.Off >= 0 && p.Off+int64(len(b)) <= int64(m.Len()) {
-			for i, c := range b {
-				m.Set(int(p.Off)+i, c)
-			}
+			dst8, _ := m.WrittenBytes(int(p.Off), int(p.Off)+len(b))
+			copy(dst8, b)
 			return nil
 		}
 	}
