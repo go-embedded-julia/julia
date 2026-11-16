@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
+
+	"github.com/go-embedded-julia/julia/core"
 )
 
 // Kernel.Reset against a fresh kernel (#93): the oracle is a kernel just made
@@ -256,9 +260,115 @@ func TestKernelResetRefusals(t *testing.T) {
 	if info, err := k.Reset(); err != nil || info.Reloaded {
 		t.Errorf("Reset of a core-only kernel: %+v, %v", info, err)
 	}
+	// a kernel made from a VM has no image to load past the log's bound
+	k.vm.undo.overflow = true
+	if _, err := k.Reset(); !errors.Is(err, ErrResetOverflow) || k.busy.Load() {
+		t.Errorf("Reset past the bound without an image: %v", err)
+	}
 	k.Close()
 	if _, err := k.Reset(); !errors.Is(err, ErrKernelClosed) {
 		t.Errorf("Reset after Close: %v", err)
+	}
+}
+
+// Reset on the image of a Boot()-only VM (no Base): writes to an image memory
+// and an image struct, a method defined, a module made and a registry entry
+// added by a cell are undone; a log past its cap is dropped, not kept; and a
+// log that overflowed is answered by a load of the image, whose failures leave
+// the error to the caller.
+func TestKernelResetCore(t *testing.T) {
+	k := bootKernel(t, KernelOptions{})
+	vm := k.vm
+	// objects the image holds, as the loader marks them
+	mem := newMemory(memAnyType, []any{"elem"})
+	mem.undo = vm.undo
+	st := &Struct{Type: vecAnyType, Fields: []any{"field"}, undo: vm.undo}
+	oldElem, oldField := mem.Get(0), st.Fields[0]
+	mem.Set(0, "written")
+	st.logField(0)
+	st.Fields[0] = "written"
+	vm.modules["Zz"] = vm.Main
+	if r := k.Eval(context.Background(), "f(a) = a; x = 3; f(x)"); r.Err != nil || r.Value != "3" {
+		t.Fatalf("cell: %+v", r)
+	}
+	info, err := k.Reset()
+	if err != nil || info.Reloaded || info.Undone < 2 || info.Tables < 1 {
+		t.Fatalf("Reset: %+v, %v", info, err)
+	}
+	if mem.Get(0) != oldElem || st.Fields[0] != oldField {
+		t.Errorf("the writes were not undone: %v, %v", mem.Get(0), st.Fields[0])
+	}
+	if _, ok := vm.modules["Zz"]; ok {
+		t.Error("a module registered by a cell is still there")
+	}
+	if r := k.Eval(context.Background(), "isdefined(Main, :x)"); r.Err != nil || r.Value != "false" {
+		t.Errorf("x after Reset: %+v", r)
+	}
+	// a log past its cap is dropped after the Reset, not kept
+	for i := 0; i < 5000; i++ {
+		mem.Set(0, i)
+	}
+	if info, err := k.Reset(); err != nil || info.Undone != 5000 || vm.undo.entries != nil || mem.Get(0) != oldElem {
+		t.Errorf("Reset of a long log: %+v, %v, %d entries kept", info, err, len(vm.undo.entries))
+	}
+	// an overflow is answered by a load, and the new VM is the kernel's
+	vm.undo.max = 1
+	mem.Set(0, 1)
+	mem.Set(0, 2)
+	vm.Stdout = io.Discard
+	info, err = k.Reset()
+	if err != nil || !info.Reloaded || k.vm == vm || vm.kernel != nil || k.vm.kernel != k || !k.vm.undo.on {
+		t.Fatalf("Reset past the cap: %+v, %v", info, err)
+	}
+	if r := k.Eval(context.Background(), "1"); r.Err != nil || r.Value != "1" {
+		t.Errorf("a cell after the reload: %+v", r)
+	}
+	// the load fails, or makes a VM no kernel can take: the error, the kernel as it was
+	boom := errors.New("boom")
+	k.vm.undo.overflow = true
+	k.load = func() (*VM, error) { return nil, boom }
+	if _, err := k.Reset(); !errors.Is(err, boom) {
+		t.Errorf("a load that fails: %v", err)
+	}
+	k.load = func() (*VM, error) { g := New(); g.GeneratingOutput = true; return g, nil }
+	if _, err := k.Reset(); !errors.Is(err, ErrKernelState) {
+		t.Errorf("a VM no kernel can take: %v", err)
+	}
+	if k.busy.Load() {
+		t.Error("a refused Reset left the kernel busy")
+	}
+	// LoadKernel reads its image whole: a reader that fails fails the load
+	if _, err := LoadKernel(iotest.ErrReader(boom), LoadOptions{}, KernelOptions{}); !errors.Is(err, boom) {
+		t.Errorf("LoadKernel of a failing reader: %v", err)
+	}
+}
+
+// valueOfBytes: a primitive of exactly the bytes' size, a tuple of primitives
+// that the bytes fill exactly; nothing else.
+func TestValueOfBytes(t *testing.T) {
+	vm := New()
+	tup := func(ts ...any) *core.DataType { return must(core.ApplyType(core.AnyTupleType, ts...)).(*core.DataType) }
+	for _, c := range []struct {
+		name string
+		t    any
+		b    []byte
+		want string // "" for a refusal
+	}{
+		{"an Int32", core.Int32Type, []byte{1, 0, 0, 0}, "1"},
+		{"an Int64 of 4 bytes", core.Int64Type, []byte{1, 0, 0, 0}, ""},
+		{"not a type", nil, []byte{1}, ""},
+		{"a String", core.StringType, []byte{1}, ""},
+		{"the empty tuple", core.EmptyTupleType, nil, ""},
+		{"two bytes", tup(core.UInt8Type, core.UInt8Type), []byte{1, 2}, "(0x01, 0x02)"},
+		{"a mixed tuple", tup(core.UInt8Type, core.Int32Type), []byte{1, 2, 0, 0, 0}, "(0x01, 2)"},
+		{"a short tuple", tup(core.UInt8Type, core.UInt8Type), []byte{1}, ""},
+		{"a long tuple", tup(core.UInt8Type), []byte{1, 2}, ""},
+		{"a tuple with a String", tup(core.Int32Type, core.StringType), []byte{1, 0, 0, 0}, ""},
+	} {
+		v, ok := vm.valueOfBytes(c.t, c.b)
+		if got := showValue(v); (c.want == "") == ok || ok && got != c.want {
+			t.Errorf("%s: %s, %v; want %q", c.name, got, ok, c.want)
+		}
 	}
 }
 

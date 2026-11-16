@@ -1,7 +1,6 @@
 package interp
 
 import (
-	"bytes"
 	"errors"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -249,11 +248,11 @@ func (k *Kernel) resetSession() {
 // reload loads the image again into a new VM, in place of the one whose log
 // overflowed.
 func (k *Kernel) reload() (ResetInfo, error) {
-	if k.img == nil {
+	if k.load == nil {
 		return ResetInfo{}, ErrResetOverflow
 	}
 	old := k.vm
-	nvm, err := LoadImage(bytes.NewReader(k.img), k.lo)
+	nvm, err := k.load()
 	if err != nil {
 		return ResetInfo{}, err
 	}

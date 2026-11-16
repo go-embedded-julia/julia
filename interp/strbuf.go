@@ -198,36 +198,31 @@ func (vm *VM) memmove(a []any) (any, error) {
 // t is a primitive type or a tuple of primitive types and b is exactly its size.
 func (vm *VM) valueOfBytes(t any, b []byte) (any, bool) {
 	et, ok := t.(*core.DataType)
-	if !ok {
+	switch {
+	case !ok:
 		return nil, false
-	}
-	if et.Name.Bits > 0 {
-		if et.Name.Bits%8 != 0 || len(b) != et.Name.Bits/8 {
+	case et.Name.Bits > 0:
+		if et.Name.Bits != 8*len(b) {
 			return nil, false
 		}
-		v, _ := bytesValue(et, b)
-		return v, v != nil
-	}
-	if !core.IsTupleType(et) || len(et.Parameters) == 0 {
-		return nil, false
-	}
-	vals := make([]any, len(et.Parameters))
-	for i, p := range et.Parameters {
-		pt, ok := p.(*core.DataType)
-		if !ok || pt.Name.Bits == 0 || pt.Name.Bits%8 != 0 || len(b) < pt.Name.Bits/8 {
-			return nil, false
+		return bytesValue(et, b)
+	case core.IsTupleType(et) && len(et.Parameters) > 0:
+		vals := make([]any, len(et.Parameters))
+		whole := true
+		for i, p := range et.Parameters {
+			pt, ok := p.(*core.DataType)
+			if !ok || pt.Name.Bits < 8 || len(b) < pt.Name.Bits/8 {
+				return nil, false
+			}
+			w := pt.Name.Bits / 8
+			var okv bool
+			vals[i], okv = vm.valueOfBytes(pt, b[:w])
+			whole = whole && okv
+			b = b[w:]
 		}
-		w := pt.Name.Bits / 8
-		v, _ := bytesValue(pt, b[:w])
-		if v == nil {
-			return nil, false
-		}
-		vals[i], b = v, b[w:]
+		return vm.newTuple(vals), whole && len(b) == 0
 	}
-	if len(b) != 0 {
-		return nil, false
-	}
-	return vm.newTuple(vals), true
+	return nil, false
 }
 
 // pointerTargets names what the pointers of a memmove or memcpy point into,

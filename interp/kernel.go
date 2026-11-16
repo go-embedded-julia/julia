@@ -148,8 +148,8 @@ type Kernel struct {
 	// from, nil for a kernel made from a VM (Reset reloads it past the log's
 	// bound), and ko the options the kernel was made with
 	snap *kernelSnap
-	img  []byte
-	lo   LoadOptions
+	// load makes a VM from the image again, nil for a kernel that was given a VM
+	load func() (*VM, error)
 	ko   KernelOptions
 }
 
@@ -223,11 +223,10 @@ func LoadKernel(r io.Reader, lo LoadOptions, ko KernelOptions) (*Kernel, error) 
 		return nil, err
 	}
 	k, err := NewKernel(vm, ko) // a VM that no kernel took has run nothing: nothing to close
-	if err != nil {
-		return nil, err
+	if k != nil {
+		k.load = func() (*VM, error) { return LoadImage(bytes.NewReader(img), lo) }
 	}
-	k.img, k.lo = img, lo
-	return k, nil
+	return k, err
 }
 
 // FetchKernel fetches the image of a release by its pinned digest
