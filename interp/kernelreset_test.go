@@ -44,6 +44,9 @@ var resetCorpus = []string{
 	`module M; g() = 1; end; M.g()`,
 	`Base.isnumeric(c::Char) = true; isnumeric('a')`,
 	`println("printed"); 5`,
+	// a task parked on a timer, and a timer that would fire every minute: Reset
+	// stops them (#104)
+	`t60 = @async (sleep(60); println("ghost")); tm60 = Timer(t -> println("tick"), 60; interval=60); yield(); 1`,
 }
 
 // resetProbes is run on a kernel that has been reset and on a fresh one.
@@ -143,10 +146,13 @@ func TestKernelResetBase(t *testing.T) {
 			t.Fatalf("Reset %d: %+v, %v", round, info, err)
 		}
 		// the corpus has to change something, or the test proves nothing
-		if info.Undone < 100 || info.Tables < 3 {
+		if info.Undone < 100 || info.Tables < 3 || info.Tasks < 1 || info.Timers < 1 {
 			t.Errorf("the corpus changed too little to prove anything: %+v", info)
 		}
-		t.Logf("Reset %d: %v for %d writes and %d method tables", round, d, info.Undone, info.Tables)
+		if tasks, timers, err := k.Tasks(); err != nil || tasks != 0 || timers != 0 {
+			t.Errorf("after Reset %d tasks and %d timers of the cells are alive (%v)", tasks, timers, err)
+		}
+		t.Logf("Reset %d: %v for %d writes, %d method tables, %d tasks and %d timers", round, d, info.Undone, info.Tables, info.Tasks, info.Timers)
 		resetSame(t, "probes after a reset", resetProbes, resetRun(t, k, resetProbes), wantProbes)
 		if _, err := k.Reset(); err != nil {
 			t.Fatal(err)
