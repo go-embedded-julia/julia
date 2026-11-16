@@ -63,9 +63,8 @@ func (vm *VM) putBytes(dst any, b []byte) error {
 			if p.Off < 0 || p.Off > int64(m.Len()) || int64(len(b)) > int64(m.Len())-p.Off {
 				return vm.errorf("ccall: invalid pointer")
 			}
-			for i, c := range b {
-				m.Set(int(p.Off+int64(i)), c)
-			}
+			dst, _ := m.WrittenBytes(int(p.Off), int(p.Off)+len(b))
+			copy(dst, b)
 			return nil
 		}
 	}
@@ -246,11 +245,7 @@ func (vm *VM) bootFileShims() {
 			vm.errno = -uvENOMEM
 			return vm.voidPtr(nil), nil
 		}
-		m := newMemory(memUInt8Type, make([]any, max(n, 1)))
-		for i := range m.All() {
-			m.Set(i, uint8(0))
-		}
-		return vm.voidPtr(m), nil
+		return vm.voidPtr(newMemoryN(memUInt8Type, int(max(n, 1)))), nil
 	}
 	vm.shims["free"] = func(vm *VM, a []any) (any, error) {
 		if p, ok := a[0].(*Pointer); ok {

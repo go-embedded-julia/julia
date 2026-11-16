@@ -27,7 +27,7 @@ func newGoIdSet(t *testing.T, vm *VM, s *Session) *goIdSet {
 		t.Fatal(err)
 	}
 	list, _ := vm.newEqTable(0)
-	return &goIdSet{t: t, vm: vm, list: list, idxs: &Memory{Type: memUInt8Type},
+	return &goIdSet{t: t, vm: vm, list: list, idxs: newMemory(memUInt8Type, nil),
 		ref: &Pointer{Type: vm.ptrType(core.Int64Type), Target: rv}}
 }
 
@@ -247,7 +247,7 @@ func TestIdSetShims(t *testing.T) {
 		t.Errorf("allocInt1d past the limit: %v", err)
 	}
 	vm2.MaxMemoryElems = 4
-	if _, err := vm2.smallintsetInsert(&Memory{Type: memUInt8Type}, func(int) uint64 { return 0 }, 0); err == nil {
+	if _, err := vm2.smallintsetInsert(newMemory(memUInt8Type, nil), func(int) uint64 { return 0 }, 0); err == nil {
 		t.Error("smallintsetInsert past the limit")
 	}
 	if _, _, err := vm2.idsetPutKey(newMemory(memAnyType, []any{int64(1), int64(2), int64(3), int64(4)}), int64(5)); err == nil {
@@ -261,7 +261,7 @@ func TestIdSetShims(t *testing.T) {
 	vm.MaxMemoryElems = 1
 	_, err = vm.shims["jl_idset_put_key"](vm, []any{newMemory(memAnyType, []any{int64(1), int64(2)}), int64(99), null})
 	check(t, "put_key past the limit", nil, err, "!MaxMemoryElems")
-	_, err = vm.shims["jl_idset_put_idx"](vm, []any{s.list, &Memory{Type: memUInt8Type}, int64(-3)})
+	_, err = vm.shims["jl_idset_put_idx"](vm, []any{s.list, newMemory(memUInt8Type, nil), int64(-3)})
 	check(t, "put_idx past the limit", nil, err, "!MaxMemoryElems")
 	vm.MaxMemoryElems = old
 	// an index that is no Memory is refused, not dereferenced
@@ -290,14 +290,14 @@ func TestIdSetShims(t *testing.T) {
 	if w, ok := intWidth(&Memory{Type: memAnyType}); !ok || w != 0 {
 		t.Error("Any width")
 	}
-	if _, ok := intWidth(&Memory{Type: memUInt8Type}); !ok {
+	if _, ok := intWidth(newMemory(memUInt8Type, nil)); !ok {
 		t.Error("UInt8 width")
 	}
 	if _, ok := intWidth(&Memory{Type: must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), core.Int64Type, core.CPU)).(*core.DataType)}); ok {
 		t.Error("another type has a width")
 	}
 	// an empty table finds nothing; a full one with no match stops
-	if smallintsetLookup(&Memory{Type: memUInt8Type}, func(int) bool { return true }, 1, false) != -1 {
+	if smallintsetLookup(newMemory(memUInt8Type, nil), func(int) bool { return true }, 1, false) != -1 {
 		t.Error("lookup in an empty table")
 	}
 	full := newMemory(memUInt8Type, []any{uint8(1), uint8(2), uint8(3), uint8(4)})

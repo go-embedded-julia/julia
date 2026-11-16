@@ -23,53 +23,179 @@ import (
 type Memory struct {
 	Type  *core.DataType
 	elems []any
-	id    uint64 // its object id (objectid.go)
+	// u8 holds the elements of a memory whose kind is kindU8, and elems is
+	// then nil
+	u8   []uint8
+	kind memKind
+	id   uint64 // its object id (objectid.go)
 	// undo is the log of the VM that loaded this memory from an image, nil for
 	// a memory a cell made (undo.go).
 	undo *undoLog
 }
 
-// newMemory is a Memory of type t holding elems, which it takes over.
-func newMemory(t *core.DataType, elems []any) *Memory { return &Memory{Type: t, elems: elems} }
+// memKind is how a Memory stores its elements: boxed, or in a slice of its
+// own element type (#81). A typed kind has no undef slot: a primitive element
+// starts at zero, as julia's zero-initialised memory reads.
+type memKind uint8
+
+const (
+	kindAny memKind = iota // []any, the boxed values
+	kindU8                 // []uint8
+)
+
+// typedKinds is the table of element types that have a typed store. Adding a
+// type is one line here, and the sites that move bytes in bulk (Bytes) then
+// reach it; every other site goes through Get and Set and needs no change. It
+// is the one place that says which kinds are typed (TestTypedKinds).
+var typedKinds = map[any]memKind{
+	core.UInt8Type: kindU8,
+}
+
+// memKindOf is the kind of the memory type t.
+func memKindOf(t *core.DataType) memKind {
+	if t != nil && len(t.Parameters) == 3 {
+		return typedKinds[t.Parameters[1]]
+	}
+	return kindAny
+}
+
+// stores says which stores a memory holds: the boxed one, the one of bytes.
+// Exactly one of them is, and only the tests ask (TestTypedKinds).
+func (m *Memory) stores() (boxed, bytes bool) { return m.elems != nil, m.u8 != nil }
+
+// newMemory is a Memory of type t holding elems, which it takes over: a typed
+// kind copies them into its own slice (a slot that does not hold the element
+// type, undef, reads as zero).
+func newMemory(t *core.DataType, elems []any) *Memory {
+	m := &Memory{Type: t, kind: memKindOf(t)}
+	if m.kind == kindU8 {
+		m.u8 = make([]uint8, len(elems))
+		for i, e := range elems {
+			m.u8[i], _ = e.(uint8)
+		}
+		return m
+	}
+	m.elems = elems
+	return m
+}
+
+// newMemoryN is a Memory of type t and n elements, each the zero of the
+// element type for a typed kind and nil otherwise: the caller fills the boxed
+// kinds.
+func newMemoryN(t *core.DataType, n int) *Memory {
+	if memKindOf(t) == kindU8 {
+		return &Memory{Type: t, kind: kindU8, u8: make([]uint8, n)}
+	}
+	return &Memory{Type: t, elems: make([]any, n)}
+}
 
 // Len is the number of elements.
-func (m *Memory) Len() int { return len(m.elems) }
+func (m *Memory) Len() int {
+	if m.kind == kindU8 {
+		return len(m.u8)
+	}
+	return len(m.elems)
+}
 
-// Get is element i (0-based), as it is stored: undef for a slot never
+// Get is element i (0-based), as it is stored: undef for a boxed slot never
 // assigned.
-func (m *Memory) Get(i int) any { return m.elems[i] }
+func (m *Memory) Get(i int) any {
+	if m.kind == kindU8 {
+		return m.u8[i]
+	}
+	return m.elems[i]
+}
 
 // Set stores v as element i.
 func (m *Memory) Set(i int, v any) {
 	if l := m.undo; l != nil && l.on {
 		l.recordElem(m, i)
 	}
+	if m.kind == kindU8 {
+		m.u8[i] = v.(uint8)
+		return
+	}
 	m.elems[i] = v
 }
 
-// Slice is elements lo to hi (exclusive) as a slice that shares the store: a
-// write through it is a write of the memory. It exists for the code that moves
-// or searches runs of elements (copyto!, the tables of IdDict and IdSet, the
-// byte views of strings), which a typed store will reach by another door.
-func (m *Memory) Slice(lo, hi int) []any { return m.elems[lo:hi] }
+// Slice is elements lo to hi (exclusive), to read. A boxed memory answers a
+// slice that shares the store, so that the code that searches or moves runs of
+// elements (the tables of IdDict and IdSet) works in place on a memory it made;
+// a typed memory answers a copy, and a write through it is lost: write through
+// Set, Written or Bytes.
+func (m *Memory) Slice(lo, hi int) []any {
+	if m.kind == kindU8 {
+		out := make([]any, hi-lo)
+		for i, b := range m.u8[lo:hi] {
+			out[i] = b
+		}
+		return out
+	}
+	return m.elems[lo:hi]
+}
 
-// All is every element, as Slice(0, Len()) shares the store.
-func (m *Memory) All() []any { return m.elems }
+// All is every element, as Slice(0, Len()).
+func (m *Memory) All() []any { return m.Slice(0, m.Len()) }
 
-// Written is Slice for a caller that is about to write the range: the old
+// Bytes is the elements lo to hi of a memory of UInt8 as a slice that shares
+// the store, to read, and false for any other kind. A write through it is not
+// logged: write through WrittenBytes.
+func (m *Memory) Bytes(lo, hi int) ([]byte, bool) {
+	if m.kind != kindU8 {
+		return nil, false
+	}
+	return m.u8[lo:hi], true
+}
+
+// WrittenBytes is Bytes for a caller that is about to write the range: the old
 // values are recorded first, when the memory is one the image holds (undo.go).
-// Slice and All are for reading, and for writing a memory the caller made.
+func (m *Memory) WrittenBytes(lo, hi int) ([]byte, bool) {
+	if m.kind != kindU8 {
+		return nil, false
+	}
+	if l := m.undo; l != nil && l.on {
+		l.recordRange(m, lo, hi)
+	}
+	return m.u8[lo:hi], true
+}
+
+// Written is Slice for a caller that is about to write the range of a boxed
+// memory: the old values are recorded first, when the memory is one the image
+// holds (undo.go). A typed memory has none: see CopyFrom and WrittenBytes.
 func (m *Memory) Written(lo, hi int) []any {
+	if m.kind != kindAny {
+		panic("interp: Written of a typed Memory")
+	}
 	if l := m.undo; l != nil && l.on {
 		l.recordRange(m, lo, hi)
 	}
 	return m.elems[lo:hi]
 }
 
-// SetAll replaces the elements by es, which the memory takes over.
+// CopyFrom copies n elements of src from si to m from di, as memmove does: the
+// two memories have one type, and may be one memory.
+func (m *Memory) CopyFrom(di int, src *Memory, si, n int) {
+	if m.kind == kindU8 {
+		d, _ := m.WrittenBytes(di, di+n)
+		s, _ := src.Bytes(si, si+n)
+		copy(d, s)
+		return
+	}
+	copy(m.Written(di, di+n), src.Slice(si, si+n))
+}
+
+// SetAll replaces the elements by es, which a boxed memory takes over and a
+// typed one copies.
 func (m *Memory) SetAll(es []any) {
 	if l := m.undo; l != nil && l.on {
 		l.recordAll(m)
+	}
+	if m.kind == kindU8 {
+		m.u8 = make([]uint8, len(es))
+		for i, e := range es {
+			m.u8[i], _ = e.(uint8)
+		}
+		return
 	}
 	m.elems = es
 }
@@ -146,7 +272,7 @@ func biMemorynew(vm *VM, args []any) (any, error) {
 		if m := vm.emptyMemory[mt]; m != nil {
 			return m, nil
 		}
-		m := &Memory{Type: mt}
+		m := newMemory(mt, nil)
 		vm.emptyMemory[mt] = m
 		return m, nil
 	}
@@ -163,10 +289,12 @@ func biMemorynew(vm *VM, args []any) (any, error) {
 			return nil, fmt.Errorf("%w: the cell allocated more than %d elements", ErrMemoryLimit, vm.allocMax)
 		}
 	}
-	m := newMemory(mt, make([]any, n))
-	zero := vm.zeroElem(eltype)
-	for i := range m.All() {
-		m.Set(i, zero)
+	m := newMemoryN(mt, int(n))
+	if m.kind == kindAny {
+		zero := vm.zeroElem(eltype)
+		for i := range m.elems {
+			m.elems[i] = zero
+		}
 	}
 	return m, nil
 }

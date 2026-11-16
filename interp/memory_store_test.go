@@ -39,7 +39,11 @@ func TestMemoryStoreIsPrivate(t *testing.T) {
 	}
 }
 
-// memoryStoreUses are the places in f that name the field `elems`: a selector
+// memoryStores are the fields of Memory that hold its elements: the boxed
+// store and the typed ones (one per kind in typedKinds).
+var memoryStores = map[string]bool{"elems": true, "u8": true}
+
+// memoryStoreUses are the places in f that name one of those fields: a selector
 // that is not the function of a call, and a key of a composite literal.
 func memoryStoreUses(f *ast.File) []token.Pos {
 	var uses []token.Pos
@@ -51,11 +55,11 @@ func memoryStoreUses(f *ast.File) []token.Pos {
 				called[sel] = true
 			}
 		case *ast.SelectorExpr:
-			if x.Sel.Name == "elems" && !called[x] {
+			if memoryStores[x.Sel.Name] && !called[x] {
 				uses = append(uses, x.Sel.Pos())
 			}
 		case *ast.KeyValueExpr:
-			if k, ok := x.Key.(*ast.Ident); ok && k.Name == "elems" {
+			if k, ok := x.Key.(*ast.Ident); ok && memoryStores[k.Name] {
 				uses = append(uses, k.Pos())
 			}
 		}
@@ -66,13 +70,13 @@ func memoryStoreUses(f *ast.File) []token.Pos {
 
 // The check finds what it is for: a field use, a literal key, and no method call.
 func TestMemoryStoreUsesFound(t *testing.T) {
-	src := "package p\nfunc f(m *M) { _ = m.elems; _ = &M{elems: nil}; w.elems(1) }\n"
+	src := "package p\nfunc f(m *M) { _ = m.elems; _ = &M{elems: nil}; w.elems(1); _ = m.u8; _ = M{u8: nil}; w.u8(1) }\n"
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "p.go", src, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := memoryStoreUses(f); len(got) != 2 {
-		t.Errorf("%d uses found in a file with a field read, a literal key and a method call, want 2", len(got))
+	if got := memoryStoreUses(f); len(got) != 4 {
+		t.Errorf("%d uses found in a file with two field reads, two literal keys and two method calls, want 4", len(got))
 	}
 }

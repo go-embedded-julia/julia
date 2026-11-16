@@ -28,7 +28,7 @@ func (vm *VM) typeInstance(d *core.DataType) any {
 		if m := vm.emptyMemory[d]; m != nil {
 			return m
 		}
-		m := &Memory{Type: d}
+		m := newMemory(d, nil)
 		vm.emptyMemory[d] = m
 		return m
 	}
