@@ -430,23 +430,11 @@ var imageDecoded = func() {}
 // cache it read grew before it could commit.
 const maxCommitTries = 4
 
-// imageBootMu serializes the VMs that loads make for themselves: booting one
-// writes to core's static type names (bootCTypes sets n_uninitialized on them),
-// and two boots at once race on those writes (found by -race with concurrent
-// loads, issue #105). It does not order a load against a New called elsewhere.
-var imageBootMu sync.Mutex
-
-func newVMForLoad() *VM {
-	imageBootMu.Lock()
-	defer imageBootMu.Unlock()
-	return New()
-}
-
 // decodeCommitted decodes fr into a fresh VM, again into another when a
 // cache another goroutine grew made the commit refuse.
 func decodeCommitted(fr *imgFrame, spec *imageSpec) (vm *VM, err error) {
 	for try := 0; try < maxCommitTries; try++ {
-		vm = newVMForLoad()
+		vm = New()
 		if err = vm.decodeImage(fr, spec); !core.IsInternChanged(err) {
 			break
 		}
