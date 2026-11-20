@@ -243,4 +243,75 @@ end
     end
 end
 
+# Level 3 (trsm, trmm, syrk, symm), through BLAS.* and through the operators
+# LinearAlgebra lowers to them: UpperTriangular(A) \ B, UpperTriangular(A) * B,
+# Symmetric(A) * B and A' * A. These are cases of our own (the oracle is a
+# triple loop over the same matrix), in the spirit of the "level 3" cases of
+# julia's blas.jl; the entries are small binary fractions.
+naive(A, B) = [sum(A[i, l] * B[l, j] for l in 1:size(A, 2)) for i in 1:size(A, 1), j in 1:size(B, 2)]
+tr(A) = [A[j, i] for i in 1:size(A, 2), j in 1:size(A, 1)]
+symm(A, uplo) = [(uplo == 'U') == (i <= j) ? A[i, j] : A[j, i] for i in 1:size(A, 1), j in 1:size(A, 2)]
+
+@testset "level 3" for elty in (Float32, Float64)
+    n = 6
+    A = elty[i == j ? 4 : (mod(3i + j, 5) - 2) / 4 for i in 1:n, j in 1:n]
+    B = elty[(mod(2i + j, 7) - 3) / 2 for i in 1:n, j in 1:4]
+    C = elty[(mod(i + 3j, 5) - 2) / 2 for i in 1:3, j in 1:n]
+    U, L = UpperTriangular(A), LowerTriangular(A)
+    Un = UnitUpperTriangular(A)
+    tu, tl = triu(A), tril(A)
+    unit(T) = T - Diagonal(diag(T)) + I
+    @testset "trmm" begin
+        @test U * B ≈ naive(tu, B)
+        @test L * B ≈ naive(tl, B)
+        @test U' * B ≈ naive(tr(tu), B)
+        @test C * U ≈ naive(C, tu)
+        @test C * L ≈ naive(C, tl)
+        @test C * U' ≈ naive(C, tr(tu))
+        @test Un * B ≈ naive(unit(tu), B)
+        @test BLAS.trmm('L', 'U', 'N', 'N', elty(2), A, B) ≈ 2 * naive(tu, B)
+        @test BLAS.trmm('R', 'L', 'T', 'U', elty(1), A, C) ≈ naive(C, tr(unit(tl)))
+        @test_throws DimensionMismatch BLAS.trmm('L', 'U', 'N', 'N', elty(1), A, C)
+    end
+    @testset "trsm" begin
+        @test naive(tu, U \ B) ≈ B
+        @test naive(tl, L \ B) ≈ B
+        @test naive(tr(tu), U' \ B) ≈ B
+        @test naive(unit(tu), Un \ B) ≈ B
+        @test naive(C / U, tu) ≈ C
+        @test naive(C / L, tl) ≈ C
+        @test naive(C / U', tr(tu)) ≈ C
+        @test BLAS.trsm('L', 'U', 'N', 'N', elty(2), A, B) ≈ 2 * (U \ B)
+        @test BLAS.trsm('R', 'L', 'N', 'N', elty(1), A, C) ≈ C / L
+        @test_throws DimensionMismatch BLAS.trsm('L', 'U', 'N', 'N', elty(1), A, C)
+        X = copy(B)
+        ldiv!(U, X)
+        @test naive(tu, X) ≈ B
+    end
+    @testset "syrk" begin
+        @test A' * A ≈ naive(tr(A), A)
+        @test A * A' ≈ naive(A, tr(A))
+        @test B' * B ≈ naive(tr(B), B)
+        @test B * B' ≈ naive(B, tr(B))
+        @test triu(BLAS.syrk('U', 'T', elty(1), A)) ≈ triu(naive(tr(A), A))
+        @test tril(BLAS.syrk('L', 'N', elty(2), B)) ≈ 2 * tril(naive(B, tr(B)))
+        D = elty[(mod(i * j, 4) - 1) / 2 for i in 1:n, j in 1:n]
+        D0 = copy(D)
+        BLAS.syrk!('U', 'N', elty(1), A, elty(2), D)
+        @test triu(D) ≈ triu(naive(A, tr(A)) + 2 * D0)
+        @test tril(D, -1) == tril(D0, -1) # the other triangle is not touched
+        @test_throws DimensionMismatch BLAS.syrk!('U', 'N', elty(1), A, elty(0), zeros(elty, 3, 3))
+    end
+    @testset "symm" begin
+        SU, SL = symm(A, 'U'), symm(A, 'L')
+        @test Symmetric(A) * B ≈ naive(SU, B)
+        @test Symmetric(A, :L) * B ≈ naive(SL, B)
+        @test C * Symmetric(A) ≈ naive(C, SU)
+        @test C * Symmetric(A, :L) ≈ naive(C, SL)
+        @test BLAS.symm('L', 'U', elty(2), A, B) ≈ 2 * naive(SU, B)
+        @test BLAS.symm('R', 'L', elty(1), A, C) ≈ naive(C, SL)
+        @test_throws DimensionMismatch BLAS.symm('L', 'U', elty(1), A, C)
+    end
+end
+
 (ntests[], fails)

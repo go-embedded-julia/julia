@@ -30,6 +30,9 @@ var blasStdlibCases string
 
 const baseImageTag = "v0.0.1"
 
+// the level 3 routines julia's cases reach in both precisions
+var level3Names = []string{"dtrsm_64_", "strsm_64_", "dtrmm_64_", "strmm_64_", "dsyrk_64_", "ssyrk_64_", "dsymm_64_", "ssymm_64_"}
+
 func baseKernel(t *testing.T) *Kernel {
 	t.Helper()
 	if os.Getenv("JLGO_BASE") != "1" {
@@ -189,7 +192,7 @@ func TestBLASOnBase(t *testing.T) {
 
 	// julia's cases
 	counts := map[string]int{}
-	for _, name := range []string{"dgemm_64_", "sgemm_64_", "dgemv_64_", "sgemv_64_", "cblas_ddot64_", "cblas_sdot64_", "daxpy_64_", "dscal_64_", "dnrm2_64_", "dasum_64_", "idamax_64_"} {
+	for _, name := range append([]string{"dgemm_64_", "sgemm_64_", "dgemv_64_", "sgemv_64_", "cblas_ddot64_", "cblas_sdot64_", "daxpy_64_", "dscal_64_", "dnrm2_64_", "dasum_64_", "idamax_64_"}, level3Names...) {
 		name := name
 		orig := k.vm.libShims[openblasLib][expr.Symbol(name)]
 		k.vm.libShims[openblasLib][expr.Symbol(name)] = func(vm *VM, a []any) (any, error) {
@@ -208,7 +211,7 @@ func TestBLASOnBase(t *testing.T) {
 		t.Errorf("julia's cases failed: %s", r.Value)
 	}
 	t.Logf("%s tests, calls through the BLAS: %v", m[1], counts)
-	for _, name := range []string{"dgemm_64_", "sgemm_64_", "dgemv_64_", "sgemv_64_", "cblas_ddot64_", "daxpy_64_", "dscal_64_", "dnrm2_64_", "dasum_64_", "idamax_64_"} {
+	for _, name := range append([]string{"dgemm_64_", "sgemm_64_", "dgemv_64_", "sgemv_64_", "cblas_ddot64_", "daxpy_64_", "dscal_64_", "dnrm2_64_", "dasum_64_", "idamax_64_"}, level3Names...) {
 		if counts[name] == 0 {
 			t.Errorf("julia's cases never reached %s", name)
 		}

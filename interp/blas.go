@@ -15,7 +15,7 @@ import (
 // reference (Ref{UInt8} flags, Ref{BlasInt} dimensions, Ref{Float64} scalars,
 // Ptr{Float64} arrays) and the hidden Clong string lengths after them. The
 // routines are go-blas/blas', for s and d: gemm, gemv and level 1 (dot, axpy,
-// scal, nrm2, asum, iamax). The library the trampoline forwards to is named as
+// scal, nrm2, asum, iamax) and level 3 (trsm, trmm, syrk, symm, in blas3.go). The library the trampoline forwards to is named as
 // julia 1.12.6 names OpenBLAS (libopenblas64_), so lbt_forward of its path
 // forwards these.
 //
@@ -42,18 +42,24 @@ type blasOps[T blasFloat] struct {
 	nrm2  func(n int, x []T, incx int) (T, error)
 	asum  func(n int, x []T, incx int) (T, error)
 	iamax func(n int, x []T, incx int) (int, error)
+	trsm  func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n int, alpha T, a []T, lda int, b []T, ldb int) error
+	trmm  func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n int, alpha T, a []T, lda int, b []T, ldb int) error
+	syrk  func(uplo blas.Uplo, trans blas.Transpose, n, k int, alpha T, a []T, lda int, beta T, c []T, ldc int) error
+	symm  func(side blas.Side, uplo blas.Uplo, m, n int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) error
 }
 
 var blasDouble = blasOps[float64]{
 	elem: core.Float64Type, size: 8,
 	gemm: blas.Dgemm, gemv: blas.Dgemv, dot: blas.Ddot, axpy: blas.Daxpy, scal: blas.Dscal,
 	nrm2: blas.Dnrm2, asum: blas.Dasum, iamax: blas.Idamax,
+	trsm: blas.Dtrsm, trmm: blas.Dtrmm, syrk: blas.Dsyrk, symm: blas.Dsymm,
 }
 
 var blasSingle = blasOps[float32]{
 	elem: core.Float32Type, size: 4,
 	gemm: blas.Sgemm, gemv: blas.Sgemv, dot: blas.Sdot, axpy: blas.Saxpy, scal: blas.Sscal,
 	nrm2: blas.Snrm2, asum: blas.Sasum, iamax: blas.Isamax,
+	trsm: blas.Strsm, trmm: blas.Strmm, syrk: blas.Ssyrk, symm: blas.Ssymm,
 }
 
 // blasRegion is an array argument: the memory a pointer points into, the
@@ -492,5 +498,7 @@ func (vm *VM) bootBLAS() {
 	fns := map[expr.Symbol]shim{}
 	registerBlas(fns, "d", &blasDouble)
 	registerBlas(fns, "s", &blasSingle)
+	registerBlas3(fns, "d", &blasDouble)
+	registerBlas3(fns, "s", &blasSingle)
 	vm.libShims[openblasLib] = fns
 }
