@@ -25,9 +25,11 @@ type Memory struct {
 	elems []any
 	// u8 holds the elements of a memory whose kind is kindU8, and elems is
 	// then nil
-	u8   []uint8
-	kind memKind
-	id   uint64 // its object id (objectid.go)
+	u8 []uint8
+	// floats holds those of a memory whose kind is kindF64
+	floats []float64
+	kind   memKind
+	id     uint64 // its object id (objectid.go)
 	// undo is the log of the VM that loaded this memory from an image, nil for
 	// a memory a cell made (undo.go).
 	undo *undoLog
@@ -41,6 +43,7 @@ type memKind uint8
 const (
 	kindAny memKind = iota // []any, the boxed values
 	kindU8                 // []uint8
+	kindF64                // []float64
 )
 
 // typedKinds is the table of element types that have a typed store. Adding a
@@ -48,7 +51,8 @@ const (
 // reach it; every other site goes through Get and Set and needs no change. It
 // is the one place that says which kinds are typed (TestTypedKinds).
 var typedKinds = map[any]memKind{
-	core.UInt8Type: kindU8,
+	core.UInt8Type:   kindU8,
+	core.Float64Type: kindF64,
 }
 
 // memKindOf is the kind of the memory type t.
@@ -59,23 +63,32 @@ func memKindOf(t *core.DataType) memKind {
 	return kindAny
 }
 
-// stores says which stores a memory holds: the boxed one, the one of bytes.
-// Exactly one of them is, and only the tests ask (TestTypedKinds).
-func (m *Memory) stores() (boxed, bytes bool) { return m.elems != nil, m.u8 != nil }
+// stores says which stores a memory holds: the boxed one, the one of bytes, the
+// one of floats. Exactly one of them is, and only the tests ask
+// (TestTypedKinds).
+func (m *Memory) stores() (boxed, bytes, floats bool) {
+	return m.elems != nil, m.u8 != nil, m.floats != nil
+}
 
 // newMemory is a Memory of type t holding elems, which it takes over: a typed
 // kind copies them into its own slice (a slot that does not hold the element
 // type, undef, reads as zero).
 func newMemory(t *core.DataType, elems []any) *Memory {
 	m := &Memory{Type: t, kind: memKindOf(t)}
-	if m.kind == kindU8 {
+	switch m.kind {
+	case kindU8:
 		m.u8 = make([]uint8, len(elems))
 		for i, e := range elems {
 			m.u8[i], _ = e.(uint8)
 		}
-		return m
+	case kindF64:
+		m.floats = make([]float64, len(elems))
+		for i, e := range elems {
+			m.floats[i], _ = e.(float64)
+		}
+	default:
+		m.elems = elems
 	}
-	m.elems = elems
 	return m
 }
 
@@ -83,25 +96,35 @@ func newMemory(t *core.DataType, elems []any) *Memory {
 // element type for a typed kind and nil otherwise: the caller fills the boxed
 // kinds.
 func newMemoryN(t *core.DataType, n int) *Memory {
-	if memKindOf(t) == kindU8 {
-		return &Memory{Type: t, kind: kindU8, u8: make([]uint8, n)}
+	switch k := memKindOf(t); k {
+	case kindU8:
+		return &Memory{Type: t, kind: k, u8: make([]uint8, n)}
+	case kindF64:
+		return &Memory{Type: t, kind: k, floats: make([]float64, n)}
 	}
 	return &Memory{Type: t, elems: make([]any, n)}
 }
 
 // Len is the number of elements.
 func (m *Memory) Len() int {
-	if m.kind == kindU8 {
+	switch m.kind {
+	case kindU8:
 		return len(m.u8)
+	case kindF64:
+		return len(m.floats)
 	}
 	return len(m.elems)
 }
 
 // Get is element i (0-based), as it is stored: undef for a boxed slot never
-// assigned.
+// assigned. A typed element is boxed to be returned (a Float64 allocates unless
+// it is small; a UInt8 does not).
 func (m *Memory) Get(i int) any {
-	if m.kind == kindU8 {
+	switch m.kind {
+	case kindU8:
 		return m.u8[i]
+	case kindF64:
+		return m.floats[i]
 	}
 	return m.elems[i]
 }
@@ -111,11 +134,14 @@ func (m *Memory) Set(i int, v any) {
 	if l := m.undo; l != nil && l.on {
 		l.recordElem(m, i)
 	}
-	if m.kind == kindU8 {
+	switch m.kind {
+	case kindU8:
 		m.u8[i] = v.(uint8)
-		return
+	case kindF64:
+		m.floats[i] = v.(float64)
+	default:
+		m.elems[i] = v
 	}
-	m.elems[i] = v
 }
 
 // Slice is elements lo to hi (exclusive), to read. A boxed memory answers a
@@ -124,10 +150,17 @@ func (m *Memory) Set(i int, v any) {
 // a typed memory answers a copy, and a write through it is lost: write through
 // Set, Written or Bytes.
 func (m *Memory) Slice(lo, hi int) []any {
-	if m.kind == kindU8 {
+	switch m.kind {
+	case kindU8:
 		out := make([]any, hi-lo)
 		for i, b := range m.u8[lo:hi] {
 			out[i] = b
+		}
+		return out
+	case kindF64:
+		out := make([]any, hi-lo)
+		for i, f := range m.floats[lo:hi] {
+			out[i] = f
 		}
 		return out
 	}
@@ -159,12 +192,36 @@ func (m *Memory) WrittenBytes(lo, hi int) ([]byte, bool) {
 	return m.u8[lo:hi], true
 }
 
+// Float64s is the elements lo to hi of a memory of Float64 as a slice that
+// shares the store, to read, and false for any other kind: what the BLAS and the
+// Kernel's value table read, with no boxing. A write through it is not logged:
+// write through WrittenFloat64s.
+func (m *Memory) Float64s(lo, hi int) ([]float64, bool) {
+	if m.kind != kindF64 {
+		return nil, false
+	}
+	return m.floats[lo:hi], true
+}
+
+// WrittenFloat64s is Float64s for a caller that is about to write the range:
+// the old values are recorded first, when the memory is one the image holds
+// (undo.go).
+func (m *Memory) WrittenFloat64s(lo, hi int) ([]float64, bool) {
+	if m.kind != kindF64 {
+		return nil, false
+	}
+	if l := m.undo; l != nil && l.on {
+		l.recordRange(m, lo, hi)
+	}
+	return m.floats[lo:hi], true
+}
+
 // Written is Slice for a caller that is about to write the range of a boxed
 // memory: the old values are recorded first, when the memory is one the image
 // holds (undo.go). A typed memory has none: see CopyFrom and WrittenBytes.
 func (m *Memory) Written(lo, hi int) []any {
 	if m.kind != kindAny {
-		panic("interp: Written of a typed Memory")
+		panic("interp: Written of a typed Memory (use WrittenBytes, WrittenFloat64s or CopyFrom)")
 	}
 	if l := m.undo; l != nil && l.on {
 		l.recordRange(m, lo, hi)
@@ -175,13 +232,18 @@ func (m *Memory) Written(lo, hi int) []any {
 // CopyFrom copies n elements of src from si to m from di, as memmove does: the
 // two memories have one type, and may be one memory.
 func (m *Memory) CopyFrom(di int, src *Memory, si, n int) {
-	if m.kind == kindU8 {
+	switch m.kind {
+	case kindU8:
 		d, _ := m.WrittenBytes(di, di+n)
 		s, _ := src.Bytes(si, si+n)
 		copy(d, s)
-		return
+	case kindF64:
+		d, _ := m.WrittenFloat64s(di, di+n)
+		s, _ := src.Float64s(si, si+n)
+		copy(d, s)
+	default:
+		copy(m.Written(di, di+n), src.Slice(si, si+n))
 	}
-	copy(m.Written(di, di+n), src.Slice(si, si+n))
 }
 
 // SetAll replaces the elements by es, which a boxed memory takes over and a
@@ -190,14 +252,20 @@ func (m *Memory) SetAll(es []any) {
 	if l := m.undo; l != nil && l.on {
 		l.recordAll(m)
 	}
-	if m.kind == kindU8 {
+	switch m.kind {
+	case kindU8:
 		m.u8 = make([]uint8, len(es))
 		for i, e := range es {
 			m.u8[i], _ = e.(uint8)
 		}
-		return
+	case kindF64:
+		m.floats = make([]float64, len(es))
+		for i, e := range es {
+			m.floats[i], _ = e.(float64)
+		}
+	default:
+		m.elems = es
 	}
-	m.elems = es
 }
 
 // MemoryRef is a GenericMemoryRef: a memory and the 0-based index of an

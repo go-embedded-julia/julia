@@ -245,20 +245,20 @@ func TestKernelMalformedArrays(t *testing.T) {
 	f64 := core.Float64Type
 	good := mem(f64, 1.0, 2.0, 3.0)
 	cases := map[string]*Struct{
-		"fields of other types":             arr(f64, 1, int64(1), int64(2)),
-		"a size that is no tuple":           arr(f64, 1, ref(good, 0), int64(3)),
-		"a size of the wrong rank":          arr(f64, 1, ref(good, 0), vm.newTuple([]any{int64(1), int64(3)})),
-		"a rank of three":                   arr(f64, 3, ref(good, 0), vm.newTuple([]any{int64(1), int64(1), int64(3)})),
-		"a size that is no number":          arr(f64, 1, ref(good, 0), vm.newTuple([]any{"3"})),
-		"a negative size":                   arr(f64, 1, ref(good, 0), vm.newTuple([]any{int64(-1)})),
-		"more than the memory":              arr(f64, 1, ref(good, 0), vm.newTuple([]any{int64(4)})),
-		"more than a matrix":                arr(f64, 2, ref(good, 0), vm.newTuple([]any{int64(2), int64(2)})),
-		"past the offset":                   arr(f64, 1, ref(good, 2), vm.newTuple([]any{int64(2)})),
-		"a slot that is not a T":            arr(f64, 1, ref(mem(f64, 1.0, "x"), 0), vm.newTuple([]any{int64(2)})),
-		"an undefined slot":                 arr(f64, 1, ref(mem(f64, 1.0, undef), 0), vm.newTuple([]any{int64(2)})),
-		"an Int64 slot that is not":         arr(core.Int64Type, 1, ref(mem(core.Int64Type, int64(1), 2.5), 0), vm.newTuple([]any{int64(2)})),
-		"an Int64 matrix slot that is not":  arr(core.Int64Type, 2, ref(mem(core.Int64Type, 2.5), 0), vm.newTuple([]any{int64(1), int64(1)})),
-		"a Float64 matrix slot that is not": arr(f64, 2, ref(mem(f64, int64(1)), 0), vm.newTuple([]any{int64(1), int64(1)})),
+		"fields of other types":    arr(f64, 1, int64(1), int64(2)),
+		"a size that is no tuple":  arr(f64, 1, ref(good, 0), int64(3)),
+		"a size of the wrong rank": arr(f64, 1, ref(good, 0), vm.newTuple([]any{int64(1), int64(3)})),
+		"a rank of three":          arr(f64, 3, ref(good, 0), vm.newTuple([]any{int64(1), int64(1), int64(3)})),
+		"a size that is no number": arr(f64, 1, ref(good, 0), vm.newTuple([]any{"3"})),
+		"a negative size":          arr(f64, 1, ref(good, 0), vm.newTuple([]any{int64(-1)})),
+		"more than the memory":     arr(f64, 1, ref(good, 0), vm.newTuple([]any{int64(4)})),
+		"more than a matrix":       arr(f64, 2, ref(good, 0), vm.newTuple([]any{int64(2), int64(2)})),
+		"past the offset":          arr(f64, 1, ref(good, 2), vm.newTuple([]any{int64(2)})),
+		// (a Memory{Float64} is typed: a slot that is not a Float64, or undefined, cannot
+		// be made, so the cases of the boxed Int64 kind are the ones left)
+		"an Int64 slot that is not":        arr(core.Int64Type, 1, ref(mem(core.Int64Type, int64(1), 2.5), 0), vm.newTuple([]any{int64(2)})),
+		"an Int64 matrix slot that is not": arr(core.Int64Type, 2, ref(mem(core.Int64Type, 2.5), 0), vm.newTuple([]any{int64(1), int64(1)})),
+		"an undefined Int64 slot":          arr(core.Int64Type, 1, ref(mem(core.Int64Type, int64(1), undef), 0), vm.newTuple([]any{int64(2)})),
 	}
 	for name, a := range cases {
 		if _, err := vm.toGo(a); !errors.Is(err, ErrKernelType) {

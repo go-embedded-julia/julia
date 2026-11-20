@@ -440,10 +440,11 @@ func TestBLASRefusals(t *testing.T) {
 	if r, err := blasShim(vm, "dnrm2_64_")(vm, []any{blasRef(vm, int64(0)), null, one}); err != nil || r != 0.0 {
 		t.Errorf("dnrm2 of nothing: %v, %v", r, err)
 	}
-	m, _, _ := blasMemory([]float64{1, 2})
-	m.Set(0, undef)
-	if r, err := blasShim(vm, "dasum_64_")(vm, []any{i, &Pointer{Type: vm.ptrType(core.Float64Type), Target: m}, one}); err != nil || r != 2.0 {
-		t.Errorf("dasum of an undefined element and 2: %v, %v", r, err)
+	// (a Memory{Float64} is typed and has no undefined element: a Memory{Float32}
+	// is boxed, and has)
+	m := newMemory(memTypeOf(core.Float32Type), []any{undef, float32(2)})
+	if r, err := blasShim(vm, "sasum_64_")(vm, []any{i, &Pointer{Type: vm.ptrType(core.Float32Type), Target: m}, one}); err != nil || r != float32(2) {
+		t.Errorf("sasum of an undefined element and 2: %v, %v", r, err)
 	}
 }
 

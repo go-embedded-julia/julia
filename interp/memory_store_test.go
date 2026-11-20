@@ -41,7 +41,7 @@ func TestMemoryStoreIsPrivate(t *testing.T) {
 
 // memoryStores are the fields of Memory that hold its elements: the boxed
 // store and the typed ones (one per kind in typedKinds).
-var memoryStores = map[string]bool{"elems": true, "u8": true}
+var memoryStores = map[string]bool{"elems": true, "u8": true, "floats": true}
 
 // memoryStoreUses are the places in f that name one of those fields: a selector
 // that is not the function of a call, and a key of a composite literal.

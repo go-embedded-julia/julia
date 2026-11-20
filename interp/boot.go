@@ -51,10 +51,14 @@ func (vm *VM) setARGS() {
 // newVector is a Vector{t} over elems (jl_alloc_array_1d), its memory
 // the slice itself.
 func (vm *VM) newVector(t any, elems []any) *Struct {
-	mem := newMemory(must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), t, core.CPU)).(*core.DataType), elems)
+	return vm.newVectorOver(t, newMemory(memoryTypeOf(t), elems))
+}
+
+// newVectorOver is a Vector{t} over mem.
+func (vm *VM) newVectorOver(t any, mem *Memory) *Struct {
 	return &Struct{Type: must(core.Apply(core.ArrayType, t, int64(1))).(*core.DataType), Fields: []any{
 		&MemoryRef{Type: must(core.Apply(core.GenericMemoryRefType, expr.Symbol("not_atomic"), t, core.CPU)).(*core.DataType), Mem: mem},
-		vm.newTuple([]any{int64(len(elems))}),
+		vm.newTuple([]any{int64(mem.Len())}),
 	}}
 }
 
