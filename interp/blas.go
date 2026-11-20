@@ -19,11 +19,12 @@ import (
 // julia 1.12.6 names OpenBLAS (libopenblas64_), so lbt_forward of its path
 // forwards these.
 //
-// A Memory keeps its elements as boxed values ([]any), so a call copies the
-// elements it reads and writes into []float64 (or []float32), calls the routine
-// and writes back what the routine writes. That is O(n^2) for gemm, and O(n)
-// for gemv and level 1: the same order as their work (see the issue on a typed
-// backing store).
+// A Memory of Float64 keeps its elements in a []float64 (#81), which the
+// routines of double precision read and write in place: no element is boxed,
+// copied in or copied back. A Memory of Float32 still keeps boxed values, so a
+// call copies the elements it reads and writes into []float32, calls the routine
+// and writes back what the routine writes: O(n^2) for gemm, O(n) for gemv and
+// level 1, the order of their work.
 
 const openblasLib = "libopenblas64_"
 
@@ -75,6 +76,9 @@ type blasBuf[T blasFloat] struct {
 	lo, hi  int
 	data    []T
 	written bool
+	// alias: data is the live store of a Float64 memory, which the routine
+	// reads and writes in place: nothing was copied in and nothing is copied back
+	alias bool
 }
 
 // maxExt is the extent of "everything from the pointer on", for an argument
@@ -188,10 +192,23 @@ func (c *blasCall[T]) region(v any, ext int) (blasRegion, error) {
 	return r, nil
 }
 
-// load copies the elements of every region into its buffer. An element that is
-// not a number (an undefined one) reads as 0.
+// load copies the elements of every region into its buffer, but for a memory of
+// Float64 (typed, #81) and a routine in double precision: the buffer is then the
+// memory's own slice, the old values of a region the routine writes recorded
+// first for the undo log. An element that is not a number (an undefined one in a
+// boxed memory) reads as 0.
 func (c *blasCall[T]) load() {
 	for m, b := range c.bufs {
+		if _, double := any(T(0)).(float64); double && m.kind == kindF64 {
+			var fs []float64
+			if b.written {
+				fs, _ = m.WrittenFloat64s(b.lo, b.hi)
+			} else {
+				fs, _ = m.Float64s(b.lo, b.hi)
+			}
+			b.data, b.alias = any(fs).([]T), true
+			continue
+		}
 		b.data = make([]T, b.hi-b.lo)
 		for i := range b.data {
 			if f, ok := m.Get(b.lo + i).(T); ok {
@@ -221,7 +238,7 @@ func (c *blasCall[T]) written(r blasRegion) {
 // store writes back the buffers of the memories the routine wrote.
 func (c *blasCall[T]) store() {
 	for m, b := range c.bufs {
-		if b.written {
+		if b.written && !b.alias {
 			for i, f := range b.data {
 				m.Set(b.lo+i, f)
 			}

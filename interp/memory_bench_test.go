@@ -35,7 +35,7 @@ func BenchmarkMemoryLoops(b *testing.B) {
 	if os.Getenv("JLGO_BENCH_BIG") != "" {
 		n = "1_000_000" // 10^6: the sizes #81 asks about
 	}
-	if r := k.Eval(context.Background(), "v = zeros(Float64, "+n+"); w = zeros(UInt8, "+n+"); str = repeat(\"a\", "+n+"); nothing"); r.Err != nil {
+	if r := k.Eval(context.Background(), "v = fill(1.5, "+n+"); w = zeros(UInt8, "+n+"); str = repeat(\"a\", "+n+"); nothing"); r.Err != nil {
 		b.Fatal(r.Err)
 	}
 	for _, c := range []struct{ name, src string }{

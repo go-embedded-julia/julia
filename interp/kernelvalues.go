@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"unicode"
 
 	"github.com/go-embedded-julia/julia/core"
@@ -224,19 +225,16 @@ func (vm *VM) arrayToGo(a *Struct) (any, bool) {
 	if ref.Off < 0 || ref.Off > ref.Mem.Len() || n > ref.Mem.Len()-ref.Off {
 		return nil, false
 	}
-	elems := ref.Mem.Slice(ref.Off, ref.Off+n)
 	switch a.Type.Parameters[0] {
 	case any(core.Float64Type):
-		data, ok := copyElems[float64](elems)
-		if !ok {
-			return nil, false
-		}
+		fs, _ := ref.Mem.Float64s(ref.Off, ref.Off+n) // a Memory{Float64} is typed
+		data := slices.Clone(fs)
 		if nd == 1 {
 			return data, true
 		}
 		return Matrix[float64]{Rows: dims[0], Cols: dims[1], Data: data}, true
 	case any(core.Int64Type):
-		data, ok := copyElems[int64](elems)
+		data, ok := copyElems[int64](ref.Mem.Slice(ref.Off, ref.Off+n))
 		if !ok {
 			return nil, false
 		}
@@ -275,7 +273,7 @@ func (vm *VM) fromGo(v any) (any, error) {
 		if err := vm.checkArraySize(len(x)); err != nil {
 			return nil, err
 		}
-		return vm.newVector(core.Float64Type, toAny(x)), nil
+		return vm.newVectorOver(core.Float64Type, floatMemory(x)), nil
 	case []int64:
 		if err := vm.checkArraySize(len(x)); err != nil {
 			return nil, err
@@ -285,7 +283,7 @@ func (vm *VM) fromGo(v any) (any, error) {
 		if err := vm.checkMatrix("Matrix[float64]", x.Rows, x.Cols, len(x.Data)); err != nil {
 			return nil, err
 		}
-		return vm.newMatrixOf(core.Float64Type, toAny(x.Data), x.Rows, x.Cols), nil
+		return vm.newMatrixOver(core.Float64Type, floatMemory(x.Data), x.Rows, x.Cols), nil
 	case Matrix[int64]:
 		if err := vm.checkMatrix("Matrix[int64]", x.Rows, x.Cols, len(x.Data)); err != nil {
 			return nil, err
@@ -333,11 +331,29 @@ func (vm *VM) checkArraySize(n int) error {
 // newMatrixOf is a Matrix{elem} of rows by cols over the elements, column-major;
 // checkMatrix has been asked first.
 func (vm *VM) newMatrixOf(elem *core.DataType, elems []any, rows, cols int) any {
-	mt := must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), elem, core.CPU)).(*core.DataType)
+	return vm.newMatrixOver(elem, newMemory(memoryTypeOf(elem), elems), rows, cols)
+}
+
+// newMatrixOver is a Matrix{elem} of rows by cols over mem.
+func (vm *VM) newMatrixOver(elem *core.DataType, mem *Memory, rows, cols int) any {
 	rt := must(core.Apply(core.GenericMemoryRefType, expr.Symbol("not_atomic"), elem, core.CPU)).(*core.DataType)
 	at := must(core.Apply(core.ArrayType, elem, int64(2))).(*core.DataType)
 	return &Struct{Type: at, Fields: []any{
-		&MemoryRef{Type: rt, Mem: newMemory(mt, elems)},
+		&MemoryRef{Type: rt, Mem: mem},
 		vm.newTuple([]any{int64(rows), int64(cols)}),
 	}}
+}
+
+// memoryTypeOf is Memory{elem}.
+func memoryTypeOf(elem any) *core.DataType {
+	return must(core.Apply(core.GenericMemoryType, expr.Symbol("not_atomic"), elem, core.CPU)).(*core.DataType)
+}
+
+// floatMemory is a Memory{Float64} holding a copy of xs, made with no boxing of
+// an element: the bits are the bits (NaN payloads, -0.0).
+func floatMemory(xs []float64) *Memory {
+	m := newMemoryN(memoryTypeOf(core.Float64Type), len(xs))
+	fs, _ := m.Float64s(0, len(xs)) // a Memory{Float64} is typed
+	copy(fs, xs)
+	return m
 }
