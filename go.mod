@@ -4,7 +4,7 @@ go 1.27.2
 
 require (
 	github.com/go-bignum/bigfloat v0.2.0
-	github.com/go-blas/blas v0.3.0
+	github.com/go-blas/blas v0.4.0
 	github.com/go-regexp/pcre2 v0.1.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/text v0.44.0
