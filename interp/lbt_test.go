@@ -51,7 +51,7 @@ nothing`
 		{"getfield(cfg(), :build_flags)", "0x0000001a"},
 		{"getfield(cfg(), :num_exported_symbols)", "0x00000000"},
 		{"isnull(libp(1))", "true"},
-		{`fwd("/julia/lib/julia/libopenblas64_.dylib", Int32(1))`, "16"}, // the 8 s and 8 d routines of go-blas
+		{`fwd("/julia/lib/julia/libopenblas64_.dylib", Int32(1))`, "24"}, // the 12 s and 12 d routines of go-blas
 		{"str(getfield(lib(1), :libname))", `"/julia/lib/julia/libopenblas64_.dylib"`},
 		{"str(getfield(lib(1), :suffix))", `"64_"`},
 		{"getfield(lib(1), :interface)", "64"},
@@ -94,7 +94,7 @@ func TestLBTForwardsBLAS(t *testing.T) {
 		}
 	}
 	forward := vm.libShims[lbtLib]["lbt_forward"]
-	if n, err := forward(vm, []any{vm.stringPtrOf("libopenblas64_.dylib"), int32(1), int32(0), nil}); err != nil || n != int32(16) {
+	if n, err := forward(vm, []any{vm.stringPtrOf("libopenblas64_.dylib"), int32(1), int32(0), nil}); err != nil || n != int32(24) {
 		t.Fatalf("lbt_forward: %v, %v", n, err)
 	}
 	for _, lib := range []string{"libblastrampoline", "@rpath/libblastrampoline.5.dylib", "libblastrampoline.5", "libopenblas64_"} {

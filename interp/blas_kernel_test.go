@@ -38,7 +38,7 @@ nreal(v) = f1(v)
 path = "libopenblas64_.dylib"
 forwarded = ccall((:lbt_forward, LBT), Int32, (Ptr{UInt8}, Int32, Int32, Ptr{UInt8}),
     ccall(:jl_string_ptr, Ptr{UInt8}, (Any,), path), Int32(1), Int32(0), Core.Intrinsics.bitcast(Ptr{UInt8}, 0))
-forwarded`, "16")
+forwarded`, "24")
 	// C = A*B with A = [1 3; 2 4] and B = [5 7; 6 8] (column-major), then
 	// y = A*x and x'*y
 	evalOK(t, k, `

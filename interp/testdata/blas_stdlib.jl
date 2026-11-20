@@ -244,8 +244,9 @@ end
 end
 
 # Level 3 (trsm, trmm, syrk, symm), through BLAS.* and through the operators
-# LinearAlgebra lowers to them: UpperTriangular(A) \ B, UpperTriangular(A) * B,
-# Symmetric(A) * B and A' * A. These are cases of our own (the oracle is a
+# LinearAlgebra lowers to them: B / UpperTriangular(A), UpperTriangular(A) * B,
+# Symmetric(A) * B and A' * A (the left solve UpperTriangular(A) \ B is
+# LAPACK's trtrs, not trsm). These are cases of our own (the oracle is a
 # triple loop over the same matrix), in the spirit of the "level 3" cases of
 # julia's blas.jl; the entries are small binary fractions.
 naive(A, B) = [sum(A[i, l] * B[l, j] for l in 1:size(A, 2)) for i in 1:size(A, 1), j in 1:size(B, 2)]
@@ -274,19 +275,17 @@ symm(A, uplo) = [(uplo == 'U') == (i <= j) ? A[i, j] : A[j, i] for i in 1:size(A
         @test_throws DimensionMismatch BLAS.trmm('L', 'U', 'N', 'N', elty(1), A, C)
     end
     @testset "trsm" begin
-        @test naive(tu, U \ B) ≈ B
-        @test naive(tl, L \ B) ≈ B
-        @test naive(tr(tu), U' \ B) ≈ B
-        @test naive(unit(tu), Un \ B) ≈ B
+        # (the left solve U \ B of a matrix is LAPACK's trtrs, not trsm: #67)
         @test naive(C / U, tu) ≈ C
+        @test naive(C / Un, unit(tu)) ≈ C
         @test naive(C / L, tl) ≈ C
         @test naive(C / U', tr(tu)) ≈ C
-        @test BLAS.trsm('L', 'U', 'N', 'N', elty(2), A, B) ≈ 2 * (U \ B)
+        @test naive(tu, BLAS.trsm('L', 'U', 'N', 'N', elty(2), A, B)) ≈ 2 * B
+        @test naive(tl, BLAS.trsm('L', 'L', 'N', 'N', elty(1), A, B)) ≈ B
+        @test naive(tr(tu), BLAS.trsm('L', 'U', 'T', 'N', elty(1), A, B)) ≈ B
+        @test naive(unit(tu), BLAS.trsm('L', 'U', 'N', 'U', elty(1), A, B)) ≈ B
         @test BLAS.trsm('R', 'L', 'N', 'N', elty(1), A, C) ≈ C / L
         @test_throws DimensionMismatch BLAS.trsm('L', 'U', 'N', 'N', elty(1), A, C)
-        X = copy(B)
-        ldiv!(U, X)
-        @test naive(tu, X) ≈ B
     end
     @testset "syrk" begin
         @test A' * A ≈ naive(tr(A), A)
