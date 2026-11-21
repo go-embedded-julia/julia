@@ -63,6 +63,10 @@ func fakeReleaseVersion(t testing.TB, tag string) {
 	}
 }
 
+// imageWarmup is what the builder runs before it saves: the REPL display of a
+// Float64 matrix, as Kernel's show does it.
+const imageWarmup = `sprint(show, MIME("text/plain"), [1.0 2.0; 3.0 4.0]; context=(:limit=>true, :displaysize=>(24, 80)))`
+
 // buildBaseImage builds Base to the cut where julia writes sys.so, keyed for
 // tag (see fakeReleaseVersion, which stays in force), and returns the image,
 // which it has checked loads.
@@ -81,6 +85,13 @@ func buildBaseImage(t testing.TB, tag string) []byte {
 	vm.Args = []string{"sysimg.jl"}
 	if _, err := vm.jlLoad([]any{vm.Main, "sysimg.jl"}); err != nil {
 		t.Fatal(err)
+	}
+	// the inference the display of a matrix makes (join's default_eltype, the
+	// column widths) is saved with the image: julia's sys.so carries it from its
+	// precompile statements, and without it the first display costs about 69M
+	// interpreter statements (#119). The cell is the kernel's own show.
+	if _, err := vm.NewSession().Eval(imageWarmup); err != nil {
+		t.Fatalf("image warm-up: %v", err)
 	}
 	var img bytes.Buffer
 	if err := vm.SaveImage(&img, SaveOptions{}); err != nil {

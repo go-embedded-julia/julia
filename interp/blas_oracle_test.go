@@ -270,3 +270,21 @@ println(join([bits(vec(A*B)), bits(vec(A'*B)), bits(vec(A*B')), bits(A*x), bits(
 		t.Logf("%s: %d elements within the bound of the exact value; largest difference with julia's OpenBLAS %g", names[p], len(got), worst)
 	}
 }
+
+// A first 2x2 product on a fresh Base kernel stays within 20M statements, the
+// browser playground's limit (#119): the product itself is about 20K, the
+// display of its value was 69M of inference until the image carried it.
+func TestFirstMatrixProductOnBase(t *testing.T) {
+	k := baseKernel(t)
+	ctx := context.Background()
+	if r := k.Eval(ctx, "1"); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	r := k.EvalWith(ctx, `[1.0 2.0; 3.0 4.0] * [5.0 6.0; 7.0 8.0]`, CellOptions{MaxSteps: 20_000_000, Timeout: -1})
+	if r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	if want := "2×2 Matrix{Float64}:\n 19.0  22.0\n 43.0  50.0"; r.Value != want {
+		t.Errorf("value %q, want %q", r.Value, want)
+	}
+}
