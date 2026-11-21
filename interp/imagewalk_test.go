@@ -477,13 +477,11 @@ func TestImageWalkBase(t *testing.T) {
 	}
 	requireCutState(t, vm)
 	// The argument vectors of Exprs are held weakly and dropped by cleanups
-	// on another goroutine, so the count at the cut depends on when the
-	// collector last ran (5274..6384 for the same code). Collect first: the
-	// bands below are the counts after three collections.
-	for i := 0; i < 3; i++ {
-		runtime.GC()
-		time.Sleep(300 * time.Millisecond)
-	}
+	// on another goroutine, one nesting level per collection: an entry's
+	// vector holds its children strongly, so a child's cleanup can only run
+	// at the collection after its parent's (#99). Three collections left
+	// 5353..5486 depending on timing; collect until the count stops falling.
+	collectArgVectors(t, vm)
 	st := walkImage(vm, vmImageSpec)
 	requireClassified(t, st)
 	t.Log(st.report(vm))
@@ -491,10 +489,10 @@ func TestImageWalkBase(t *testing.T) {
 	// re-measured after collection on 66204f6, with two drifts accounted:
 	//  - *core.DataType 61141 -> 51555 at 2238db4 (#48, LoadImage), the
 	//    only commit between f35e46c (61141) and v0.14.0 that moves it;
-	//  - argument vectors (and the Structs, Memorys and Exprs they own)
-	//    5106 -> 5450 at d035890 (#87, frame reuse): +9 at de8f4cd (#83),
-	//    +333 at #87 (+248 measured on 66204f6: the count moves by about
-	//    100 between runs even after collection).
+	//  - argument vectors: 5106 at the fixed point, with the frame pool on
+	//    or off (#99, measured on 28e190e). The +333 seen since #87 was
+	//    the pool delaying the cleanup chain by about one collection, which
+	//    three fixed collections could not wait out.
 	inRange(t, "objects", st.Objects, 3268688, 15)
 	inRange(t, "edges", st.Edges, 4247336, 15)
 	inRange(t, "scalars", st.Scalars, 3037684, 15)
@@ -514,5 +512,32 @@ func TestImageWalkBase(t *testing.T) {
 	inRange(t, "goBody.fn", st.Funcs["interp.goBody.fn"], 2, 0)
 	inRange(t, "goMethod", st.Funcs["dispatch.Method.Def"], 9, 0)
 	inRange(t, "Struct.exprOwner", st.Weaks["interp.Struct.exprOwner"], 35600, 15)
-	inRange(t, "argVectors keys", st.Weaks["interp.VM.argVectors[key]"], 5350, 15)
+	inRange(t, "argVectors keys", st.Weaks["interp.VM.argVectors[key]"], 5106, 1)
+}
+
+// collectArgVectors collects until the number of argument vectors has not
+// fallen for two collections in a row: the fixed point of the cleanup chain.
+// It fails the test if 60 collections do not reach one.
+func collectArgVectors(t *testing.T, vm *VM) {
+	t.Helper()
+	count := func() int {
+		vm.argMu.Lock()
+		defer vm.argMu.Unlock()
+		return len(vm.argVectors)
+	}
+	last, still := count(), 0
+	for round := 1; round <= 60; round++ {
+		runtime.GC()
+		time.Sleep(200 * time.Millisecond)
+		n := count()
+		if n < last {
+			last, still = n, 0
+			continue
+		}
+		if still++; still == 2 {
+			t.Logf("argVectors: %d after %d collections", n, round)
+			return
+		}
+	}
+	t.Fatalf("argVectors still falling after 60 collections: %d", last)
 }
