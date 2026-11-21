@@ -15,7 +15,7 @@ import (
 // complex_retstyle; complex return style normal, f2c plain, cblas
 // unknown). The functions it forwards are the ones the VM implements in Go
 // for the forwarded library: for libopenblas64_ the BLAS of go-blas (blas.go:
-// gemm, gemv and level 1, s and d), so the other BLAS and LAPACK calls are
+// gemm, trsm, trmm, syrk, symm, gemv and level 1, s and d), so the other BLAS and LAPACK calls are
 // refused as not ported (#67) and the configuration lists no exported symbol.
 const lbtLib = "libblastrampoline"
 
