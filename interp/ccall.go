@@ -623,6 +623,10 @@ func (vm *VM) bootShims() {
 		// jl_get_world_counter (gf.c:32-38): the newest world, a UInt;
 		// there are no pure callbacks here
 		"jl_get_world_counter": func(vm *VM, a []any) (any, error) { return vm.World(), nil },
+		// jl_get_backtrace (stackwalk.c:345-361): two empty vectors
+		"jl_get_backtrace": func(vm *VM, a []any) (any, error) { return vm.getBacktrace() },
+		// jl_get_excstack (stackwalk.c:367-398): an empty Vector{Any}
+		"jl_get_excstack": func(vm *VM, a []any) (any, error) { return vm.getExcstack(a) },
 	}
 	vm.bootEqtableShims()
 	vm.bootModuleOptShims()
