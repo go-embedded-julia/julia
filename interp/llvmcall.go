@@ -11,7 +11,8 @@ import (
 // and element type. The interpreter recognizes those templates by their
 // instruction and performs the operation on the value the pointer reaches
 // (an Atomic's field). There is one thread, so every ordering is met. Any
-// other IR still requires the compiler, as julia's interpreter says.
+// other IR still requires the compiler, as julia's interpreter says, except
+// the vector templates of Random's XoshiroSimd.jl (llvmvec.go).
 
 // llvmRMW maps an atomicrmw operation to the intrinsics that compute the
 // new value from the old one and the operand; xchg, nand and the
@@ -22,6 +23,9 @@ var llvmRMW = map[string]string{"add": "add_int", "sub": "sub_int", "and": "and_
 func (vm *VM) llvmcall(args []any) (any, error) {
 	ir, _ := args[0].(string)
 	refuse := func() (any, error) { return nil, vm.errorf("`llvmcall` requires the compiler") }
+	if v, ok := llvmVector(ir, args); ok {
+		return v, nil
+	}
 	if strings.Contains(ir, "fence seq_cst") && !strings.Contains(ir, "%0") {
 		return nil, nil
 	}

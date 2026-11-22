@@ -659,6 +659,9 @@ func (vm *VM) bootShims() {
 			return cbool(q(c)), nil
 		}
 	}
+	for _, n := range []int{4, 8, 16} {
+		vm.shims[expr.Symbol(fmt.Sprintf("llvm.fshl.v%di64", n))] = llvmFshl(n)
+	}
 	vm.shims["jl_get_julia_bindir"] = func(vm *VM, a []any) (any, error) { return vm.BinDir, nil }
 	// jl_alignment (threading.c:1063-1066), jl_gc_alignment on a 64-bit
 	// platform (julia_internal.h:487-494)

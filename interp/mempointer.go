@@ -307,6 +307,9 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 		}
 		return vm.memStoreBytes(fname, m, p.Off+(i-1)*int64(at.Name.Bits/8), x)
 	}
+	if t, isVec := x.(*Tuple); isVec && vm.typeOf(x) == ety && m.Type.Parameters[1] != ety {
+		return vm.memStoreVector(fname, m, p.Off, i, t)
+	}
 	if k, ok := vm.unsetThrough(p, m, x, i); ok {
 		m.Set(k, undef)
 		return nil
@@ -319,6 +322,37 @@ func (vm *VM) ptrStore(fname string, p *Pointer, x any, i int64) error {
 		return err
 	}
 	m.Set(k, x)
+	return nil
+}
+
+// memStoreVector is the store of a vector, an NTuple{n,VecElement{T}}, through
+// a Ptr of that type into a memory of another primitive type (XoshiroSimd.jl
+// stores eight lanes at once into the bytes of a Vector{Float64}): the lanes
+// are laid out one after the other, as the tuple is in memory, element i
+// (1-based) at off + (i-1) * the vector's size.
+func (vm *VM) memStoreVector(fname string, m *Memory, off, i int64, t *Tuple) error {
+	var lanes []any
+	var size int64
+	for _, e := range t.Elems {
+		s, ok := e.(*Struct)
+		if !ok || len(s.Fields) != 1 {
+			return fmt.Errorf("%w: %s of a %s", ErrUnsupported, fname, showValue(vm.typeOf(t)))
+		}
+		_, w, ok := primBits(s.Fields[0])
+		if !ok {
+			return fmt.Errorf("%w: %s of a %s", ErrUnsupported, fname, showValue(vm.typeOf(t)))
+		}
+		lanes = append(lanes, s.Fields[0])
+		size += int64(w / 8)
+	}
+	at := off + (i-1)*size
+	for _, x := range lanes {
+		_, w, _ := primBits(x)
+		if err := vm.memStoreBytes(fname, m, at, x); err != nil {
+			return err
+		}
+		at += int64(w / 8)
+	}
 	return nil
 }
 
