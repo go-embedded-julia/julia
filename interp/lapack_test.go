@@ -599,3 +599,42 @@ func TestLapackLacpyRefusals(t *testing.T) {
 		}
 	}
 }
+
+// An array that is no array is refused as one, not as too short; an empty copy
+// reads and writes nothing, whatever the other dimension and leading dimensions.
+func TestLapackLacpyGuards(t *testing.T) {
+	vm := New()
+	pa, _ := blasArray(vm, []float64{1, 2, 3, 4}, 0)
+	pb, mb := blasArray(vm, []float64{7, 7, 7, 7}, 0)
+	call := func(args ...any) error {
+		_, err := blasShim(vm, "dlacpy_64_")(vm, level3Args(vm, args...))
+		return err
+	}
+	for _, c := range []struct {
+		args []any
+		want string
+	}{
+		{[]any{uint8('A'), int64(2), int64(2), int64(5), int64(2), pb, int64(2), int64(1)}, "a BLAS array"},
+		{[]any{uint8('A'), int64(2), int64(2), pa, int64(2), int64(5), int64(2), int64(1)}, "a BLAS array"},
+		{[]any{uint8('A'), int64(2), int64(2), pa, int64(1), pb, int64(2), int64(1)}, "arrays too short"},
+	} {
+		if err := call(c.args...); !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want a refusal naming %q", c.args[3:], err, c.want)
+		}
+	}
+	for _, c := range [][]any{
+		{uint8('A'), int64(0), int64(3), pa, int64(0), pb, int64(2), int64(1)},
+		{uint8('A'), int64(2), int64(0), pa, int64(2), pb, int64(2), int64(1)},
+		{uint8('A'), int64(-1), int64(3), pa, int64(2), pb, int64(2), int64(1)},
+		{uint8('A'), int64(2), int64(-1), pa, int64(2), pb, int64(2), int64(1)},
+	} {
+		if err := call(c...); err != nil {
+			t.Errorf("an empty copy %v: %v", c[1:3], err)
+		}
+	}
+	for i := 0; i < 4; i++ {
+		if mb.Get(i) != any(7.0) {
+			t.Fatalf("an empty copy wrote B[%d] = %v", i, mb.Get(i))
+		}
+	}
+}
