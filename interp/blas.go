@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/go-blas/blas"
+	"github.com/go-blas/blas/lapack"
 	"github.com/go-embedded-julia/julia/core"
 	"github.com/go-embedded-julia/julia/expr"
 )
@@ -15,7 +16,7 @@ import (
 // reference (Ref{UInt8} flags, Ref{BlasInt} dimensions, Ref{Float64} scalars,
 // Ptr{Float64} arrays) and the hidden Clong string lengths after them. The
 // routines are go-blas/blas', for s and d: gemm, gemv and level 1 (dot, axpy,
-// scal, nrm2, asum, iamax) and level 3 (trsm, trmm, syrk, symm, in blas3.go). The library the trampoline forwards to is named as
+// scal, nrm2, asum, iamax) and level 3 (trsm, trmm, syrk, symm, in blas3.go), and LAPACK's getrf, getrs, potrf and potrs (in lapack.go). The library the trampoline forwards to is named as
 // julia 1.12.6 names OpenBLAS (libopenblas64_), so lbt_forward of its path
 // forwards these.
 //
@@ -46,6 +47,10 @@ type blasOps[T blasFloat] struct {
 	trmm  func(side blas.Side, uplo blas.Uplo, tA blas.Transpose, diag blas.Diag, m, n int, alpha T, a []T, lda int, b []T, ldb int) error
 	syrk  func(uplo blas.Uplo, trans blas.Transpose, n, k int, alpha T, a []T, lda int, beta T, c []T, ldc int) error
 	symm  func(side blas.Side, uplo blas.Uplo, m, n int, alpha T, a []T, lda int, b []T, ldb int, beta T, c []T, ldc int) error
+	getrf func(m, n int, a []T, lda int, ipiv []int) (int, error)
+	getrs func(t blas.Transpose, n, nrhs int, a []T, lda int, ipiv []int, b []T, ldb int) error
+	potrf func(uplo blas.Uplo, n int, a []T, lda int) (int, error)
+	potrs func(uplo blas.Uplo, n, nrhs int, a []T, lda int, b []T, ldb int) error
 }
 
 var blasDouble = blasOps[float64]{
@@ -53,6 +58,7 @@ var blasDouble = blasOps[float64]{
 	gemm: blas.Dgemm, gemv: blas.Dgemv, dot: blas.Ddot, axpy: blas.Daxpy, scal: blas.Dscal,
 	nrm2: blas.Dnrm2, asum: blas.Dasum, iamax: blas.Idamax,
 	trsm: blas.Dtrsm, trmm: blas.Dtrmm, syrk: blas.Dsyrk, symm: blas.Dsymm,
+	getrf: lapack.Dgetrf, getrs: lapack.Dgetrs, potrf: lapack.Dpotrf, potrs: lapack.Dpotrs,
 }
 
 var blasSingle = blasOps[float32]{
@@ -60,6 +66,7 @@ var blasSingle = blasOps[float32]{
 	gemm: blas.Sgemm, gemv: blas.Sgemv, dot: blas.Sdot, axpy: blas.Saxpy, scal: blas.Sscal,
 	nrm2: blas.Snrm2, asum: blas.Sasum, iamax: blas.Isamax,
 	trsm: blas.Strsm, trmm: blas.Strmm, syrk: blas.Ssyrk, symm: blas.Ssymm,
+	getrf: lapack.Sgetrf, getrs: lapack.Sgetrs, potrf: lapack.Spotrf, potrs: lapack.Spotrs,
 }
 
 // blasRegion is an array argument: the memory a pointer points into, the
@@ -500,5 +507,7 @@ func (vm *VM) bootBLAS() {
 	registerBlas(fns, "s", &blasSingle)
 	registerBlas3(fns, "d", &blasDouble)
 	registerBlas3(fns, "s", &blasSingle)
+	registerLapack(fns, "d", &blasDouble)
+	registerLapack(fns, "s", &blasSingle)
 	vm.libShims[openblasLib] = fns
 }
