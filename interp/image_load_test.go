@@ -177,8 +177,26 @@ func TestImageLoadRefusals(t *testing.T) {
 		{"no magic", flip(good, 0), ErrImageCorrupt},
 		{"another version", flip(good, len(imageMagic)), ErrImageKey},
 		{"another key", flip(good, len(imageMagic)+4+3), ErrImageKey},
-		{"a damaged byte", flip(good, header+len(good)/3), ErrImageChecksum},
 		{"a damaged trailer", flip(good, len(good)-1), ErrImageChecksum},
+	}
+	// a damaged byte inside the image: found by the checksum, unless it lands
+	// on a length the loader reads first (then the image is truncated or
+	// corrupt, never accepted). Which offset is a length depends on the image's
+	// layout, which every field added to the VM moves, so the offsets run on
+	// until one is plain data.
+	sawChecksum := false
+	for k := 0; k < 64 && !sawChecksum; k++ {
+		_, err := LoadImage(bytes.NewReader(flip(good, header+len(good)/3+k)), LoadOptions{})
+		switch {
+		case errors.Is(err, ErrImageChecksum):
+			sawChecksum = true
+		case errors.Is(err, ErrImageTruncated), errors.Is(err, ErrImageCorrupt):
+		default:
+			t.Errorf("a damaged byte at +%d: %v", k, err)
+		}
+	}
+	if !sawChecksum {
+		t.Error("no damaged byte in 64 reached the checksum")
 	}
 	for _, c := range cases {
 		_, err := LoadImage(bytes.NewReader(c.img), LoadOptions{})

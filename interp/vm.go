@@ -243,6 +243,10 @@ type VM struct {
 	// methodTable is Core.methodtable, julia's one method table; the VM
 	// keeps methods in per-function tables (methodTableOf)
 	methodTable *Struct
+	// staged are the bodies the generators made, one per method and
+	// signature (staged.go): not saved, a generator is pure and runs again
+	stagedMu sync.Mutex
+	staged   map[stagedKey]*lambda
 	// irTags are the compressed IR's tag tables (ircode.go), made on first
 	// use
 	irTags *irTables

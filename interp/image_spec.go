@@ -51,6 +51,10 @@ var imageRoots = map[string]bool{
 	// reflect.go:160 and nowhere else: a loader rebuilds it from reflected
 	"reflectedOf": false,
 
+	// staged is the generators' bodies (staged.go): pure functions of the
+	// method and the signature, made again on the first call after a load
+	"staged": false, "stagedMu": false,
+
 	// host fields, never saved; bootIdx is the boot enumeration (imageboot.go)
 	"shims": false, "libShims": false, "libCglobals": false, "dynLibs": false, "lbt": false,
 	"mpfr": false, "deferSignal": false, "finalizerRNG": false, "ptlsRng": false, "vfs": false,

@@ -562,6 +562,15 @@ type lambda struct {
 	line int32
 	// sig is the method's signature, the UnionAlls of its static parameters
 	sig any
+	// gen is the method's generator, the Core.GeneratedFunctionStub its
+	// `(meta generated stub)` statement made (Method.generator, method.c:936-
+	// 944), nil for an ordinary method. genOnly is `(meta generated_only)`,
+	// the body of a plain @generated function: no source but the generator's
+	// (method.c:945-948), so a call stages its body (staged.go). A method with
+	// a generator and a source, `if @generated … else … end`, runs the source,
+	// as julia's interpreter does (interpreter.c:721-734).
+	gen     any
+	genOnly bool
 }
 
 // definitionEffects is jl_resolve_definition_effects_in_ir
@@ -782,6 +791,9 @@ func (f *frame) methodDef(s sMethodDef) error {
 		_, isva = last.(*core.Vararg)
 	}
 	lam := &lambda{c: c, nargs: len(argtypes), isva: isva, mod: f.mod, sig: sig}
+	if lam.gen, lam.genOnly, err = vm.methodGenerator(f.mod, src); err != nil {
+		return err
+	}
 	if len(parts) > 2 {
 		lam.file, lam.line = functionLoc(parts[2])
 	}
@@ -914,6 +926,9 @@ func (vm *VM) callMethodB(m *dispatch.Method, env []any, self any, args []any, b
 		}
 		return body.fn(vm, args)
 	case *lambda:
+		if body.genOnly {
+			return vm.callStaged(m, body, self, args, env)
+		}
 		return vm.callLambda(body, self, args, env)
 	}
 	return nil, fmt.Errorf("%w: a method without a body", ErrUnsupported)
