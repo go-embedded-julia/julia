@@ -175,8 +175,10 @@ end`); err == nil || !strings.Contains(err.Error(), "undefined_stub_name") {
 end`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Eval(`boom(1)`); err == nil {
-		t.Error("a generator that throws did not make the call throw")
+	// the generator's own error reaches the caller, not a complaint about
+	// what it returned
+	if _, err := s.Eval(`boom(1)`); err == nil || strings.Contains(err.Error(), "CodeInfo") {
+		t.Errorf("a generator that throws: %v", err)
 	}
 	// a body that is not a pure expression is the front end's error
 	if _, err := s.Eval(`function impure(x)
