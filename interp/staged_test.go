@@ -136,6 +136,51 @@ end`); err != nil {
 	}
 }
 
+// The table holds stagedMax bodies: a signature past the bound is refused a
+// slot, its generator runs again at each call, and the kept ones are not
+// disturbed. The bound is driven through the variable, one entry past it.
+func TestStagedBoundRefusesTheOnePastIt(t *testing.T) {
+	vm, s := stagedSession(t)
+	defer func(n int) { stagedMax = n }(stagedMax)
+	stagedMax = 2
+	if _, err := s.Eval(`function d(x)
+    if @generated
+        Core.setfield!(runs, :contents, add_int(getfield(runs, :contents), 1))
+        :(x)
+    else
+        @gonly
+        return nothing
+    end
+end`); err != nil {
+		t.Fatal(err)
+	}
+	runs := func() string {
+		v, err := s.Eval(`getfield(runs, :contents)`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return showValue(v)
+	}
+	// stagedMax signatures, each called twice: each runs its generator once
+	for _, call := range []string{`d(1)`, `d(1.0)`, `d(1)`, `d(1.0)`} {
+		if _, err := s.Eval(call); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := runs(); got != "2" || len(vm.staged) != stagedMax {
+		t.Fatalf("%s runs, %d kept: want 2 runs and %d kept", got, len(vm.staged), stagedMax)
+	}
+	// one past the bound: kept nowhere, so each call runs the generator again
+	for _, call := range []string{`d(true)`, `d(true)`, `d(1)`} {
+		if _, err := s.Eval(call); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := runs(); got != "4" || len(vm.staged) != stagedMax {
+		t.Errorf("%s runs, %d kept: want 4 runs (the refused signature twice, the kept one not again) and %d kept", got, len(vm.staged), stagedMax)
+	}
+}
+
 func TestStagedGeneratorErrors(t *testing.T) {
 	_, s := stagedSession(t)
 	if _, err := s.Eval(`function bad(x)
