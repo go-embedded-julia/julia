@@ -136,10 +136,8 @@ func llvmVector(ir string, args []any) (any, bool) {
 		}
 		return x >> uint64(k), true
 	}
-	tp, ok := llvmVecTemplates[ir]
-	if !ok {
-		return nil, false
-	}
+	// an unknown ir is the zero template: no operation, so the switch refuses it
+	tp := llvmVecTemplates[ir]
 	x, ok := vecLanes(argAt(args, 3), tp.lanes)
 	if !ok {
 		return nil, false

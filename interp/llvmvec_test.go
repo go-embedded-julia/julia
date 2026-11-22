@@ -149,6 +149,7 @@ func TestLlvmVectorRefusals(t *testing.T) {
 		{"a lane that is not a struct", f64, []any{f64, rt, at, badLanes(uint64(1))}},
 		{"a lane struct of two fields", f64, []any{f64, rt, at, badLanes(&Struct{Type: elem.Type, Fields: []any{uint64(1), uint64(2)}})}},
 		{"a lane that is not a UInt64", f64, []any{f64, rt, at, badLanes(&Struct{Type: elem.Type, Fields: []any{int64(1)}})}},
+		{"a bad operand and a return type of no lanes", f64, []any{f64, core.EmptyTupleType, at, int64(3)}},
 		{"a unary template with an operand too many", f64, []any{f64, rt, at, good, good}},
 		{"a binary template with one operand", add, []any{add, rt, at, good}},
 		{"a binary template with a scalar", add, []any{add, rt, at, good, int64(1)}},
@@ -258,6 +259,18 @@ func TestVectorStoreIntoMemory(t *testing.T) {
 	if err := vm.ptrStore("pointerset", p, vec, 5); err == nil {
 		t.Error("a store past the end succeeded")
 	}
+	// a refused store writes nothing: the memory is what it was
+	before := make([]any, 16)
+	for i := range before {
+		before[i] = mem.Get(i)
+	}
+	defer func() {
+		for i := range before {
+			if got := mem.Get(i); got != before[i] {
+				t.Errorf("a refused store changed element %d: %v, was %v", i, got, before[i])
+			}
+		}
+	}()
 	// lanes that are not primitive
 	elem := vec.(*Tuple).Elems[0].(*Struct)
 	nested := &Tuple{Type: types[4], Elems: []any{elem, elem, elem, &Struct{Type: elem.Type, Fields: []any{"x"}}}}
