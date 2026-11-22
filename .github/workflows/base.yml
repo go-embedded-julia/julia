@@ -96,7 +96,7 @@ jobs:
           cd interp
           start=$(date +%s)
           failed=""
-          for t in TestKernelBase TestKernelValuesBase TestMethodErrorText TestNativesAgainstTheJuliaBodies TestUtf8procBase TestFrameSafetyOnBase TestBLASOnBase TestEgalFloatsOnBase TestKernelResetBase TestRandSIMDOnBase TestKernelResetRNG TestKernelResetReload TestKernelResetStopsTasks; do
+          for t in TestKernelBase TestKernelValuesBase TestMethodErrorText TestNativesAgainstTheJuliaBodies TestUtf8procBase TestFrameSafetyOnBase TestBLASOnBase TestLapackOnBase TestEgalFloatsOnBase TestKernelResetBase TestRandSIMDOnBase TestKernelResetRNG TestKernelResetReload TestKernelResetStopsTasks; do
             if ! "$PWD/../interp.test" -test.list "^${t}\$" | grep -qx "$t"; then
               echo "::notice::$t is not in this tree"
               continue
