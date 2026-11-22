@@ -30,6 +30,15 @@ func toSx(v any) any {
 		for i, a := range x.Args {
 			out[i+1] = toSx(a)
 		}
+		if x.Head == "lambda" && len(x.Args) > 0 {
+			if names, ok := x.Args[0].(expr.Vector); ok { // ast.c:794-800: a lambda's argument array is a list
+				params := make([]any, len(names))
+				for i, n := range names {
+					params[i] = toSx(n)
+				}
+				out[1] = params
+			}
+		}
 		return out
 	case expr.LineNumberNode:
 		return list(sLine, toSx(int64(x.Line)), toSx(x.File))

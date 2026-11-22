@@ -146,6 +146,9 @@ func (vm *VM) methodObject(tab *dispatch.Table, m *dispatch.Method, ft any, name
 	f[27], f[28], f[29], f[30], f[31], f[32] = false, false, uint8(0), uint8(0), uint8(0xff), uint16(0)
 	if lam, ok := m.Def.(*lambda); ok {
 		f[1], f[2], f[3] = lam.mod, lam.file, lam.line
+		if lam.gen != nil {
+			f[15] = lam.gen
+		}
 		src := lam.c.src
 		f[10] = compressArgnames(src.SlotNames)
 		// the source jl_method_set_source keeps (method.c:959-976): its

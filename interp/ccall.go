@@ -496,6 +496,7 @@ func (vm *VM) bootShims() {
 		"jl_matching_methods":          func(vm *VM, a []any) (any, error) { return vm.matchingMethods(a) },
 		"jl_compile_hint":              func(vm *VM, a []any) (any, error) { return vm.compileHint(a) },
 		"jl_macroexpand":               func(vm *VM, a []any) (any, error) { return vm.jlMacroexpand(a) },
+		"jl_expand":                    func(vm *VM, a []any) (any, error) { return vm.jlExpand(a) },
 		"jl_init_restored_module":      func(vm *VM, a []any) (any, error) { return vm.initRestoredModule(a) },
 		"jl_specializations_get_linfo": func(vm *VM, a []any) (any, error) { return vm.specializationsGetLinfo(a) },
 		"jl_specializations_lookup":    func(vm *VM, a []any) (any, error) { return vm.specializationsLookup(a) },
